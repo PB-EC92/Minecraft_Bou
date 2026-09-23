@@ -92,8 +92,20 @@ J0.1, une session courte, avant tes tests : constats 1 à 4 et 6-7, test de fum�
 | 16 | Corrigé | `touchcancel` géré sur Sauter | Relecture |
 | 17 | Corrigé | `@types/node` en v22 ; `tsconfig.json` (jeu, sans types Node) et `tsconfig.node.json` (tests) | `npm run typecheck` |
 | 18 | Corrigé | 40 tests unitaires (12 avant) ; 12 tests de fumée (6 avant), dont casser/poser à la souris, au doigt et en mode repli | `npm test`, `npm run test:e2e` |
-| 9, 10, 12-15 | Reporté | Selon les jalons indiqués dans le tableau des constats | — |
+| 9, 10, 12-15 | Reporté | Selon les jalons indiqués dans le tableau des constats (traités au J1, voir ci-dessous) | — |
 | D1-D3 | Corrigé | `PLAN.md` (Node ≥ 22.12, taille mesurée), `RETOURS.md` (ligne corrigée, protocole J0.1 enrichi) | Relecture |
 | D4 | Corrigé | `PLAN.md` et `README.md` : transfert par câble, carte ou cloud personnel | Relecture |
-| D5 | À faire par Pierre | Supprimer `Claude outputs\cubes.html` (je ne peux pas supprimer de fichiers d'ici) | — |
+| D5 | Fait par Pierre | `Claude outputs\cubes.html` supprimé | Dossier vide constaté le 23/09/2026 |
 | Git | Fait, à publier | Dépôt git avec historique, livré dans `cubes.git.bundle` ; à pousser par Pierre vers `PB-EC92/Minecraft_Bou` (la session Cowork ne peut ni créer ni rattacher un dépôt) | `git bundle verify`, clone de contrôle |
+
+## Suivi des corrections (J1, 23 septembre 2026)
+
+| # | État | Ce qui a été fait | Vérification |
+|---|---|---|---|
+| 9 | Corrigé | Montée automatique des marches d'un bloc (et d'une berge jusqu'à deux blocs dans l'eau), caméra lissée ; réglable (`Player.autoStep`) pour le mode parent | Tests unitaires : marche montée, mur de deux blocs infranchissable, caméra sans à-coup, désactivation |
+| 10 | Corrigé | Rendu par sections de 16³ : seule la section touchée (et ses voisines si le bloc est sur une frontière) est remaillée ; file par distance avec budget de temps par image | Tests unitaires (1 section remaillée à l'intérieur, 2 sur une frontière). Serveur cloud : monde entier 60 à 200 ms, une section < 1 ms en général (5,6 ms au pire, premier passage). Tablette : à mesurer |
+| 11 | Corrigé | Perte du contexte 3D : rendu suspendu, message, reprise à la restauration ; ligne « Contexte 3D » au diagnostic | Test de fumée (perte et restauration forcées, image redessinée). Sur Android réel : à confirmer (protocole J1) |
+| 12 | En partie | Seuil du tapotement porté de 300 à 450 ms (aligné sur le clic souris) ; il faisait aussi échouer par intermittence un test de fumée sous charge (cause probable : délai d'exécution, 8 passages sur 8 après correction) | Appui long pour casser : J2-J3 |
+| 13 | Corrigé | Facteurs d'ombrage convertis en couleur linéaire ; occlusion ambiante par sommet | Test unitaire (valeurs converties) ; captures d'écran |
+| 14 | Corrigé | Retrait des UV ramené à 1/50 de texel ; atlas en grille 8 × 4 | Test unitaire |
+| 15 | Corrigé | Bloc feuilles dédié (arbres générés et arbre du monde plat) | Test unitaire, captures |

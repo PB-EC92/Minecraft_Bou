@@ -2,7 +2,46 @@
 
 Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, ce qui a coincé, et les idées. Les enfants ont toujours raison sur ce qui est amusant ou frustrant.
 
-## Protocole J0.1 (à faire par Pierre avant la suite)
+## Protocole J1 (à faire par Pierre)
+
+Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J1 ». Le panneau **Tests** (en haut à droite) contient maintenant : Monde (type, graine, « Nouveau monde »), Heure, Distance de rendu, Voix, Diagnostic. La priorité est la **tablette** : c'est elle qui fixera la distance de rendu et la taille du monde. « — » = sans objet.
+
+| Vérification | PC (Chrome) | Tablette Android |
+|---|---|---|
+| Le fichier s'ouvre ; l'écran « Construction du monde… » disparaît (noter en combien de secondes, à peu près) | | |
+| Au départ on est au sol, à ciel ouvert, dans une prairie (4ᵉ ligne des infos : « prairie · graine … ») | | |
+| Images par seconde après 10 s sans bouger (noter « moy. », « pire » et « calcul ») | | |
+| Même mesure en marchant 20 s dans le monde | | |
+| Panneau → Distance de rendu : noter les images par seconde à 48, 96 et 128 blocs | | |
+| Panneau → Monde : essayer île, montagne, désert (« Nouveau monde ») : chacun s'affiche, on apparaît au sol | | |
+| Marcher contre une marche d'un bloc : on monte sans sauter ; un mur de deux blocs arrête | | |
+| Entrer dans l'eau : on flotte ; en avançant vers la berge, on ressort | | |
+| Sous l'eau (Maj sur PC pour plonger) : l'image devient bleue ; en relâchant, on remonte | | — |
+| Panneau → Heure → Nuit : ciel sombre, étoiles, on voit encore le sol ; « Temps ×20 » : le soleil se couche puis se lève | | |
+| Casser, poser, cueillir une fleur (on vise la fleur) | | |
+| Souris : après quelques captures et des gestes très rapides, noter la ligne « Pointer Lock » du diagnostic (écartés… après capture, … trop grands, plus grand reçu … px) ; le regard « colle »-t-il parfois ? | | — |
+| Passer à une autre appli (ou verrouiller l'écran) 30 s puis revenir : le monde s'affiche toujours (ligne « Contexte 3D » du diagnostic) | — | |
+| Diagnostic : « Stockage local : ok » | | |
+
+Copier le bloc « Diagnostic » de chaque appareil dans la séance ci-dessous (une capture d'écran convient aussi). Si les enfants essaient : quel type de monde préfèrent-ils, qu'est-ce qui les amuse, qu'est-ce qui les gêne ?
+
+## Séance du … — J1
+
+Appareil :
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Diagnostic (copié depuis le panneau) :
+
+```
+```
+
+Idées :
+
+## Protocole J0.1 (fait par Pierre le 23/09/2026 sur PC, Chrome)
 
 Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J0.1 », sinon c'est une ancienne copie du fichier. Ouvrir `dist/cubes.html` et, pour chaque appareil, remplir le tableau (le bouton « Tests J0 », en haut à droite, ouvre le panneau voix + diagnostic). « — » = sans objet.
 

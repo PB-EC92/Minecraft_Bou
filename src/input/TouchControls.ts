@@ -1,3 +1,5 @@
+import { CLICK_MAX_MS } from "./mouseFilter";
+
 export type TouchMode = "break" | "place";
 
 /**
@@ -183,7 +185,9 @@ export class TouchControls {
         this.joystick.classList.remove("active");
       } else if (t.identifier === this.lookTouchId) {
         this.lookTouchId = null;
-        const quick = performance.now() - this.lookStartTime < 300;
+        // Seuil aligné sur le clic souris (450 ms) : un enfant de 6 ans tapote plus lentement
+        // qu'un adulte (constat 12 de l'audit J0 ; l'appui long pour casser viendra au J2-J3).
+        const quick = performance.now() - this.lookStartTime < CLICK_MAX_MS;
         if (quick && !this.lookMoved) {
           for (const h of this.actionHandlers) h(this.mode);
         }

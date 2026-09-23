@@ -37,3 +37,20 @@ describe("raycast", () => {
     expect(hit!.y).toBe(3);
   });
 });
+
+describe("raycast à travers l'eau, sur les fleurs (J1)", () => {
+  it("traverse l'eau et touche le fond", () => {
+    const w = World.createFlat(8, 12, 8, 4);
+    w.set(4, 4, 4, BlockId.Water);
+    w.set(4, 5, 4, BlockId.Water);
+    const hit = raycast(w, { x: 4.5, y: 8, z: 4.5 }, { x: 0, y: -1, z: 0 }, 10);
+    expect(hit).toMatchObject({ x: 4, y: 3, z: 4, ny: 1 });
+  });
+
+  it("vise une fleur pour la cueillir", () => {
+    const w = World.createFlat(8, 12, 8, 4);
+    w.set(4, 4, 4, BlockId.FlowerRed);
+    const hit = raycast(w, { x: 4.5, y: 7, z: 4.5 }, { x: 0, y: -1, z: 0 }, 10);
+    expect(hit).toMatchObject({ x: 4, y: 4, z: 4 });
+  });
+});

@@ -216,9 +216,49 @@ canvas.game {
   border: 0;
   padding: 6px;
 }
-.panel select {
+.panel select,
+.panel input {
   max-width: 100%;
   font: inherit;
+  border-radius: 8px;
+  border: 0;
+  padding: 6px 8px;
+}
+.panel input {
+  width: 11em;
+}
+.btn.on {
+  background: rgba(255, 210, 63, 0.85);
+  color: #222;
+}
+
+/* ---------- Chargement, sous l'eau ---------- */
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(40, 70, 110, 0.55);
+}
+.loading.visible {
+  display: flex;
+}
+.loading-text {
+  padding: 14px 22px;
+  background: var(--ui-bg);
+  border-radius: var(--ui-radius);
+  font-size: clamp(18px, 3vw, 28px);
+}
+.underwater {
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 90, 170, 0.28);
+  display: none;
+}
+.underwater.visible {
+  display: block;
 }
 
 /* ---------- Écran d'erreur ---------- */

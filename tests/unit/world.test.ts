@@ -78,3 +78,58 @@ describe("point d'apparition (audit J0, constat 3)", () => {
     expect(w.findStandingY(-1, 1)).toBeNull();
   });
 });
+
+describe("sections de rendu (constat 10 de l'audit J0)", () => {
+  it("découpe le monde en sections de 16³", () => {
+    const w = new World(128, 64, 128);
+    expect([w.sectionsX, w.sectionsY, w.sectionsZ]).toEqual([8, 4, 8]);
+    expect(w.sectionCount).toBe(256);
+  });
+
+  it("une modification à l'intérieur d'une section ne touche qu'elle", () => {
+    const w = new World(48, 48, 48);
+    w.set(20, 20, 20, BlockId.Stone); // section (1, 1, 1), loin des frontières
+    let touched = 0;
+    for (let sy = 0; sy < 3; sy++) for (let sz = 0; sz < 3; sz++) for (let sx = 0; sx < 3; sx++) if (w.sectionVersion(sx, sy, sz) > 0) touched++;
+    expect(touched).toBe(1);
+    expect(w.sectionVersion(1, 1, 1)).toBe(1);
+  });
+
+  it("une modification sur une frontière touche aussi les voisines, coins compris", () => {
+    const w = new World(48, 48, 48);
+    w.set(16, 20, 20, BlockId.Stone); // face x = 16 : sections x 0 et 1
+    expect(w.sectionVersion(1, 1, 1)).toBe(1);
+    expect(w.sectionVersion(0, 1, 1)).toBe(1);
+    expect(w.sectionVersion(2, 1, 1)).toBe(0);
+    w.set(31, 31, 31, BlockId.Stone); // coin de la section (1, 1, 1) : 8 sections
+    let touched = 0;
+    for (let sy = 1; sy <= 2; sy++) for (let sz = 1; sz <= 2; sz++) for (let sx = 1; sx <= 2; sx++) if (w.sectionVersion(sx, sy, sz) > 0) touched++;
+    expect(touched).toBe(8);
+  });
+
+  it("une écriture sans changement ne touche rien", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    w.set(5, 1, 5, BlockId.Dirt); // déjà de la terre
+    expect(w.sectionVersion(0, 0, 0)).toBe(0);
+  });
+});
+
+describe("eau et plantes (J1)", () => {
+  it("on ne peut pas se tenir au fond de l'eau ; une fleur ne gêne pas", () => {
+    const w = World.createFlat(8, 12, 8, 4);
+    w.set(2, 4, 2, BlockId.Water);
+    w.set(2, 5, 2, BlockId.Water);
+    expect(w.findStandingY(2, 2)).toBeNull(); // on y nage, on ne s'y tient pas
+    w.set(4, 4, 4, BlockId.FlowerRed);
+    expect(w.findStandingY(4, 4)).toBe(4);
+  });
+
+  it("la visée voit les fleurs, pas l'eau", () => {
+    const w = World.createFlat(8, 12, 8, 4);
+    w.set(2, 4, 2, BlockId.Water);
+    w.set(3, 4, 3, BlockId.FlowerYellow);
+    expect(w.isTargetable(2, 4, 2)).toBe(false);
+    expect(w.isTargetable(3, 4, 3)).toBe(true);
+    expect(w.isSolid(3, 4, 3)).toBe(false);
+  });
+});

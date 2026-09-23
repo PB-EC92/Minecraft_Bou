@@ -20,8 +20,8 @@ TypeScript plutôt que JavaScript : le code sera en grande partie écrit par Cla
 Minecraft/
   docs/              BRIEF.md, PLAN.md, RETOURS.md
   src/
-    engine/          monde, chunks, génération de terrain, maillage, physique, raycast
-    render/          scène Three.js, atlas de textures procédurales, ciel jour/nuit
+    engine/          monde, sections, génération de terrain, jour/nuit, physique, raycast
+    render/          scène Three.js, maillage par section, atlas de textures procédurales, ciel
     input/           clavier + souris (Pointer Lock), tactile (joystick, regard, boutons)
     game/            joueur, inventaire, registre des blocs, créatures, lampe, clôture
     edu/             profils, moteur de missions, compagnon, dialogues, synthèse vocale
@@ -38,17 +38,17 @@ Minecraft/
 
 ### Choix clés
 
-Monde : 128 × 128 blocs, hauteur 64, découpé en chunks de 16 × 16 × 64 (64 chunks). Chaque chunk est un `Uint8Array` d'identifiants de blocs, soit environ 1 Mo pour tout le monde.
+Monde : 128 × 128 blocs, hauteur 64 (réalisé au J1). Les blocs sont rangés dans un seul `Uint8Array` (1 Mo), plus simple que des tableaux par chunk pour un monde borné ; le découpage sert au rendu : 256 sections de 16 × 16 × 16, chacune avec un numéro de version. Bords du monde : murs invisibles ; au-delà, une mer s'étend jusqu'à l'horizon.
 
-Maillage : par chunk, seules les faces visibles (voisin transparent ou vide) sont générées ; un mesh opaque et un mesh transparent par chunk ; reconstruction du seul chunk modifié (et de ses voisins en bordure) à chaque pose ou casse. Suffisant à cette taille ; le greedy meshing est gardé en réserve si la tablette peine.
+Maillage : par section, seules les faces visibles (voisin non opaque) sont générées, avec une occlusion ambiante par sommet ; trois meshs par section (opaque, découpe pour les fleurs, eau) ; remaillage de la seule section modifiée (et de ses voisines si le bloc est sur une frontière), les sections en attente étant traitées de la plus proche à la plus lointaine dans un budget de temps par image. Le greedy meshing reste en réserve si la tablette peine.
 
 Textures : atlas de tuiles 16 × 16 px dessinées par code sur un canvas au démarrage. Zéro image externe, style pixel-art original, aucun emprunt à Minecraft.
 
-Génération : bruit simplex avec graine ; relief doux, herbe, terre, pierre, sable, lacs, arbres, fleurs. Graine fixée par profil pour que chaque enfant retrouve « son » monde.
+Génération : bruit de gradient 2D à graine (réalisé au J1, type Perlin) ; quatre types de monde (prairie, île, montagne, désert) avec herbe, terre, pierre, sable, neige, eau, arbres, fleurs, cactus. Même type et même graine donnent le même monde ; graine fixée par profil pour que chaque enfant retrouve « son » monde (J4).
 
-Physique : boîte du joueur contre les blocs (AABB), gravité, saut, aucun dégât de chute, flottaison simple dans l'eau.
+Physique : boîte du joueur contre les blocs (AABB), gravité, saut, aucun dégât de chute ; au J1, montée automatique des marches d'un bloc, et dans l'eau on flotte (nager vers le haut, plonger), sans noyade.
 
-Blocs V1 (une douzaine) : herbe, terre, pierre, sable, tronc, planches, feuilles, verre, eau, lampe, clôture, fleur ; le bloc-lettre est prévu dans le registre pour la V2 sans être exposé en V1.
+Blocs V1 (une quinzaine) : herbe, terre, pierre, sable, tronc, planches, feuilles, verre, eau, lampe, clôture, fleurs, plus neige et cactus pour les types de monde (J1) ; le bloc-lettre est prévu dans le registre pour la V2 sans être exposé en V1.
 
 Contrôles clavier : touches repérées par position physique (`KeyboardEvent.code`), ce qui donne ZQSD en AZERTY et WASD en QWERTY sans aucun réglage. Regard à la souris via Pointer Lock.
 
@@ -56,17 +56,17 @@ Tactile : moitié gauche de l'écran = joystick virtuel ; moitié droite = gliss
 
 Audio : sons synthétisés par Web Audio (aucun fichier). Voix : `speechSynthesis` avec une voix fr-FR ; repli texte + icônes + sons si aucune voix française n'est disponible.
 
-Jour/nuit : cycle court (ordre de grandeur 8 minutes de jour, 3 de nuit), durée réglable en mode parent.
+Jour/nuit : cycle de 12 minutes au J1 (9 de jour, 3 de nuit), nuit jamais noire ; durée réglable en mode parent (J4).
 
 Créatures : machine à états simple. Le jour elles errent loin du joueur ; la nuit elles s'approchent, chipent un bloc de l'inventaire au contact, fuient à quelques blocs d'une lampe et ne franchissent pas les clôtures.
 
-Sauvegarde : `localStorage` par profil (chunks compressés par plages puis encodés en base64, inventaire, position, progression) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, le stockage local est partagé entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`.
+Sauvegarde : `localStorage` par profil (blocs du monde compressés par plages puis encodés en base64, inventaire, position, progression) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, le stockage local est partagé entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`.
 
 Missions : données déclaratives (étapes, conditions observées sur l'état du jeu, textes en deux variantes débutant/autonome, récompense). Le moteur observe le jeu et fait avancer la mission ; le compagnon porte les dialogues.
 
 Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil.
 
-Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
+Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, 580 ko au J1, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
 
 ### Ce qu'impose le fichier local (`file://`)
 
@@ -101,6 +101,8 @@ Porte de décision à la fin du J0 : Pointer Lock fonctionnel ou repli ; voix fr
 ### J1 — Monde
 
 Chunks, maillage avec suppression des faces cachées, génération de terrain à graine, atlas de textures procédurales, éclairage jour/nuit (couleur du ciel, intensité), eau, arbres et fleurs. Physique du joueur. Mesure des performances et réglage de la distance de rendu.
+
+État : livré le 23/09/2026 (voir `JOURNAL.md`), tablette non encore testée.
 
 Le générateur accepte dès J1 un type de monde (prairie, île, montagne, désert) ; le choix par l'enfant arrive avec l'écran d'accueil au J4. Diagnostic affiné à la suite des retours J0.1 : temps de calcul par image hors attente de l'écran (la marge réelle, masquée par le plafond de 60 images/s), et compteurs de mouvements souris écartés séparés (après capture / trop grand).
 

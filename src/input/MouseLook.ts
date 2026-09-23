@@ -1,4 +1,4 @@
-import { acceptMouseDelta, isClick, LOCK_SETTLE_MS } from "./mouseFilter";
+import { classifyMouseDelta, isClick, LOCK_SETTLE_MS } from "./mouseFilter";
 
 export type MouseAction = "break" | "place";
 
@@ -20,8 +20,17 @@ export class MouseLook {
   readonly supported: boolean;
   /** Dernier message d'erreur de Pointer Lock (diagnostic). */
   lastError = "";
-  /** Nombre de mouvements écartés par le filtre (diagnostic). */
-  rejectedMoves = 0;
+  /** Mouvements écartés par le filtre (diagnostic) : juste après une capture, ou trop grands. */
+  rejectedSettle = 0;
+  rejectedLarge = 0;
+  /** Plus grand déplacement reçu en un événement, souris capturée (px, diagnostic). */
+  maxDelta = 0;
+  /** Nombre de captures réussies (diagnostic). */
+  locks = 0;
+
+  get rejectedMoves(): number {
+    return this.rejectedSettle + this.rejectedLarge;
+  }
 
   private lockFailed = false;
   private ignoreUntil = 0;
@@ -75,8 +84,11 @@ export class MouseLook {
 
     window.addEventListener("mousemove", (e) => {
       if (this.locked) {
-        if (!acceptMouseDelta(e.movementX, e.movementY, performance.now(), this.ignoreUntil)) {
-          this.rejectedMoves++;
+        const verdict = classifyMouseDelta(e.movementX, e.movementY, performance.now(), this.ignoreUntil);
+        if (verdict !== "invalid") this.maxDelta = Math.max(this.maxDelta, Math.abs(e.movementX), Math.abs(e.movementY));
+        if (verdict !== "ok") {
+          if (verdict === "large") this.rejectedLarge++;
+          else this.rejectedSettle++;
           return;
         }
         this.yawDelta -= e.movementX * this.sensitivity;
@@ -96,6 +108,7 @@ export class MouseLook {
       this.locked = document.pointerLockElement === canvas;
       if (this.locked) {
         this.lockFailed = false;
+        this.locks++;
         this.ignoreUntil = performance.now() + LOCK_SETTLE_MS;
         this.dragging = false; // le clic qui a servi à capturer n'est pas une action
       }

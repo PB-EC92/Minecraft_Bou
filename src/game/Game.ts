@@ -1,35 +1,49 @@
-import { BlockId, HOTBAR_BLOCKS } from "../engine/blocks";
+import { BlockId, HOTBAR_BLOCKS, isPlantId } from "../engine/blocks";
+import { DAY_CYCLE_MS, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
-import { World } from "../engine/World";
+import { generateWorld, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
+import type { World } from "../engine/World";
 import { Speech } from "../edu/speech";
 import { Keyboard } from "../input/Keyboard";
+import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
 import { TouchControls } from "../input/TouchControls";
 import { SceneView } from "../render/SceneView";
 import { showFatalError } from "../ui/fatal";
-import { Hud } from "../ui/Hud";
+import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
+import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-const WORLD_SIZE = 32;
-const WORLD_HEIGHT = 16;
-const GROUND = 4;
-export const VERSION = "J0.1";
+export const VERSION = "J1";
+/** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
+const LOADING_RADIUS = 40;
+/** Budget de maillage par image (ms) : large pendant le chargement, réduit ensuite. */
+const MESH_BUDGET_LOADING_MS = 14;
+const MESH_BUDGET_MS = 5;
+const FAST_TIME = 20;
 
 const HINT_TOUCH = "Doigt gauche : bouger · doigt droit : regarder · tapoter : agir";
 const HINT_MOUSE =
-  "Clique pour capturer la souris · ZQSD bouger · Espace sauter\nClic gauche casser · clic droit poser · 1-6 choisir un bloc · Échap libérer";
+  "Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\nClic gauche casser · clic droit poser · 1-9 choisir un bloc · Échap libérer";
 const HINT_MOUSE_FALLBACK =
-  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter\nClic bref gauche casser · clic bref droit poser · 1-6 choisir un bloc";
+  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\nClic bref gauche casser · clic bref droit poser · 1-9 choisir un bloc";
+
+interface PixelRequest {
+  fx: number;
+  fy: number;
+  resolve: (rgba: number[]) => void;
+}
 
 /**
  * Assemble tout : monde, rendu, joueur, entrées, HUD, boucle de jeu.
- * J0 : un seul monde plat, pas de sauvegarde, pas de missions.
+ * J1 : monde généré par type et graine, jour/nuit, eau. Pas encore de
+ * sauvegarde (J4) ni de missions (J5).
  */
 export class Game {
-  readonly world: World;
-  readonly player: Player;
+  world: World;
+  player: Player;
   readonly view: SceneView;
   readonly hud: Hud;
   readonly keyboard: Keyboard;
@@ -42,25 +56,38 @@ export class Game {
   private touchUi: boolean;
   private stopped = false;
 
+  private gen: GeneratedWorld;
   private selectedSlot = 0;
   private target: RayHit | null = null;
   private lastTime = performance.now();
   private frameTimes: number[] = [];
-  private faces = 0;
+  private cpuTimes: number[] = [];
   private storageOk = "?";
+  /** Phase du cycle jour/nuit en temps réel [0, 1). */
+  private phase = phaseForHour(8);
+  private timeScale = 1;
+  private sky: SkyState = skyState(solarTime(this.phase));
+  private nearSections = 1;
+  private loading = true;
+  private renderCalls = 0;
+  private renderTriangles = 0;
+  private readonly pixelRequests: PixelRequest[] = [];
 
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
 
-    this.world = World.createFlat(WORLD_SIZE, WORLD_HEIGHT, WORLD_SIZE, GROUND);
-    this.buildTestStructures();
+    const opts = parseUrlOptions(location.hash);
+    this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
+    this.world = this.gen.world;
+    if (opts.hour !== undefined) this.phase = phaseForHour(opts.hour);
 
     const canvas = document.createElement("canvas");
     canvas.className = "game";
     root.appendChild(canvas);
 
     this.view = new SceneView(canvas, this.world, this.coarsePointer);
+    this.view.setRenderDistance(opts.distance ?? (this.coarsePointer ? 48 : 96));
     this.hud = new Hud(root, this.view.atlasCanvas);
     this.touch = new TouchControls(root);
     this.touch.enable(this.touchUi);
@@ -68,20 +95,51 @@ export class Game {
     this.mouse = new MouseLook(canvas);
 
     this.player = new Player(this.world);
-    const sx = WORLD_SIZE / 2;
-    const sz = WORLD_SIZE / 2 + 4;
-    // Au sol, jamais sur un feuillage ni dans un bloc (constat 3 de l'audit J0).
-    this.player.setPosition(sx + 0.5, (this.world.findStandingY(sx, sz) ?? GROUND) + 0.01, sz + 0.5);
+    this.spawnPlayer();
+    this.afterWorldChange();
 
     this.wireInputs();
+    this.wirePanel();
     this.setSlot(0);
     this.testStorage();
     this.setupVoicePanel();
+    this.exposeDebug();
 
     this.updateHint();
+    this.hud.setDistance(this.view.renderDistance);
     this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})`, 4000);
 
     requestAnimationFrame((t) => this.safeFrame(t));
+  }
+
+  private spawnPlayer(): void {
+    const s = this.gen.spawn;
+    this.player.setPosition(s.x, s.y, s.z);
+    this.player.yaw = 0;
+    this.player.pitch = 0;
+  }
+
+  /** Après la création d'un monde : adresse, panneau, écran de chargement. */
+  private afterWorldChange(): void {
+    this.hud.setWorldControls(this.gen.type, this.gen.seed);
+    try {
+      history.replaceState(null, "", formatUrlOptions(this.gen.type, this.gen.seed));
+    } catch {
+      // Adresse non modifiable (certains navigateurs en file://) : sans conséquence.
+    }
+    this.nearSections = Math.max(1, this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS));
+    this.loading = true;
+  }
+
+  newWorld(type: WorldTypeId, seed: number): void {
+    this.gen = generateWorld(type, seed);
+    this.world = this.gen.world;
+    this.view.setWorld(this.world);
+    this.player = new Player(this.world);
+    this.spawnPlayer();
+    this.target = null;
+    this.afterWorldChange();
+    this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
   }
 
   private updateHint(): void {
@@ -99,40 +157,6 @@ export class Game {
       showFatalError(err);
       throw err;
     }
-  }
-
-  /** Quelques éléments pour tester saut, collisions et visée. */
-  private buildTestStructures(): void {
-    const w = this.world;
-    const cx = WORLD_SIZE / 2;
-    const cz = WORLD_SIZE / 2;
-    // Escalier de pierre
-    for (let i = 0; i < 4; i++) {
-      for (let k = 0; k <= i; k++) w.set(cx - 6 + i, GROUND + k, cz - 3, BlockId.Stone);
-    }
-    // Petit mur de planches avec une ouverture
-    for (let x = cx + 2; x < cx + 8; x++) {
-      for (let y = GROUND; y < GROUND + 3; y++) {
-        if (x === cx + 4 && y < GROUND + 2) continue;
-        w.set(x, y, cz - 4, BlockId.Planks);
-      }
-    }
-    // Un arbre, à l'écart du point d'apparition (x = cx, z = cz + 4)
-    const tx = cx - 6;
-    const tz = cz + 7;
-    for (let y = GROUND; y < GROUND + 4; y++) w.set(tx, y, tz, BlockId.Log);
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dy = 3; dy <= 5; dy++) {
-          if (Math.abs(dx) + Math.abs(dz) + (dy - 3) > 4) continue;
-          if (w.get(tx + dx, GROUND + dy, tz + dz) === BlockId.Air) {
-            w.set(tx + dx, GROUND + dy, tz + dz, BlockId.Grass); // feuillage provisoire (bloc dédié en J1)
-          }
-        }
-      }
-    }
-    // Un carré de sable
-    for (let x = cx + 3; x < cx + 8; x++) for (let z = cz + 3; z < cz + 8; z++) w.set(x, GROUND - 1, z, BlockId.Sand);
   }
 
   private wireInputs(): void {
@@ -168,6 +192,44 @@ export class Game {
 
     this.hud.lockButton.addEventListener("click", () => this.mouse.requestLock());
     this.hud.fullscreenButton.addEventListener("click", () => this.toggleFullscreen());
+
+    // Adresse modifiée à la main (#monde=…&graine=…) : on régénère.
+    window.addEventListener("hashchange", () => {
+      const o = parseUrlOptions(location.hash);
+      const type = o.type ?? this.gen.type;
+      const seed = o.seed ?? this.gen.seed;
+      if (type !== this.gen.type || seed !== this.gen.seed) this.newWorld(type, seed);
+    });
+
+    this.view.onContextChange((lost) => {
+      this.hud.showMessage(lost ? "L'image s'est interrompue, le monde revient…" : "Le monde est revenu", 2500);
+    });
+  }
+
+  private wirePanel(): void {
+    const hud = this.hud;
+    hud.newWorldButton.addEventListener("click", () => {
+      const type = parseWorldType(hud.worldTypeSelect.value) ?? "prairie";
+      let seed = parseSeed(hud.seedInput.value) ?? randomSeed();
+      // Même type et même graine = le même monde : on en veut un autre.
+      if (type === this.gen.type && seed === this.gen.seed) seed = randomSeed();
+      this.newWorld(type, seed);
+    });
+    HOUR_PRESETS.forEach((p, i) => {
+      hud.hourButtons[i]?.addEventListener("click", () => this.setHour(p.hour));
+    });
+    hud.fastTimeButton.addEventListener("click", () => {
+      this.timeScale = this.timeScale === 1 ? FAST_TIME : 1;
+      hud.setFastTime(this.timeScale !== 1);
+    });
+    hud.distanceSelect.addEventListener("change", () => {
+      const d = Number(hud.distanceSelect.value);
+      if (Number.isFinite(d)) this.view.setRenderDistance(d);
+    });
+  }
+
+  setHour(hour: number): void {
+    this.phase = phaseForHour(hour);
   }
 
   private async toggleFullscreen(): Promise<void> {
@@ -197,22 +259,28 @@ export class Game {
   private breakBlock(): void {
     if (!this.target) return;
     const { x, y, z } = this.target;
-    if (y === 0) {
+    const w = this.world;
+    const id = w.get(x, y, z);
+    if (y === 0 && !isPlantId(id)) {
       this.hud.showMessage("Le sol tout en bas ne se casse pas");
       return;
     }
-    const id = this.world.get(x, y, z);
-    if (this.world.set(x, y, z, BlockId.Air)) {
-      this.hud.showMessage(`Cassé : ${this.hud.blockName(id)}`, 1200);
-    }
+    if (!w.set(x, y, z, BlockId.Air)) return;
+    // Une fleur posée sur le bloc cassé tombe avec lui.
+    if (isPlantId(w.get(x, y + 1, z))) w.set(x, y + 1, z, BlockId.Air);
+    this.hud.showMessage(`${isPlantId(id) ? "Cueilli" : "Cassé"} : ${this.hud.blockName(id)}`, 1200);
   }
 
   private placeBlock(): void {
     if (!this.target) return;
-    const x = this.target.x + this.target.nx;
-    const y = this.target.y + this.target.ny;
-    const z = this.target.z + this.target.nz;
-    if (!this.world.inBounds(x, y, z)) {
+    const t = this.target;
+    const w = this.world;
+    // Viser une fleur et poser : le bloc prend sa place.
+    const onPlant = isPlantId(w.get(t.x, t.y, t.z));
+    const x = onPlant ? t.x : t.x + t.nx;
+    const y = onPlant ? t.y : t.y + t.ny;
+    const z = onPlant ? t.z : t.z + t.nz;
+    if (!w.inBounds(x, y, z)) {
       this.hud.showMessage("Trop loin : le monde s'arrête ici");
       return;
     }
@@ -221,7 +289,7 @@ export class Game {
       return;
     }
     const id = this.selectedBlock();
-    if (this.world.set(x, y, z, id)) this.hud.showMessage(`Posé : ${this.hud.blockName(id)}`, 1200);
+    if (w.set(x, y, z, id)) this.hud.showMessage(`Posé : ${this.hud.blockName(id)}`, 1200);
   }
 
   private testStorage(): void {
@@ -260,7 +328,49 @@ export class Game {
     });
   }
 
+  /** Accès pour les tests de fumée (et la curiosité de l'adulte, depuis la console du navigateur). */
+  private exposeDebug(): void {
+    const api = {
+      version: VERSION,
+      state: () => ({
+        type: this.gen.type,
+        seed: this.gen.seed,
+        spawn: this.gen.spawn,
+        player: { x: this.player.x, y: this.player.y, z: this.player.z, onGround: this.player.onGround, inWater: this.player.inWater, headInWater: this.player.headInWater },
+        hour: this.sky.hour,
+        night: this.sky.night,
+        brightness: this.sky.brightness,
+        loading: this.loading,
+        pending: this.view.chunks.stats.pending,
+        faces: this.view.chunks.stats.faces,
+        calls: this.renderCalls,
+        triangles: this.renderTriangles,
+        contextLost: this.view.contextLost,
+        contextLosses: this.view.contextLosses,
+        renderDistance: this.view.renderDistance,
+        target: this.target ? { ...this.target } : null,
+        slot: this.selectedSlot,
+      }),
+      setHour: (h: number) => this.setHour(h),
+      /** Oriente le regard (degrés ; cap 0 = vers −Z, inclinaison positive = vers le haut). */
+      look: (yawDeg: number, pitchDeg: number) => {
+        this.player.yaw = (yawDeg * Math.PI) / 180;
+        this.player.pitch = (pitchDeg * Math.PI) / 180;
+      },
+      teleport: (x: number, y: number, z: number) => this.player.setPosition(x, y, z),
+      block: (x: number, y: number, z: number) => this.world.get(x, y, z),
+      standY: (x: number, z: number) => this.world.findStandingY(x, z),
+      newWorld: (type: WorldTypeId, seed: number) => this.newWorld(type, seed),
+      /** Couleur d'un pixel de l'image (fx, fy dans [0, 1], depuis le haut à gauche), lue juste après le rendu. */
+      samplePixel: (fx: number, fy: number) => new Promise<number[]>((resolve) => this.pixelRequests.push({ fx, fy, resolve })),
+      loseContext: () => this.view.renderer.forceContextLoss(),
+      restoreContext: () => this.view.renderer.forceContextRestore(),
+    };
+    (window as unknown as { cubesDebug: typeof api }).cubesDebug = api;
+  }
+
   private frame(now: number): void {
+    const t0 = performance.now();
     const dt = Math.min((now - this.lastTime) / 1000, 0.05);
     this.lastTime = now;
 
@@ -276,6 +386,7 @@ export class Game {
       x: kx + this.touch.moveX,
       z: kz + this.touch.moveZ,
       jump: this.keyboard.isDown("Space") || this.touch.jumpPressed,
+      down: this.keyboard.isDown("ShiftLeft") || this.keyboard.isDown("ShiftRight"),
     });
 
     // Caméra
@@ -284,18 +395,49 @@ export class Game {
     this.view.camera.rotation.order = "YXZ";
     this.view.camera.rotation.set(this.player.pitch, this.player.yaw, 0);
 
+    // Jour et nuit, eau
+    this.phase = (this.phase + (dt * 1000 * this.timeScale) / DAY_CYCLE_MS) % 1;
+    this.sky = skyState(solarTime(this.phase));
+    this.view.setSky(this.sky);
+    this.view.setUnderwater(this.player.headInWater);
+    this.hud.setUnderwater(this.player.headInWater);
+
     // Visée
     this.target = raycast(this.world, eye, this.player.lookDir(), REACH);
     if (this.target) this.view.setHighlight(this.target.x, this.target.y, this.target.z);
     else this.view.hideHighlight();
 
-    // Rendu
-    const rebuilt = this.view.worldMesh.update();
-    if (rebuilt >= 0) this.faces = rebuilt;
-    this.view.render();
+    // Monde : sections à (re)mailler, les plus proches d'abord
+    const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);
+    this.loading = pendingNear > 0;
+    this.view.chunks.update(eye.x, eye.y, eye.z, this.loading ? MESH_BUDGET_LOADING_MS : MESH_BUDGET_MS);
+    this.hud.setLoading(this.loading ? 1 - pendingNear / this.nearSections : null);
 
+    // Rendu
+    this.view.render();
+    const info = this.view.renderer.info.render;
+    this.renderCalls = info.calls;
+    this.renderTriangles = info.triangles;
+    this.servePixelRequests();
+
+    this.cpuTimes.push(performance.now() - t0);
+    if (this.cpuTimes.length > 60) this.cpuTimes.shift();
     this.updateStats(now, dt);
     requestAnimationFrame((n) => this.safeFrame(n));
+  }
+
+  private servePixelRequests(): void {
+    if (this.pixelRequests.length === 0 || this.view.contextLost) return;
+    const gl = this.view.renderer.getContext();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const px = new Uint8Array(4);
+    for (const r of this.pixelRequests.splice(0)) {
+      const x = Math.min(w - 1, Math.max(0, Math.floor(r.fx * w)));
+      const y = Math.min(h - 1, Math.max(0, Math.floor((1 - r.fy) * h)));
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      r.resolve(Array.from(px));
+    }
   }
 
   private updateStats(now: number, dt: number): void {
@@ -303,19 +445,32 @@ export class Game {
     if (this.frameTimes.length > 60) this.frameTimes.shift();
     // Mise à jour de l'affichage 4 fois par seconde
     if (Math.floor(now / 250) === Math.floor((now - dt * 1000) / 250)) return;
-    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
+    const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / Math.max(1, a.length);
+    const frameAvg = avg(this.frameTimes);
     const worst = Math.max(...this.frameTimes);
+    const cpuAvg = avg(this.cpuTimes);
+    const cpuWorst = Math.max(...this.cpuTimes);
     const p = this.player;
     const deg = (r: number) => Math.round((r * 180) / Math.PI);
     const cap = ((deg(p.yaw) % 360) + 360) % 360;
+    const cs = this.view.chunks.stats;
+    const w = this.world;
+    const where = p.headInWater ? "sous l'eau" : p.inWater ? "dans l'eau" : p.onGround ? "sol" : "air";
     this.hud.setInfo(
-      `${Math.round(1000 / avg)} i/s  (moy. ${avg.toFixed(1)} ms, pire ${worst.toFixed(0)} ms)\n` +
-        `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${p.onGround ? "sol" : "air"}  regard ${cap}° ${deg(p.pitch)}°\n` +
-        `faces ${this.faces}  bloc : ${this.hud.blockName(this.selectedBlock())}  ${VERSION}`,
+      `${Math.round(1000 / frameAvg)} i/s  (moy. ${frameAvg.toFixed(1)} ms, pire ${worst.toFixed(0)} ms, calcul ${cpuAvg.toFixed(1)} ms)\n` +
+        `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${where}  regard ${cap}° ${deg(p.pitch)}°\n` +
+        `faces ${cs.faces}  sections ${cs.visibleSections}/${cs.sections}  bloc : ${this.hud.blockName(this.selectedBlock())}\n` +
+        `${worldTypeName(this.gen.type)} · graine ${this.gen.seed} · ${formatHour(this.sky.hour)}  ${VERSION}`,
     );
     const g = this.view.gpu;
+    const ml = this.mouse;
     this.hud.setDiagnostics(
       [
+        `Version : ${VERSION}`,
+        `Monde : ${worldTypeName(this.gen.type)}, graine ${this.gen.seed}, ${w.sizeX}×${w.sizeY}×${w.sizeZ}, arbres ${this.gen.stats.trees}, fleurs ${this.gen.stats.flowers}, cactus ${this.gen.stats.cacti}`,
+        `Rendu : distance ${this.view.renderDistance} blocs, sections affichées ${cs.visibleSections}/${cs.sections}, en attente ${cs.pending}, appels ${this.renderCalls}, triangles ${this.renderTriangles}`,
+        `Calcul par image (hors attente de l'écran) : moy. ${cpuAvg.toFixed(1)} ms, pire ${cpuWorst.toFixed(1)} ms`,
+        `Heure : ${formatHour(this.sky.hour)} (${this.sky.night ? "nuit" : "jour"}), vitesse ×${this.timeScale}`,
         `Adresse : ${location.protocol}//${location.host || "(fichier local)"}`,
         `Navigateur : ${navigator.userAgent}`,
         `Écran : ${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio}× (rendu ${g.pixelRatio}×)`,
@@ -323,9 +478,10 @@ export class Game {
           this.touchUi ? "affichée" : "masquée"
         } (${navigator.maxTouchPoints} points)`,
         `WebGL2 : ${g.webgl2 ? "oui" : "non"} — ${g.renderer}`,
-        `Pointer Lock : ${this.mouse.supported ? "disponible" : "absent"}, ${this.mouse.locked ? "actif" : "inactif"}${
-          this.mouse.inFallback() ? ", mode repli" : ""
-        }, mouvements écartés ${this.mouse.rejectedMoves}${this.mouse.lastError ? `, erreur : ${this.mouse.lastError}` : ""}`,
+        `Pointer Lock : ${ml.supported ? "disponible" : "absent"}, ${ml.locked ? "actif" : "inactif"}${ml.inFallback() ? ", mode repli" : ""}, captures ${ml.locks}, écartés ${
+          ml.rejectedSettle
+        } après capture et ${ml.rejectedLarge} trop grands (> ${MAX_DELTA_PX} px), plus grand reçu ${ml.maxDelta} px${ml.lastError ? `, erreur : ${ml.lastError}` : ""}`,
+        `Contexte 3D : ${this.view.contextLost ? "perdu" : "ok"}, perdu ${this.view.contextLosses} fois`,
         `Stockage local : ${this.storageOk}`,
         `Synthèse vocale : ${this.speech.supported ? "disponible" : "absente"}`,
       ].join("\n"),

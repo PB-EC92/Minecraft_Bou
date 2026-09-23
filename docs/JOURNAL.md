@@ -74,3 +74,21 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Documents mis à jour.** `BRIEF.md` (expérience de jeu, périmètre V1, hors V1), `PLAN.md` (J1, J4, J5, backlog V2, estimation portée à 13 à 15 sessions, risque « ergonomie » ramené à 6 ans).
 
 **Décision en attente.** Avancer au J2 une boucle « consigne lue + comptage » pour tester tôt la pédagogie avec les enfants (recommandé, sans réponse de Pierre à ce stade).
+
+## 2026-09-23 — J1, le monde
+
+**Fait.** Monde généré de 128 × 64 × 128 blocs, à graine, en quatre types (prairie, île, montagne, désert), plus le monde plat du J0 réservé aux tests (`#monde=plat`). Nouveaux blocs, ajoutés à la fin du registre (identifiants 7 à 12) : eau, feuilles, fleur rouge, fleur jaune, neige, cactus ; barre de blocs portée à 9 (touches 1 à 9). Rendu par sections de 16³ avec file par distance et budget de temps par image ; occlusion ambiante par sommet ; eau semi-transparente ; fleurs en plans croisés ; faces tournées vers l'extérieur du monde supprimées ; mer au-delà des bords jusqu'à l'horizon. Cycle jour/nuit de 12 minutes (9 de jour, 3 de nuit), soleil, lune et étoiles, nuit jamais noire (40 % de luminosité). Joueur : montée automatique des marches d'un bloc, flottaison, nage (Espace), plongée (Maj), sortie sur la berge, voile bleu sous l'eau, pas de noyade. Perte du contexte 3D gérée. Panneau « Tests » : type de monde, graine, heure, temps accéléré, distance de rendu ; l'adresse retient le monde (`#monde=ile&graine=1234`). Diagnostic affiné comme proposé après le J0.1 : temps de calcul par image hors attente de l'écran, souris (captures, écartés après capture, trop grands, plus grand déplacement reçu), rendu (sections, appels, triangles), contexte 3D. Constats de l'audit traités : 9, 10, 11, 13, 14, 15 et 12 en partie (tapotement à 450 ms), voir `AUDIT-J0.md`. `dist/cubes.html` : 582 ko ; ligne d'infos terminée par « J1 ».
+
+**Tests.** 88 tests unitaires (monde, sections, bruit, terrain des quatre types, jour/nuit, joueur, maillage, rendu par sections, souris, adresse, voix) ; 20 cas de fumée, 26 exécutions sur les deux profils (types de monde, nuit, eau, perte de contexte, panneau « Nouveau monde », en plus des cas du J0.1). Un test de fumée tactile échouait par intermittence sous charge : seuil du tapotement relevé de 300 à 450 ms, 8 passages sur 8 ensuite (cause probable, non démontrée : délai d'exécution).
+
+**Mesures (serveur cloud, rendu logiciel : ordres de grandeur seulement).** Génération d'un monde : 30 à 50 ms. Maillage du monde entier : 60 à 200 ms ; une section : moins de 1 ms en général (5,6 ms au pire). 21 000 à 40 000 faces selon le type de monde. Les images par seconde du cloud ne veulent rien dire (pas de carte graphique).
+
+**Décisions techniques.** Stockage des blocs en un seul tableau avec des versions par section, plutôt que des chunks de 16 × 16 × 64 comme prévu au `PLAN.md` (plus simple pour un monde borné, même effet sur le remaillage ; `PLAN.md` mis à jour). Pas de Web Worker pour le maillage (fonctionnement non vérifié en `file://`) : budget par image à la place. Distance de rendu par défaut : 96 blocs sur PC, 48 sur tablette. Aucune dépendance ajoutée.
+
+**Limites connues.** L'eau ne coule pas (casser un bloc au bord d'un lac laisse un trou sec) ; pas de grottes ; il ne fait pas plus sombre sous terre ; pas de bouton « plonger » sur tablette (on flotte, c'est suffisant pour l'instant) ; rien n'est enregistré ; l'adresse ne retient que le type et la graine.
+
+**Non vérifié.** Tout ce qui concerne la tablette ; les performances réelles sur le PC de Pierre ; la perte de contexte sur un vrai Android ; Edge.
+
+**Attendu de Pierre.** Protocole J1 de `RETOURS.md`, tablette en priorité ; publier le dépôt sur GitHub si ce n'est pas fait (bundle à jour dans le dossier) ; avis sur la boucle « consigne lue + comptage » au J2.
+
+**Prochaine étape.** J2 (inventaire à 9 cases avec compteurs, casse par appui court avec barre de progression, sons, première séance avec les enfants), ou J3 avancé si la tablette peine.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptMouseDelta, isClick, LOCK_SETTLE_MS, MAX_DELTA_PX } from "../../src/input/mouseFilter";
+import { acceptMouseDelta, classifyMouseDelta, isClick, LOCK_SETTLE_MS, MAX_DELTA_PX } from "../../src/input/mouseFilter";
 
 describe("filtre souris (audit J0, constat 1)", () => {
   it("écarte le faux mouvement envoyé au moment de la capture", () => {
@@ -32,5 +32,15 @@ describe("clic ou glisser (audit J0, constat 2)", () => {
   it("un déplacement ou un appui long est un glisser", () => {
     expect(isClick(20, 120)).toBe(false);
     expect(isClick(0, 900)).toBe(false);
+  });
+});
+
+describe("verdict détaillé (retours J0.1 : distinguer les causes)", () => {
+  it("après capture, trop grand, invalide, accepté", () => {
+    expect(classifyMouseDelta(3, 2, 1010, 1080)).toBe("settle");
+    expect(classifyMouseDelta(-640, -360, 1010, 1080)).toBe("settle");
+    expect(classifyMouseDelta(-640, -360, 5000, 1080)).toBe("large");
+    expect(classifyMouseDelta(Number.NaN, 0, 5000, 0)).toBe("invalid");
+    expect(classifyMouseDelta(40, -12, 5000, 1080)).toBe("ok");
   });
 });

@@ -25,10 +25,14 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur dé
 ## Architecture (voir `docs/PLAN.md` §2)
 
 ```
-src/engine/   monde (bords = murs pour la physique, point d'apparition), blocs, raycast (DDA), physique AABB, aléatoire
-src/render/   SceneView (Three.js), WorldMesh (faces visibles), textures (atlas procédural)
+src/engine/   World (tableau plat + versions par section de 16³, bords = murs), blocks (propriétés, tables rapides),
+              terrain (types de monde, graine, apparition), noise (bruit à graine), dayNight (cycle), raycast (DDA),
+              physics (AABB), random
+src/render/   SceneView (Three.js, brouillard, mer au-delà des bords, perte de contexte), ChunkRenderer (sections,
+              file par distance, budget par image, distance de rendu), mesher (pur : faces visibles, occlusion
+              ambiante, eau, fleurs en croix), atlas (disposition pure), textures (dessin), Sky (soleil, lune, étoiles)
 src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/clic bref), mouseFilter (fonctions pures), TouchControls
-src/game/     Game (assemblage + boucle protégée), Player
+src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`), Player (marches, eau), urlOptions (#monde=…)
 src/edu/      Speech (synthèse vocale, voix locales préférées) ; à venir : profils, missions, compagnon
 src/ui/       Hud (DOM natif, pas de framework), fatal (écran d'erreur lisible)
 src/save/     à venir (J4)
@@ -45,6 +49,8 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, travailler dans le clone git hors OneDrive (voir `README.md`).
 - Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
 - Tests de fumée : l'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
+- Tests de fumée : ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état, oriente le regard, téléporte, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
+- Rendu : pas de lumière Three.js. Les couleurs de sommets sont en linéaire (convertir depuis la luminosité perçue, voir `mesher.ts`) ; le jour/nuit passe par la couleur des matériaux (`SceneView.setSky`).
 
 ## État courant
 

@@ -20,9 +20,9 @@ export interface RayHit {
 }
 
 /**
- * Parcours de voxels (Amanatides & Woo) : renvoie le premier bloc solide
- * rencontré depuis `origin` dans la direction `dir` (normalisée ou non),
- * jusqu'à `maxDistance`, ou null.
+ * Parcours de voxels (Amanatides & Woo) : renvoie le premier bloc visable
+ * (bloc plein ou plante ; l'eau est traversée) rencontré depuis `origin` dans
+ * la direction `dir` (normalisée ou non), jusqu'à `maxDistance`, ou null.
  */
 export function raycast(world: World, origin: Vec3, dir: Vec3, maxDistance: number): RayHit | null {
   const len = Math.hypot(dir.x, dir.y, dir.z);
@@ -78,7 +78,7 @@ export function raycast(world: World, origin: Vec3, dir: Vec3, maxDistance: numb
       nz = -stepZ;
     }
     if (t > maxDistance) return null;
-    if (world.isSolid(x, y, z)) {
+    if (world.isTargetable(x, y, z)) {
       return { x, y, z, nx, ny, nz, distance: t };
     }
   }

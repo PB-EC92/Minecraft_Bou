@@ -1,9 +1,7 @@
 import * as THREE from "three";
 import { Tile } from "../engine/blocks";
 import { createRng } from "../engine/random";
-
-export const TILE_SIZE = 16;
-export const TILE_COUNT = 8;
+import { ATLAS_HEIGHT, ATLAS_WIDTH, TILE_SIZE, tileOrigin } from "./atlas";
 
 type Rgb = [number, number, number];
 
@@ -17,24 +15,26 @@ function css(c: Rgb): string {
 
 /**
  * Atlas de textures dessiné par code (pixel-art original, aucune image
- * externe). Une bande horizontale de TILE_COUNT tuiles de 16 × 16 px.
- * Le rendu est déterministe (graine fixe).
+ * externe) : grille de tuiles de 16 × 16 px (voir atlas.ts). Le rendu est
+ * déterministe (graine fixe). Les tuiles de fleurs ont un fond transparent.
  */
 export function drawAtlas(): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = TILE_SIZE * TILE_COUNT;
-  canvas.height = TILE_SIZE;
+  canvas.width = ATLAS_WIDTH;
+  canvas.height = ATLAS_HEIGHT;
   const ctx = canvas.getContext("2d")!;
   const rng = createRng(20260923);
+  const S = TILE_SIZE;
 
   const px = (tile: number, x: number, y: number, color: Rgb) => {
+    const [ox, oy] = tileOrigin(tile);
     ctx.fillStyle = css(color);
-    ctx.fillRect(tile * TILE_SIZE + x, y, 1, 1);
+    ctx.fillRect(ox + x, oy + y, 1, 1);
   };
 
   const noiseFill = (tile: number, base: Rgb, dark: Rgb, amount: number) => {
-    for (let y = 0; y < TILE_SIZE; y++) {
-      for (let x = 0; x < TILE_SIZE; x++) {
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
         px(tile, x, y, mix(base, dark, rng() * amount));
       }
     }
@@ -60,34 +60,34 @@ export function drawAtlas(): HTMLCanvasElement {
   noiseFill(Tile.Dirt, dirt, dirtDark, 0.7);
   // Herbe (côté) : terre + bande d'herbe en haut, bord irrégulier
   noiseFill(Tile.GrassSide, dirt, dirtDark, 0.7);
-  for (let x = 0; x < TILE_SIZE; x++) {
+  for (let x = 0; x < S; x++) {
     const depth = 3 + Math.floor(rng() * 3);
     for (let y = 0; y < depth; y++) px(Tile.GrassSide, x, y, mix(grass, grassDark, rng() * 0.7));
   }
   // Pierre : bruit + quelques fissures
   noiseFill(Tile.Stone, stone, stoneDark, 0.6);
   for (let i = 0; i < 4; i++) {
-    let x = Math.floor(rng() * TILE_SIZE);
-    let y = Math.floor(rng() * TILE_SIZE);
+    let x = Math.floor(rng() * S);
+    let y = Math.floor(rng() * S);
     for (let k = 0; k < 5; k++) {
       px(Tile.Stone, x, y, stoneDark);
-      x = (x + (rng() < 0.5 ? 1 : 0)) % TILE_SIZE;
-      y = (y + 1) % TILE_SIZE;
+      x = (x + (rng() < 0.5 ? 1 : 0)) % S;
+      y = (y + 1) % S;
     }
   }
   // Planches : 4 lattes horizontales séparées par une ligne sombre
   noiseFill(Tile.Planks, plank, plankDark, 0.35);
-  for (let y = 0; y < TILE_SIZE; y += 4) {
-    for (let x = 0; x < TILE_SIZE; x++) px(Tile.Planks, x, y, plankDark);
-    const joint = Math.floor(rng() * TILE_SIZE);
+  for (let y = 0; y < S; y += 4) {
+    for (let x = 0; x < S; x++) px(Tile.Planks, x, y, plankDark);
+    const joint = Math.floor(rng() * S);
     for (let k = 1; k < 4; k++) px(Tile.Planks, joint, y + k, plankDark);
   }
   // Sable
   noiseFill(Tile.Sand, sand, sandDark, 0.6);
   // Tronc (côté) : écorce à rayures verticales
   noiseFill(Tile.LogSide, bark, barkDark, 0.5);
-  for (let x = 0; x < TILE_SIZE; x += 3) {
-    for (let y = 0; y < TILE_SIZE; y++) if (rng() < 0.8) px(Tile.LogSide, x, y, barkDark);
+  for (let x = 0; x < S; x += 3) {
+    for (let y = 0; y < S; y++) if (rng() < 0.8) px(Tile.LogSide, x, y, barkDark);
   }
   // Tronc (dessus) : anneaux
   noiseFill(Tile.LogTop, wood, plankDark, 0.3);
@@ -95,14 +95,72 @@ export function drawAtlas(): HTMLCanvasElement {
     for (let a = 0; a < 64; a++) {
       const x = Math.round(7.5 + Math.cos((a / 64) * Math.PI * 2) * r);
       const y = Math.round(7.5 + Math.sin((a / 64) * Math.PI * 2) * r);
-      if (x >= 0 && x < TILE_SIZE && y >= 0 && y < TILE_SIZE) px(Tile.LogTop, x, y, plankDark);
+      if (x >= 0 && x < S && y >= 0 && y < S) px(Tile.LogTop, x, y, plankDark);
     }
   }
-  for (let y = 0; y < TILE_SIZE; y++) {
+  for (let y = 0; y < S; y++) {
     px(Tile.LogTop, 0, y, bark);
-    px(Tile.LogTop, TILE_SIZE - 1, y, bark);
+    px(Tile.LogTop, S - 1, y, bark);
     px(Tile.LogTop, y, 0, bark);
-    px(Tile.LogTop, y, TILE_SIZE - 1, bark);
+    px(Tile.LogTop, y, S - 1, bark);
+  }
+
+  // ---------- J1 ----------
+
+  // Eau : bleu avec des reflets horizontaux (la transparence vient du matériau)
+  const water: Rgb = [58, 118, 205];
+  const waterLight: Rgb = [110, 170, 235];
+  noiseFill(Tile.Water, water, [44, 96, 178], 0.5);
+  for (let i = 0; i < 7; i++) {
+    const y = Math.floor(rng() * S);
+    const x0 = Math.floor(rng() * S);
+    const len = 3 + Math.floor(rng() * 4);
+    for (let k = 0; k < len; k++) px(Tile.Water, (x0 + k) % S, y, waterLight);
+  }
+
+  // Feuilles : vert profond tacheté de clair
+  const leaf: Rgb = [58, 132, 50];
+  const leafDark: Rgb = [32, 86, 30];
+  const leafLight: Rgb = [96, 170, 72];
+  noiseFill(Tile.Leaves, leaf, leafDark, 0.9);
+  for (let i = 0; i < 30; i++) px(Tile.Leaves, Math.floor(rng() * S), Math.floor(rng() * S), leafLight);
+
+  // Fleurs : tige, deux feuilles, corolle ronde (fond transparent)
+  const flower = (tile: Tile, petal: Rgb, petalDark: Rgb, heart: Rgb) => {
+    const [ox, oy] = tileOrigin(tile);
+    ctx.clearRect(ox, oy, S, S);
+    const stem: Rgb = [58, 130, 46];
+    for (let y = 7; y < S; y++) px(tile, 7, y, stem);
+    for (let y = 9; y < S; y++) px(tile, 8, y, mix(stem, [30, 80, 26], 0.4));
+    for (const [x, y] of [[5, 11], [6, 11], [6, 12], [9, 10], [10, 10], [9, 11]] as const) px(tile, x, y, stem);
+    for (let y = 1; y <= 7; y++) {
+      for (let x = 4; x <= 11; x++) {
+        const d = Math.hypot(x - 7.5, y - 4);
+        if (d <= 3.4) px(tile, x, y, d < 1.3 ? heart : mix(petal, petalDark, d > 2.6 ? 0.6 : rng() * 0.3));
+      }
+    }
+  };
+  flower(Tile.FlowerRed, [226, 52, 58], [160, 28, 40], [250, 214, 70]);
+  flower(Tile.FlowerYellow, [250, 214, 64], [210, 160, 30], [226, 120, 40]);
+
+  // Neige : blanc bleuté, grain léger
+  noiseFill(Tile.Snow, [242, 246, 252], [206, 218, 236], 0.5);
+
+  // Cactus (côté) : vert, côtes verticales sombres, petites épines claires
+  const cactus: Rgb = [74, 156, 72];
+  const cactusDark: Rgb = [44, 108, 50];
+  noiseFill(Tile.CactusSide, cactus, cactusDark, 0.35);
+  for (const x of [0, 5, 10, 15]) for (let y = 0; y < S; y++) px(Tile.CactusSide, x, y, cactusDark);
+  for (let i = 0; i < 12; i++) px(Tile.CactusSide, 2 + 5 * Math.floor(rng() * 3) + Math.floor(rng() * 2), Math.floor(rng() * S), [236, 232, 196]);
+
+  // Cactus (dessus) : cercle vert clair, bord sombre
+  noiseFill(Tile.CactusTop, cactus, cactusDark, 0.3);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      if (d > 6.5) px(Tile.CactusTop, x, y, cactusDark);
+      else if (d < 2) px(Tile.CactusTop, x, y, [120, 190, 100]);
+    }
   }
 
   return canvas;
@@ -118,15 +176,6 @@ export function createAtlasTexture(canvas: HTMLCanvasElement): THREE.CanvasTextu
   return tex;
 }
 
-/** Coordonnées UV (u0, v0, u1, v1) d'une tuile, avec un léger retrait anti-débordement. */
-export function tileUv(tile: number): [number, number, number, number] {
-  const inset = 0.5 / (TILE_SIZE * TILE_COUNT);
-  const insetV = 0.5 / TILE_SIZE;
-  const u0 = tile / TILE_COUNT + inset;
-  const u1 = (tile + 1) / TILE_COUNT - inset;
-  return [u0, insetV, u1, 1 - insetV];
-}
-
 /** Copie une tuile de l'atlas dans un petit canvas (icônes de la barre d'inventaire). */
 export function tileIcon(atlas: HTMLCanvasElement, tile: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -134,6 +183,7 @@ export function tileIcon(atlas: HTMLCanvasElement, tile: number): HTMLCanvasElem
   c.height = TILE_SIZE;
   const ctx = c.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(atlas, tile * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
+  const [ox, oy] = tileOrigin(tile);
+  ctx.drawImage(atlas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
   return c;
 }

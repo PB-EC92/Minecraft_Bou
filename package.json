@@ -1,7 +1,7 @@
 {
   "name": "cubes",
-  "version": "0.0.2",
-  "description": "Cubes — jeu de construction en blocs, éducatif, pour deux enfants (prototype J0.1)",
+  "version": "0.1.0",
+  "description": "Cubes — jeu de construction en blocs, éducatif, pour deux enfants (prototype J1)",
   "private": true,
   "type": "module",
   "scripts": {

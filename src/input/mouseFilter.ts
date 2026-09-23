@@ -6,6 +6,10 @@
  * pour une fenêtre 1280 × 720), ce qui fait pivoter la caméra d'un coup.
  * On ignore donc les mouvements reçus juste après la capture, ainsi que tout
  * mouvement isolé anormalement grand.
+ *
+ * J1 : le verdict distingue les deux causes, pour que le diagnostic dise si
+ * des gestes rapides légitimes sont perdus (retours J0.1 : 62 mouvements
+ * écartés sans qu'on sache pourquoi).
  */
 
 /** Durée pendant laquelle on ignore les mouvements après une capture (ms). */
@@ -14,10 +18,17 @@ export const LOCK_SETTLE_MS = 80;
 /** Au-delà de ce déplacement en un seul événement (px), le mouvement est jugé aberrant. */
 export const MAX_DELTA_PX = 200;
 
+export type MouseDeltaVerdict = "ok" | "settle" | "large" | "invalid";
+
+export function classifyMouseDelta(dx: number, dy: number, now: number, ignoreUntil: number): MouseDeltaVerdict {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return "invalid";
+  if (now < ignoreUntil) return "settle";
+  if (Math.abs(dx) > MAX_DELTA_PX || Math.abs(dy) > MAX_DELTA_PX) return "large";
+  return "ok";
+}
+
 export function acceptMouseDelta(dx: number, dy: number, now: number, ignoreUntil: number): boolean {
-  if (now < ignoreUntil) return false;
-  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
-  return Math.abs(dx) <= MAX_DELTA_PX && Math.abs(dy) <= MAX_DELTA_PX;
+  return classifyMouseDelta(dx, dy, now, ignoreUntil) === "ok";
 }
 
 /** Seuil sous lequel un appui-relâché compte comme un clic et non comme un glisser (px). */

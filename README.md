@@ -1,14 +1,18 @@
 # Cubes (nom provisoire)
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype technique J0.1** (voir `docs/PLAN.md` et `docs/JOURNAL.md`).
+Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J1** : un vrai monde généré (quatre types au choix), jour et nuit, eau (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro (la sauvegarde arrive au J4).
 
 ## Jouer
 
-Ouvrir `dist/cubes.html` par double-clic (Chrome ou Edge). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche indique la version (« J0.1 ») : si elle ne s'affiche pas, c'est une ancienne copie.
+Ouvrir `dist/cubes.html` par double-clic (Chrome ou Edge). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J1 ») : si ce n'est pas le cas, c'est une ancienne copie.
 
-Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter, **clic gauche** pour casser, **clic droit** pour poser, **1 à 6** pour choisir un bloc, **Échap** pour libérer la souris. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, clic bref pour casser ou poser.
+Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche** pour casser (ou cueillir une fleur), **clic droit** pour poser, **1 à 9** pour choisir un bloc, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, clic bref pour casser ou poser.
 
-Sur tablette : doigt gauche = joystick, doigt droit = regarder, tapoter = agir (bouton **Casser / Poser** pour changer d'action), bouton **Sauter**. Le bouton **Plein écran** est dans le panneau « Tests J0 ».
+Sur tablette : doigt gauche = joystick, doigt droit = regarder, tapoter = agir (bouton **Casser / Poser** pour changer d'action), bouton **Sauter**. Le bouton **Plein écran** est dans le panneau « Tests ».
+
+### Choisir le monde
+
+Au démarrage : une prairie, avec une graine au hasard. Le panneau **Tests** (en haut à droite) permet de choisir le type (prairie, île, montagne, désert), la graine (même type + même graine = le même monde), l'heure (matin, midi, soir, nuit, temps accéléré) et la distance de rendu. L'adresse retient le monde affiché (`cubes.html#monde=ile&graine=1234`) : recharger la page redonne le même monde, et l'on peut taper une adresse de ce type pour en ouvrir un précis. On peut aussi y ajouter `&heure=20` ou `&distance=48` (pris en compte à l'ouverture). Le choix du monde par les enfants, sur un écran d'accueil, arrive au J4.
 
 ### Mettre le fichier sur la tablette Android
 
@@ -24,9 +28,9 @@ Prérequis : Node.js 22.12 ou plus récent (`node -v` pour vérifier).
 npm install                       # une fois
 npm run dev                       # développement avec rechargement automatique
 npm run build                     # vérifie les types puis produit dist/cubes.html
-npm test                          # tests unitaires (moteur, souris, voix, maillage)
+npm test                          # tests unitaires (moteur, terrain, joueur, maillage, souris, voix)
 npx playwright install chromium   # une fois, pour les tests de fumée
-npm run test:e2e                  # tests de fumée sur dist/cubes.html ouvert en file://
+npm run test:e2e                  # tests de fumée sur dist/cubes.html ouvert en file:// (Node 22.12+ ; v24 sur le poste : ok)
 ```
 
 Le dossier `node_modules` (créé par `npm install`) est volumineux : ne pas le créer dans le dossier OneDrive, travailler dans un clone git hors OneDrive (ci-dessous).
