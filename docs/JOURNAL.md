@@ -40,3 +40,11 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Attendu de Pierre.** Supprimer `Claude outputs\cubes.html` ; vérifier que `Minecraft_Bou` est privé et y pousser le bundle ; dérouler le protocole J0.1 de `RETOURS.md` sur PC et tablette ; indiquer la version de Node.js du poste, l'âge du second enfant, et si le PC a un écran tactile.
 
 **Décisions en attente.** Porte J0 (inchangée) ; façon dont les sessions suivantes contribuent au dépôt GitHub (session cloud démarrée sur le dépôt, ou bundle) ; suggestion de l'audit : une boucle « voix + comptage » dès J2 pour tester tôt la pédagogie.
+
+## 2026-09-23 — Précisions de Pierre (âges, écran tactile)
+
+**Reçu de Pierre.** Les deux enfants ont 6 ans (profil A, lecteur débutant, niveau CP) et 8 ans (profil B, lecteur autonome, niveau CE2) : mis à jour dans `BRIEF.md` et `CLAUDE.md`. Le PC utilisé pour le développement n'a pas d'écran tactile ; Pierre dispose par ailleurs d'un autre PC à écran tactile, utilisable pour la ligne correspondante du protocole J0.1 (`RETOURS.md`) s'il veut la couvrir.
+
+**Vérifié.** Le dossier `Claude outputs` du OneDrive est vide : l'ancien `cubes.html` a bien été supprimé. `cubes.git.bundle` (dans le dossier `Minecraft` et dans `Claude outputs`) correspond exactement au commit `ce1b24b` (J0.1), aucun changement local en attente avant les corrections ci-dessus.
+
+**Attendu de Pierre.** Version de Node.js du poste (lancer `node -v` dans PowerShell) ; suite du protocole J0.1 de `RETOURS.md` (PC, et tablette si possible) ; pousser `cubes.git.bundle` vers `PB-EC92/Minecraft_Bou` (procédure dans `README.md`) et vérifier que ce dépôt est privé.

@@ -1,6 +1,6 @@
 # CLAUDE.md — projet « Cubes »
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants (7 ans lecteur débutant, et un lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
+Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur débutant, 8 ans lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
 
 ## Commandes
 
@@ -16,7 +16,7 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (7 ans lecteur dé
 
 1. **Un seul fichier, hors ligne.** Aucun asset externe, aucun CDN, aucun `fetch`. Textures dessinées sur canvas au démarrage (`src/render/textures.ts`), sons synthétisés par Web Audio, voix par `speechSynthesis`. Tout ce qui est ajouté doit survivre à une ouverture par double-clic sans réseau.
 2. **Rien de Minecraft.** Ni le nom, ni les textures, ni les personnages, ni les noms de créatures. Univers original ; nom provisoire « Cubes ».
-3. **Public : 7 ans.** Textes courts en français simple, toujours en deux variantes (débutant / autonome) quand ils s'adressent à l'enfant. Aucune mort, aucun combat, aucun échec bloquant. Gros boutons tactiles.
+3. **Public : 6-8 ans.** Textes courts en français simple, toujours en deux variantes (débutant / autonome) quand ils s'adressent à l'enfant. Aucune mort, aucun combat, aucun échec bloquant. Gros boutons tactiles.
 4. **Clavier par position physique** : `KeyboardEvent.code` (KeyW/KeyA/KeyS/KeyD → ZQSD en AZERTY). Jamais `event.key` pour le déplacement.
 5. **Le moteur (`src/engine/`) ne dépend pas de Three.js** ni du DOM : il est testé en Node par Vitest. Le rendu (`src/render/`) consomme le moteur.
 6. **Identifiants de blocs stables** (`src/engine/blocks.ts`) : on ajoute à la fin, on ne renumérote jamais (sauvegardes).

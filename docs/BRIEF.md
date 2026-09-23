@@ -13,9 +13,9 @@ Nom provisoire « Cubes » ; les enfants choisiront le nom définitif. Ni le nom
 
 Deux enfants, deux profils, chacun avec sa sauvegarde et son réglage de lecture.
 
-Profil A — 7 ans, lecteur débutant (déchiffre) : consignes courtes, toujours lues à voix haute par le jeu, texte affiché pour l'entraînement, icônes partout.
+Profil A — 6 ans, lecteur débutant (déchiffre, niveau CP) : consignes courtes, toujours lues à voix haute par le jeu, texte affiché pour l'entraînement, icônes partout.
 
-Profil B — lecteur autonome (âge et niveau scolaire à préciser) : consignes écrites, voix en option.
+Profil B — 8 ans, lecteur autonome (niveau CE2) : consignes écrites, voix en option.
 
 Les deux connaissent Minecraft de vue : on garde les codes visuels (blocs, inventaire en bas d'écran, casser/poser), on simplifie librement les mécaniques.
 
@@ -64,14 +64,13 @@ Un seul et même fichier de jeu pour les deux ; l'interface détecte le tactile.
 
 ## Critères de réussite de la V1
 
-1. L'enfant de 7 ans lance le jeu et joue 15 minutes seul.
+1. L'enfant de 6 ans lance le jeu et joue 15 minutes seul.
 2. Il comprend et termine la mission 1 sans aide d'un adulte.
 3. Le jeu tourne de façon fluide sur la tablette.
 4. Les deux profils retrouvent leur monde à la partie suivante.
 
 ## Points ouverts et éléments non vérifiés
 
-- Âge et niveau scolaire du second enfant.
 - Présence de voix françaises de synthèse sur le PC et sur la tablette : à tester en tout début de projet (repli : sons et icônes).
-- Présence et version de Node.js sur le poste (nécessaire pour Vite / Claude Code) : non vérifiée.
+- Présence et version de Node.js sur le poste (nécessaire pour Vite / Claude Code) : non vérifiée (Pierre va lancer `node -v`).
 - Capture souris (Pointer Lock) dans un fichier ouvert par double-clic, et performances 3D de la tablette (modèle inconnu) : à valider par le prototype technique du jalon J0.
