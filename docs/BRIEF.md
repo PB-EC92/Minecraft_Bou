@@ -71,6 +71,6 @@ Un seul et même fichier de jeu pour les deux ; l'interface détecte le tactile.
 
 ## Points ouverts et éléments non vérifiés
 
-- Présence de voix françaises de synthèse sur le PC et sur la tablette : à tester en tout début de projet (repli : sons et icônes).
-- Présence et version de Node.js sur le poste (nécessaire pour Vite / Claude Code) : non vérifiée (Pierre va lancer `node -v`).
-- Capture souris (Pointer Lock) dans un fichier ouvert par double-clic, et performances 3D de la tablette (modèle inconnu) : à valider par le prototype technique du jalon J0.
+- Voix françaises de synthèse : vérifiées sur le PC (Chrome, 4 voix françaises dont Microsoft Hortense, fonctionne wifi coupé) ; tablette à tester (repli : sons et icônes).
+- Node.js sur le poste : v24.11.0, compatible avec Vite 8 et Vitest 5 (vérifié le 23/09/2026).
+- Capture souris (Pointer Lock) dans un fichier ouvert par double-clic : vérifiée sur le PC (Chrome) ; Edge non testé. Performances 3D de la tablette (modèle inconnu), ouverture du fichier et stockage local sur Android : à valider.

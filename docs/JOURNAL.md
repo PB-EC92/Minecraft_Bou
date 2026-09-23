@@ -48,3 +48,17 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Vérifié.** Le dossier `Claude outputs` du OneDrive est vide : l'ancien `cubes.html` a bien été supprimé. `cubes.git.bundle` (dans le dossier `Minecraft` et dans `Claude outputs`) correspond exactement au commit `ce1b24b` (J0.1), aucun changement local en attente avant les corrections ci-dessus.
 
 **Attendu de Pierre.** Version de Node.js du poste (lancer `node -v` dans PowerShell) ; suite du protocole J0.1 de `RETOURS.md` (PC, et tablette si possible) ; pousser `cubes.git.bundle` vers `PB-EC92/Minecraft_Bou` (procédure dans `README.md`) et vérifier que ce dépôt est privé.
+
+## 2026-09-23 — Retours J0.1 sur PC (Chrome)
+
+**Reçu de Pierre.** Protocole J0.1 déroulé sur le PC de travail, Chrome 153, fichier ouvert en `file://` (`RETOURS.md` ; diagnostic transcrit depuis ses captures d'écran). Node.js du poste : v24.11.0, compatible avec Vite 8 (≥ 22.12) et Vitest 5 (^24).
+
+**Constats.** Tout ce qui a été testé passe : ouverture par double-clic, capture de la souris sans saut de la vue, Échap, repli (glisser + clic bref), déplacement, escalier, porte, bords du monde, casser/poser les 6 blocs, « Pas de place ici », plein écran, stockage local, voix (4 voix françaises dont Microsoft Hortense, locale : fonctionne wifi coupé ; phrase de test lue en 9,8 s). 60 images/s constantes (moyenne 16,7 ms, pire 17 ms) sur une carte graphique intégrée Intel UHD : c'est le plafond de la synchronisation écran, la marge réelle n'est donc pas mesurable avec cet affichage. Un `pointerlockerror` a été relevé : cohérent avec le refus de recapture que Chrome applique juste après Échap, déjà prévu (chaque clic retente la capture) ; le repli a pris le relais comme prévu. 60 à 62 mouvements écartés : ce compteur additionne les mouvements ignorés dans les 80 ms qui suivent une capture et ceux de plus de 200 px en un événement, il ne permet pas de savoir si des gestes rapides légitimes sont perdus (Pierre n'a pas signalé de regard « collant »). Position de départ non renseignée ; la capture (y = 1,0) a été prise après avoir creusé jusqu'au fond, cohérent avec un sol à y = 4.
+
+**Non testé.** Edge ; tablette Android (ouverture du fichier, images/s, tactile, voix, stockage local, retour d'une autre appli) ; PC à écran tactile.
+
+**Porte J0, état.** Regard souris : Pointer Lock retenu, repli automatique conservé (vérifié sur Chrome). Voix : synthèse retenue sur PC. Tablette : décisions en attente (mode de chargement, 30 images/s minimum, distance de rendu).
+
+**Proposé pour J1.** Diagnostic plus fin : deux compteurs distincts (après capture / trop grand) et plus grand déplacement reçu ; temps de calcul par image hors attente de l'écran, pour mesurer la marge réelle sur PC et tablette.
+
+**Idées de Pierre.** Avoir un personnage ; des armes (fun) ; plein de pays ; des monstres (quand viennent-ils ?) ; comment choisir son profil, comment enregistrer, quand apprend-on des choses. Rattachement aux jalons et décisions : voir l'entrée suivante.
