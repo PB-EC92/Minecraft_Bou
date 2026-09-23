@@ -1,22 +1,39 @@
+import { acceptMouseDelta, isClick, LOCK_SETTLE_MS } from "./mouseFilter";
+
 export type MouseAction = "break" | "place";
 
 /**
- * Regard à la souris via Pointer Lock. Un clic sur le canvas capture la
- * souris ; Échap la libère. Clic gauche = casser, clic droit = poser.
- * Si Pointer Lock n'est pas disponible (ou refusé), un mode de repli
- * « cliquer-glisser pour regarder » prend le relais.
+ * Regard à la souris.
+ *
+ * Mode normal : un clic sur le monde capture la souris (Pointer Lock) ;
+ * Échap la libère. Souris capturée : clic gauche = casser, clic droit = poser.
+ *
+ * Mode repli (capture indisponible ou refusée) : glisser en maintenant le
+ * bouton pour regarder ; un clic bref sans glisser casse (gauche) ou pose
+ * (droit). Le repli est actif si l'API est absente, ou tant que la dernière
+ * tentative de capture a échoué (chaque clic la retente).
  */
 export class MouseLook {
   yawDelta = 0;
   pitchDelta = 0;
   locked = false;
   readonly supported: boolean;
-  /** Dernier message d'erreur de Pointer Lock (diagnostic J0). */
+  /** Dernier message d'erreur de Pointer Lock (diagnostic). */
   lastError = "";
-  fallbackDragging = false;
+  /** Nombre de mouvements écartés par le filtre (diagnostic). */
+  rejectedMoves = 0;
 
+  private lockFailed = false;
+  private ignoreUntil = 0;
   private readonly actionHandlers: ((a: MouseAction) => void)[] = [];
   private readonly lockHandlers: ((locked: boolean) => void)[] = [];
+
+  private dragging = false;
+  private dragButton = 0;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private dragStartTime = 0;
+  private dragMoved = 0;
   private lastDragX = 0;
   private lastDragY = 0;
 
@@ -34,49 +51,80 @@ export class MouseLook {
         else if (e.button === 2) this.emit("place");
         return;
       }
-      if (this.supported) {
-        this.requestLock();
-      }
-      // Repli : glisser pour regarder
-      this.fallbackDragging = true;
-      this.lastDragX = e.clientX;
-      this.lastDragY = e.clientY;
+      // On retente la capture à chaque clic : un refus peut être passager
+      // (Chrome refuse une recapture pendant ~1 s après Échap).
+      if (this.supported) this.requestLock();
+      this.dragging = true;
+      this.dragButton = e.button;
+      this.dragStartX = this.lastDragX = e.clientX;
+      this.dragStartY = this.lastDragY = e.clientY;
+      this.dragStartTime = performance.now();
+      this.dragMoved = 0;
     });
 
-    window.addEventListener("mouseup", () => {
-      this.fallbackDragging = false;
+    window.addEventListener("mouseup", (e) => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      if (this.locked || !this.inFallback()) return;
+      const moved = Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY);
+      if (isClick(Math.max(moved, this.dragMoved), performance.now() - this.dragStartTime)) {
+        if (this.dragButton === 0) this.emit("break");
+        else if (this.dragButton === 2) this.emit("place");
+      }
     });
 
     window.addEventListener("mousemove", (e) => {
       if (this.locked) {
+        if (!acceptMouseDelta(e.movementX, e.movementY, performance.now(), this.ignoreUntil)) {
+          this.rejectedMoves++;
+          return;
+        }
         this.yawDelta -= e.movementX * this.sensitivity;
         this.pitchDelta -= e.movementY * this.sensitivity;
-      } else if (this.fallbackDragging) {
-        this.yawDelta -= (e.clientX - this.lastDragX) * this.sensitivity * 1.5;
-        this.pitchDelta -= (e.clientY - this.lastDragY) * this.sensitivity * 1.5;
+      } else if (this.dragging) {
+        const dx = e.clientX - this.lastDragX;
+        const dy = e.clientY - this.lastDragY;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
+        this.dragMoved = Math.max(this.dragMoved, Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY));
+        this.yawDelta -= dx * this.sensitivity * 1.5;
+        this.pitchDelta -= dy * this.sensitivity * 1.5;
       }
     });
 
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
+      if (this.locked) {
+        this.lockFailed = false;
+        this.ignoreUntil = performance.now() + LOCK_SETTLE_MS;
+        this.dragging = false; // le clic qui a servi à capturer n'est pas une action
+      }
       for (const h of this.lockHandlers) h(this.locked);
     });
     document.addEventListener("pointerlockerror", () => {
-      this.lastError = "pointerlockerror";
-      this.locked = false;
-      for (const h of this.lockHandlers) h(false);
+      this.fail("pointerlockerror");
     });
+  }
+
+  /** Vrai si le mode repli (glisser + clic bref) est actif : API absente ou dernière capture refusée. */
+  inFallback(): boolean {
+    return !this.supported || this.lockFailed;
   }
 
   requestLock(): void {
     try {
       const p = this.canvas.requestPointerLock({ unadjustedMovement: false }) as unknown;
-      if (p instanceof Promise) p.catch((err: unknown) => (this.lastError = String(err)));
+      if (p instanceof Promise) p.catch((err: unknown) => this.fail(String(err)));
     } catch (err) {
-      this.lastError = String(err);
+      this.fail(String(err));
     }
+  }
+
+  private fail(reason: string): void {
+    this.lastError = reason;
+    this.lockFailed = true;
+    this.locked = false;
+    for (const h of this.lockHandlers) h(false);
   }
 
   /** Consomme et remet à zéro les deltas accumulés depuis la dernière image. */

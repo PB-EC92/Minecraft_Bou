@@ -66,7 +66,7 @@ Missions : données déclaratives (étapes, conditions observées sur l'état du
 
 Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil.
 
-Build : `npm run build` produit `dist/cubes.html`. Taille attendue de l'ordre de 2 à 3 Mo (Three.js minifié compris — estimation), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
+Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
 
 ### Ce qu'impose le fichier local (`file://`)
 
@@ -77,6 +77,7 @@ Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni 
 | Jalon | Contenu | Livrable testable | Sessions (estim.) |
 |---|---|---|---|
 | J0 | Socle du projet et prototype technique | `cubes.html` minimal : marcher, casser/poser, test voix, compteur d'images | 1 à 2 |
+| J0.1 | Corrections issues de l'audit (`AUDIT-J0.md`) | Même prototype, fiabilisé pour les tests de Pierre | 1 |
 | J1 | Monde : chunks, terrain, textures, jour/nuit, eau | Se promener dans un monde généré | 2 |
 | J2 | Interaction : visée, casser/poser, inventaire, sons | Construire une cabane au clavier | 1 |
 | J3 | Tactile et performances tablette | Construire la même cabane sur la tablette | 1 à 2 |
@@ -85,7 +86,7 @@ Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni 
 | J6 | Tutoriel, mission 1 complète, finitions | Mission 1 jouable de bout en bout | 2 |
 | J7 | Recette V1 avec les enfants, corrections | Version 1.0 | 1 |
 
-Total indicatif : 11 à 13 sessions de travail, au fil de l'eau.
+Total indicatif : 12 à 14 sessions de travail (J0.1 compris), au fil de l'eau.
 
 ### J0 — Socle et prototype technique
 
@@ -93,7 +94,7 @@ Mise en place du projet (Vite, TypeScript, Three.js, single-file, Vitest, Playwr
 
 Prototype volontairement laid : monde plat 32 × 32, déplacement clavier, Pointer Lock, casser/poser un bloc, compteur d'images par seconde, joystick tactile rudimentaire, bouton « test voix » qui liste les voix disponibles et prononce une phrase en français.
 
-Tests à faire par Pierre : ouverture par double-clic sur le PC (Edge et Chrome), ouverture sur la tablette (fichier copié via OneDrive ou câble), lecture des voix, images par seconde.
+Tests à faire par Pierre : ouverture par double-clic sur le PC (Edge et Chrome), ouverture sur la tablette (fichier copié par câble USB, carte mémoire ou cloud personnel, et non par l'OneDrive ECOME, qui mettrait un compte professionnel sur la tablette familiale), lecture des voix, images par seconde.
 
 Porte de décision à la fin du J0 : Pointer Lock fonctionnel ou repli ; voix française disponible ou repli ; au moins 30 images par seconde sur la tablette ou réduction du monde ; mode de chargement retenu pour la tablette (fichier local ou serveur sur le PC).
 
@@ -131,9 +132,11 @@ En session Cowork : je code et je teste côté cloud (tests unitaires, Chromium 
 
 De ton côté : tester sur PC et tablette, faire tester par les enfants, noter les retours dans `docs/RETOURS.md` ou me les donner en session.
 
-Avec Claude Code sur ton poste : `npm install` puis `npm run dev` pour développer, `npm run build` pour régénérer `dist/cubes.html`, `npm test` pour les tests. Vite 7 exige Node.js 20.19 ou plus récent (à vérifier sur ton poste ; la version de Vite retenue au J0 pourra exiger davantage). `CLAUDE.md` décrit l'architecture et les règles du projet : tout inliné, aucun asset externe, textes en deux variantes, aucun emprunt à Minecraft.
+Avec Claude Code sur ton poste : `npm install` puis `npm run dev` pour développer, `npm run build` pour régénérer `dist/cubes.html`, `npm test` pour les tests. Les versions retenues au J0 (Vite 8, Vitest 5) exigent **Node.js 22.12 ou plus récent** (à vérifier sur ton poste avec `node -v`). `CLAUDE.md` décrit l'architecture et les règles du projet : tout inliné, aucun asset externe, textes en deux variantes, aucun emprunt à Minecraft.
 
 Piège OneDrive : `node_modules` contient des dizaines de milliers de fichiers ; dans un dossier synchronisé il ralentit fortement OneDrive. Deux options : ne rien installer localement (tout passe par Cowork), ou travailler localement dans un clone git hors OneDrive, avec un dépôt GitHub privé comme référence et sauvegarde. Le choix se fait au J0.
+
+Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration GitHub du compte (PB-EC92) ne permet pas de créer un dépôt depuis une session Cowork : ses sessions cloud sont liées aux dépôts configurés à leur démarrage (vérifié le 23/09/2026). L'historique est donc livré dans `cubes.git.bundle` (un seul fichier). Pierre a créé le dépôt `PB-EC92/Minecraft_Bou` ; il y pousse le bundle après l'avoir cloné hors OneDrive (procédure dans `README.md`). Même une fois le dépôt créé, cette session Cowork n'a pas pu s'y rattacher (aucun outil de rattachement disponible). Une fois le dépôt en place, il devient la référence. Reste à décider comment les sessions suivantes y contribuent : session Claude cloud démarrée sur ce dépôt, ou bundle à chaque session.
 
 ## 5. Risques et parades
 
@@ -147,6 +150,9 @@ Piège OneDrive : `node_modules` contient des dizaines de milliers de fichiers ;
 | Dérive de périmètre (quatre domaines pédagogiques) | V1 jamais terminée | Périmètre gelé, une seule mission en V1, backlog V2 |
 | `node_modules` dans OneDrive | Synchronisation dégradée | Voir section 4 |
 | Perte de sauvegarde (vidage du navigateur) | Monde perdu | Export JSON proposé régulièrement, rappel en mode parent |
+| Stockage local indisponible sur la tablette pour un fichier ouvert depuis le gestionnaire de fichiers (non vérifié) | Aucune sauvegarde possible | Ligne « Stockage local » du diagnostic J0 ; repli : serveur sur le PC, ou export/import seul |
+| Plan B serveur : les sauvegardes sont liées à l'adresse du PC ; si la box lui en attribue une autre, elles « disparaissent » | Monde perdu en apparence | Réserver l'adresse du PC dans la box ; export régulier |
+| Perte du contexte 3D quand la tablette passe à une autre appli (non vérifié) | Écran noir ou figé au retour | Test ajouté au protocole J0.1 ; gestion de la restauration au J1 si nécessaire |
 
 ## 6. Backlog V2 (non planifié)
 
@@ -160,4 +166,4 @@ Présence et version de Node.js sur le poste ; modèle de la tablette Android et
 
 - Three.js, dernière version : [Release r186 · mrdoob/three.js](https://github.com/mrdoob/three.js/releases/tag/r186)
 - Fichier unique : [vite-plugin-singlefile](https://github.com/richardtallent/vite-plugin-singlefile)
-- Prérequis Node.js de Vite 7 : [Vite 7.0 is out!](https://vite.dev/blog/announcing-vite7)
+- Prérequis Node.js : champ `engines` des paquets publiés sur npm, vérifié le 23/09/2026 (`vite@8.3.0` : Node ^20.19 ou ≥ 22.12 ; `vitest@5.0.1` : Node ^22.12, ^24 ou ≥ 26) ; contexte : [Vite 7.0 is out!](https://vite.dev/blog/announcing-vite7)

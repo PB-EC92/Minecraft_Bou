@@ -1,0 +1,31 @@
+/**
+ * Filtre des mouvements de souris en mode capturé (Pointer Lock).
+ *
+ * Au moment de la capture, Chromium envoie un faux mouvement égal au trajet
+ * du curseur vers le centre de la fenêtre (constaté à l'audit J0 : −640, −360
+ * pour une fenêtre 1280 × 720), ce qui fait pivoter la caméra d'un coup.
+ * On ignore donc les mouvements reçus juste après la capture, ainsi que tout
+ * mouvement isolé anormalement grand.
+ */
+
+/** Durée pendant laquelle on ignore les mouvements après une capture (ms). */
+export const LOCK_SETTLE_MS = 80;
+
+/** Au-delà de ce déplacement en un seul événement (px), le mouvement est jugé aberrant. */
+export const MAX_DELTA_PX = 200;
+
+export function acceptMouseDelta(dx: number, dy: number, now: number, ignoreUntil: number): boolean {
+  if (now < ignoreUntil) return false;
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+  return Math.abs(dx) <= MAX_DELTA_PX && Math.abs(dy) <= MAX_DELTA_PX;
+}
+
+/** Seuil sous lequel un appui-relâché compte comme un clic et non comme un glisser (px). */
+export const CLICK_MAX_MOVE_PX = 6;
+
+/** Durée maximale d'un clic (ms) ; au-delà c'est un glisser pour regarder. */
+export const CLICK_MAX_MS = 450;
+
+export function isClick(movedPx: number, durationMs: number): boolean {
+  return movedPx <= CLICK_MAX_MOVE_PX && durationMs <= CLICK_MAX_MS;
+}

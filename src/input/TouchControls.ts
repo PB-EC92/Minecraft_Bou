@@ -9,8 +9,14 @@ export type TouchMode = "break" | "place";
  * J3 raffinera (taille, zones, retours visuels).
  */
 export class TouchControls {
-  static isTouchDevice(): boolean {
-    return (navigator.maxTouchPoints ?? 0) > 0 || "ontouchstart" in window;
+  /**
+   * Vrai si le pointeur PRINCIPAL est un doigt (tablette, téléphone).
+   * Un PC à écran tactile répond non (pointeur principal = souris/pavé) :
+   * son interface tactile n'apparaît qu'au premier toucher (voir Game).
+   */
+  static primaryPointerIsTouch(): boolean {
+    if (typeof window.matchMedia === "function") return window.matchMedia("(pointer: coarse)").matches;
+    return (navigator.maxTouchPoints ?? 0) > 0;
   }
 
   /** Vecteur de déplacement [-1, 1] : x = latéral, z = avant (+) / arrière (-). */
@@ -76,10 +82,12 @@ export class TouchControls {
       e.stopPropagation();
       this.jumpPressed = true;
     });
-    jump.addEventListener("touchend", (e) => {
+    const release = (e: TouchEvent) => {
       e.preventDefault();
       this.jumpPressed = false;
-    });
+    };
+    jump.addEventListener("touchend", release);
+    jump.addEventListener("touchcancel", release);
 
     buttons.appendChild(this.modeButton);
     buttons.appendChild(jump);

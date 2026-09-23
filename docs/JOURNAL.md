@@ -30,3 +30,13 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Fait.** Audit complet, voir `AUDIT-J0.md`. Le socle tient : build reproductible, aucun code réseau, 0 vulnérabilité, lockfile compatible Windows, faces correctement orientées, casser/poser vérifiés sur PC et tablette simulés. Quatre défauts majeurs fausseraient le test J0 : saut de caméra à la capture de la souris, repli souris sans casser/poser, apparition sur le feuillage de l'arbre, chute hors du monde. Trois erreurs relevées dans les documents (Node ≥ 22.12 dans `PLAN.md`, taille estimée du fichier, une ligne du tableau de `RETOURS.md`).
 
 **Décision en attente.** Faire J0.1 (corrections majeures, `git init`, tests casser/poser) avant les tests J0 de Pierre : recommandé.
+
+## 2026-09-23 — J0.1, corrections de l'audit
+
+**Fait.** Les quatre défauts majeurs sont corrigés : caméra stable à la capture de la souris, mode repli complet (glisser = regarder, clic bref = agir), apparition au sol, bords du monde infranchissables. Aussi corrigés : détection tactile par pointeur principal (PC tactile géré), voix locales préférées avec liste rafraîchie et délai de secours, message « Pas de place ici », écran d'erreur lisible si la boucle plante, `touchcancel` sur Sauter, séparation des configurations TypeScript. Tests : 40 unitaires, 12 de fumée (17 exécutions sur les deux profils, les autres étant propres à un seul profil). Détail et état de chaque constat : `AUDIT-J0.md`, section « Suivi ». Documents corrigés : `PLAN.md`, `RETOURS.md` (protocole J0.1), `README.md`, `CLAUDE.md`. `dist/cubes.html` ≈ 550 ko ; la version s'affiche dans la ligne d'infos (« J0.1 »).
+
+**Git.** Dépôt créé côté cloud avec l'historique (J0, puis J0.1), livré dans `cubes.git.bundle`. L'intégration GitHub (compte PB-EC92) est connectée, mais ses sessions cloud sont liées aux dépôts configurés à leur démarrage : impossible de créer un dépôt depuis Cowork. Pierre a créé `PB-EC92/Minecraft_Bou` ; la session n'a pas pu s'y rattacher (l'API répond « accès non activé pour cette session » et aucun outil de rattachement n'est disponible). Pierre pousse le bundle depuis son poste (procédure dans `README.md`).
+
+**Attendu de Pierre.** Supprimer `Claude outputs\cubes.html` ; vérifier que `Minecraft_Bou` est privé et y pousser le bundle ; dérouler le protocole J0.1 de `RETOURS.md` sur PC et tablette ; indiquer la version de Node.js du poste, l'âge du second enfant, et si le PC a un écran tactile.
+
+**Décisions en attente.** Porte J0 (inchangée) ; façon dont les sessions suivantes contribuent au dépôt GitHub (session cloud démarrée sur le dépôt, ou bundle) ; suggestion de l'audit : une boucle « voix + comptage » dès J2 pour tester tôt la pédagogie.

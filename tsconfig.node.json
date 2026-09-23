@@ -1,0 +1,8 @@
+{
+  // Tests et fichiers de configuration : exécutés par Node, types Node autorisés.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": ["tests", "vite.config.ts", "playwright.config.ts"]
+}

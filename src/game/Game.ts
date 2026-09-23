@@ -7,6 +7,7 @@ import { Keyboard } from "../input/Keyboard";
 import { MouseLook } from "../input/MouseLook";
 import { TouchControls } from "../input/TouchControls";
 import { SceneView } from "../render/SceneView";
+import { showFatalError } from "../ui/fatal";
 import { Hud } from "../ui/Hud";
 import { Player } from "./Player";
 
@@ -14,6 +15,13 @@ const REACH = 6;
 const WORLD_SIZE = 32;
 const WORLD_HEIGHT = 16;
 const GROUND = 4;
+export const VERSION = "J0.1";
+
+const HINT_TOUCH = "Doigt gauche : bouger · doigt droit : regarder · tapoter : agir";
+const HINT_MOUSE =
+  "Clique pour capturer la souris · ZQSD bouger · Espace sauter\nClic gauche casser · clic droit poser · 1-6 choisir un bloc · Échap libérer";
+const HINT_MOUSE_FALLBACK =
+  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter\nClic bref gauche casser · clic bref droit poser · 1-6 choisir un bloc";
 
 /**
  * Assemble tout : monde, rendu, joueur, entrées, HUD, boucle de jeu.
@@ -28,7 +36,11 @@ export class Game {
   readonly mouse: MouseLook;
   readonly touch: TouchControls;
   readonly speech = new Speech();
-  readonly isTouch: boolean;
+  /** Appareil dont le pointeur principal est le doigt (tablette) : fixé au démarrage. */
+  readonly coarsePointer: boolean;
+  /** Interface tactile affichée : au démarrage sur tablette, ou dès le premier toucher (PC tactile). */
+  private touchUi: boolean;
+  private stopped = false;
 
   private selectedSlot = 0;
   private target: RayHit | null = null;
@@ -38,7 +50,8 @@ export class Game {
   private storageOk = "?";
 
   constructor(root: HTMLElement) {
-    this.isTouch = TouchControls.isTouchDevice();
+    this.coarsePointer = TouchControls.primaryPointerIsTouch();
+    this.touchUi = this.coarsePointer;
 
     this.world = World.createFlat(WORLD_SIZE, WORLD_HEIGHT, WORLD_SIZE, GROUND);
     this.buildTestStructures();
@@ -47,31 +60,45 @@ export class Game {
     canvas.className = "game";
     root.appendChild(canvas);
 
-    this.view = new SceneView(canvas, this.world, this.isTouch);
+    this.view = new SceneView(canvas, this.world, this.coarsePointer);
     this.hud = new Hud(root, this.view.atlasCanvas);
     this.touch = new TouchControls(root);
-    this.touch.enable(this.isTouch);
+    this.touch.enable(this.touchUi);
     this.keyboard = new Keyboard();
     this.mouse = new MouseLook(canvas);
 
     this.player = new Player(this.world);
-    const sx = WORLD_SIZE / 2 + 0.5;
-    const sz = WORLD_SIZE / 2 + 4.5;
-    this.player.setPosition(sx, this.world.surfaceHeight(Math.floor(sx), Math.floor(sz)), sz);
+    const sx = WORLD_SIZE / 2;
+    const sz = WORLD_SIZE / 2 + 4;
+    // Au sol, jamais sur un feuillage ni dans un bloc (constat 3 de l'audit J0).
+    this.player.setPosition(sx + 0.5, (this.world.findStandingY(sx, sz) ?? GROUND) + 0.01, sz + 0.5);
 
     this.wireInputs();
     this.setSlot(0);
     this.testStorage();
     this.setupVoicePanel();
 
-    this.hud.setHint(
-      this.isTouch
-        ? "Doigt gauche : bouger · doigt droit : regarder · tapoter : agir"
-        : "Clique pour capturer la souris · ZQSD bouger · Espace sauter\nClic gauche casser · clic droit poser · 1-6 choisir un bloc · Échap libérer",
-    );
-    this.hud.showMessage("Bienvenue dans Cubes (prototype J0)", 4000);
+    this.updateHint();
+    this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})`, 4000);
 
-    requestAnimationFrame((t) => this.frame(t));
+    requestAnimationFrame((t) => this.safeFrame(t));
+  }
+
+  private updateHint(): void {
+    if (this.touchUi) this.hud.setHint(HINT_TOUCH);
+    else this.hud.setHint(this.mouse.inFallback() ? HINT_MOUSE_FALLBACK : HINT_MOUSE);
+  }
+
+  /** Boucle protégée : une erreur affiche un écran lisible au lieu de figer le jeu en silence. */
+  private safeFrame(now: number): void {
+    if (this.stopped) return;
+    try {
+      this.frame(now);
+    } catch (err) {
+      this.stopped = true;
+      showFatalError(err);
+      throw err;
+    }
   }
 
   /** Quelques éléments pour tester saut, collisions et visée. */
@@ -90,14 +117,16 @@ export class Game {
         w.set(x, y, cz - 4, BlockId.Planks);
       }
     }
-    // Un arbre
-    for (let y = GROUND; y < GROUND + 4; y++) w.set(cx - 2, y, cz + 6, BlockId.Log);
+    // Un arbre, à l'écart du point d'apparition (x = cx, z = cz + 4)
+    const tx = cx - 6;
+    const tz = cz + 7;
+    for (let y = GROUND; y < GROUND + 4; y++) w.set(tx, y, tz, BlockId.Log);
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) {
         for (let dy = 3; dy <= 5; dy++) {
           if (Math.abs(dx) + Math.abs(dz) + (dy - 3) > 4) continue;
-          if (w.get(cx - 2 + dx, GROUND + dy, cz + 6 + dz) === BlockId.Air) {
-            w.set(cx - 2 + dx, GROUND + dy, cz + 6 + dz, BlockId.Grass);
+          if (w.get(tx + dx, GROUND + dy, tz + dz) === BlockId.Air) {
+            w.set(tx + dx, GROUND + dy, tz + dz, BlockId.Grass); // feuillage provisoire (bloc dédié en J1)
           }
         }
       }
@@ -116,9 +145,26 @@ export class Game {
     this.mouse.onAction((a) => (a === "break" ? this.breakBlock() : this.placeBlock()));
     this.mouse.onLockChange((locked) => {
       this.hud.lockButton.textContent = locked ? "Souris capturée (Échap)" : "Capturer la souris";
-      if (!locked && !this.isTouch) this.hud.showMessage("Clique sur le monde pour reprendre", 2000);
+      this.updateHint();
+      if (locked || this.touchUi) return;
+      this.hud.showMessage(
+        this.mouse.inFallback() ? "Capture de la souris refusée : glisse pour regarder, clic bref pour agir" : "Clique sur le monde pour reprendre",
+        2500,
+      );
     });
     this.touch.onAction((mode) => (mode === "break" ? this.breakBlock() : this.placeBlock()));
+
+    // PC à écran tactile : l'interface tactile n'apparaît qu'au premier vrai toucher.
+    window.addEventListener(
+      "touchstart",
+      () => {
+        if (this.touchUi) return;
+        this.touchUi = true;
+        this.touch.enable(true);
+        this.updateHint();
+      },
+      { capture: true, passive: true },
+    );
 
     this.hud.lockButton.addEventListener("click", () => this.mouse.requestLock());
     this.hud.fullscreenButton.addEventListener("click", () => this.toggleFullscreen());
@@ -170,7 +216,10 @@ export class Game {
       this.hud.showMessage("Trop loin : le monde s'arrête ici");
       return;
     }
-    if (boxesIntersect(blockBox(x, y, z), this.player.box())) return;
+    if (boxesIntersect(blockBox(x, y, z), this.player.box())) {
+      this.hud.showMessage("Pas de place ici : tu es dedans !", 1500);
+      return;
+    }
     const id = this.selectedBlock();
     if (this.world.set(x, y, z, id)) this.hud.showMessage(`Posé : ${this.hud.blockName(id)}`, 1200);
   }
@@ -187,15 +236,18 @@ export class Game {
   private setupVoicePanel(): void {
     const hud = this.hud;
     hud.voiceResult.textContent = "Chargement des voix…";
-    void this.speech.whenReady().then(() => {
+    const refresh = () => {
       const fr = this.speech.frenchVoices();
       const all = this.speech.allVoices();
+      const local = fr.filter((v) => v.localService).length;
       const list = fr.length > 0 ? fr : all;
       hud.setVoices(list, this.speech.pickVoice()?.voiceURI ?? null);
       hud.voiceResult.textContent = this.speech.supported
-        ? `${fr.length} voix française(s) sur ${all.length} voix au total`
+        ? `${fr.length} voix française(s) dont ${local} locale(s) (hors ligne), sur ${all.length} voix au total`
         : "Synthèse vocale non disponible dans ce navigateur";
-    });
+    };
+    void this.speech.whenReady().then(refresh);
+    this.speech.onVoicesChanged(refresh);
     hud.voiceSelect.addEventListener("change", () => {
       this.speech.preferredVoiceUri = hud.voiceSelect.value || null;
     });
@@ -243,7 +295,7 @@ export class Game {
     this.view.render();
 
     this.updateStats(now, dt);
-    requestAnimationFrame((n) => this.frame(n));
+    requestAnimationFrame((n) => this.safeFrame(n));
   }
 
   private updateStats(now: number, dt: number): void {
@@ -254,10 +306,12 @@ export class Game {
     const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
     const worst = Math.max(...this.frameTimes);
     const p = this.player;
+    const deg = (r: number) => Math.round((r * 180) / Math.PI);
+    const cap = ((deg(p.yaw) % 360) + 360) % 360;
     this.hud.setInfo(
       `${Math.round(1000 / avg)} i/s  (moy. ${avg.toFixed(1)} ms, pire ${worst.toFixed(0)} ms)\n` +
-        `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${p.onGround ? "sol" : "air"}\n` +
-        `faces ${this.faces}  bloc : ${this.hud.blockName(this.selectedBlock())}`,
+        `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${p.onGround ? "sol" : "air"}  regard ${cap}° ${deg(p.pitch)}°\n` +
+        `faces ${this.faces}  bloc : ${this.hud.blockName(this.selectedBlock())}  ${VERSION}`,
     );
     const g = this.view.gpu;
     this.hud.setDiagnostics(
@@ -265,11 +319,13 @@ export class Game {
         `Adresse : ${location.protocol}//${location.host || "(fichier local)"}`,
         `Navigateur : ${navigator.userAgent}`,
         `Écran : ${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio}× (rendu ${g.pixelRatio}×)`,
-        `Tactile : ${this.isTouch ? "oui" : "non"} (${navigator.maxTouchPoints} points)`,
+        `Tactile : pointeur principal ${this.coarsePointer ? "doigt" : "souris"}, interface tactile ${
+          this.touchUi ? "affichée" : "masquée"
+        } (${navigator.maxTouchPoints} points)`,
         `WebGL2 : ${g.webgl2 ? "oui" : "non"} — ${g.renderer}`,
         `Pointer Lock : ${this.mouse.supported ? "disponible" : "absent"}, ${this.mouse.locked ? "actif" : "inactif"}${
-          this.mouse.lastError ? `, erreur : ${this.mouse.lastError}` : ""
-        }`,
+          this.mouse.inFallback() ? ", mode repli" : ""
+        }, mouvements écartés ${this.mouse.rejectedMoves}${this.mouse.lastError ? `, erreur : ${this.mouse.lastError}` : ""}`,
         `Stockage local : ${this.storageOk}`,
         `Synthèse vocale : ${this.speech.supported ? "disponible" : "absente"}`,
       ].join("\n"),

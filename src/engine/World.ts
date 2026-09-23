@@ -50,6 +50,40 @@ export class World {
     return isSolidId(this.get(x, y, z));
   }
 
+  /**
+   * Solidité vue par la physique : les bords horizontaux du monde et le
+   * dessous (y < 0) sont des murs invisibles, pour qu'on ne tombe jamais
+   * dans le vide. Le ciel (y ≥ hauteur du monde) reste libre. Les rayons de
+   * visée utilisent `isSolid`, on ne peut donc pas viser ces murs.
+   */
+  isSolidForPhysics(x: number, y: number, z: number): boolean {
+    if (x < 0 || z < 0 || x >= this.sizeX || z >= this.sizeZ || y < 0) return true;
+    if (y >= this.sizeY) return false;
+    return isSolidId(this.data[this.index(x, y, z)] ?? 0);
+  }
+
+  /**
+   * Hauteur des pieds pour se tenir debout en (x, z) : le plus bas bloc
+   * d'air ayant un bloc solide dessous et `clearance` blocs d'air libres.
+   * Sert au point d'apparition : on arrive au sol, jamais sur un feuillage.
+   * Retourne null si la colonne n'offre aucune place.
+   */
+  findStandingY(x: number, z: number, clearance = 2): number | null {
+    if (x < 0 || z < 0 || x >= this.sizeX || z >= this.sizeZ) return null;
+    for (let y = 1; y + clearance <= this.sizeY; y++) {
+      if (!this.isSolid(x, y - 1, z)) continue;
+      let free = true;
+      for (let k = 0; k < clearance; k++) {
+        if (this.isSolid(x, y + k, z)) {
+          free = false;
+          break;
+        }
+      }
+      if (free) return y;
+    }
+    return null;
+  }
+
   /** Hauteur du premier bloc d'air au-dessus du sol en (x, z), ou 0. */
   surfaceHeight(x: number, z: number): number {
     for (let y = this.sizeY - 1; y >= 0; y--) {

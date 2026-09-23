@@ -1,4 +1,5 @@
 {
+  // Code du jeu (navigateur uniquement) : pas de types Node ici.
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -13,7 +14,7 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client", "node"]
+    "types": ["vite/client"]
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src"]
 }

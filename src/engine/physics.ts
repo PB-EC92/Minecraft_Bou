@@ -12,7 +12,7 @@ export interface AABB {
 
 const EPS = 1e-4;
 
-/** Vrai si la boîte recouvre au moins un bloc solide. */
+/** Vrai si la boîte recouvre au moins un bloc solide (bords du monde compris). */
 export function collides(world: World, b: AABB): boolean {
   const x0 = Math.floor(b.minX);
   const x1 = Math.floor(b.maxX - EPS);
@@ -23,7 +23,7 @@ export function collides(world: World, b: AABB): boolean {
   for (let y = y0; y <= y1; y++) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
-        if (world.isSolid(x, y, z)) return true;
+        if (world.isSolidForPhysics(x, y, z)) return true;
       }
     }
   }

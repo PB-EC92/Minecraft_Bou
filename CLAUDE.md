@@ -7,6 +7,7 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (7 ans lecteur dé
 - `npm install` — Node.js ≥ 22.12 requis (Vite 8 / Vitest 5).
 - `npm run dev` — serveur de développement avec rechargement.
 - `npm run build` — vérification des types puis production de `dist/cubes.html` (fichier unique, le seul livrable).
+- `npm run typecheck` — deux passes : `tsconfig.json` (code du jeu, sans types Node) et `tsconfig.node.json` (tests et configuration).
 - `npm test` — tests unitaires Vitest (`tests/unit`).
 - `npm run test:e2e` — tests de fumée Playwright sur `dist/cubes.html` ouvert en `file://` (lancer `npm run build` avant ; `npx playwright install chromium` une fois).
 - `npm run preview` — sert `dist/` sur le réseau local (plan B pour la tablette).
@@ -24,12 +25,12 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (7 ans lecteur dé
 ## Architecture (voir `docs/PLAN.md` §2)
 
 ```
-src/engine/   monde, blocs, raycast (DDA), physique AABB, aléatoire déterministe
+src/engine/   monde (bords = murs pour la physique, point d'apparition), blocs, raycast (DDA), physique AABB, aléatoire
 src/render/   SceneView (Three.js), WorldMesh (faces visibles), textures (atlas procédural)
-src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser), TouchControls
-src/game/     Game (assemblage + boucle), Player
-src/edu/      Speech (synthèse vocale) ; à venir : profils, missions, compagnon
-src/ui/       Hud (DOM natif, pas de framework)
+src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/clic bref), mouseFilter (fonctions pures), TouchControls
+src/game/     Game (assemblage + boucle protégée), Player
+src/edu/      Speech (synthèse vocale, voix locales préférées) ; à venir : profils, missions, compagnon
+src/ui/       Hud (DOM natif, pas de framework), fatal (écran d'erreur lisible)
 src/save/     à venir (J4)
 tests/unit    Vitest — moteur
 tests/e2e     Playwright — fumée sur le fichier construit
@@ -41,7 +42,9 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Pas de dépendance ajoutée sans la noter dans `docs/JOURNAL.md` avec sa raison.
 - Toute nouvelle fonctionnalité du moteur arrive avec un test unitaire ; toute nouvelle interface avec un cas dans `tests/e2e/smoke.spec.ts` si elle est vérifiable sans WebGL matériel.
 - Avant de livrer : `npm run build` réussit, `npm test` passe, `dist/cubes.html` a été ouvert en `file://`.
-- Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, préférer un clone git hors OneDrive.
+- Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, travailler dans le clone git hors OneDrive (voir `README.md`).
+- Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
+- Tests de fumée : l'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 
 ## État courant
 

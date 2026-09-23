@@ -75,3 +75,25 @@ Voix françaises et fin de lecture sur tes appareils ; ampleur réelle du saut d
 ## Priorités proposées
 
 J0.1, une session courte, avant tes tests : constats 1 à 4 et 6-7, test de fumée casser/poser, `git init`, corrections D1 à D3. Le constat 5 ne rentre dans J0.1 que si ton PC est tactile. Tout le reste suit les jalons indiqués.
+
+## Suivi des corrections (J0.1, 23 septembre 2026)
+
+| # | État | Ce qui a été fait | Vérification |
+|---|---|---|---|
+| 1 | Corrigé | Mouvements ignorés 80 ms après la capture et mouvements isolés > 200 px écartés (`src/input/mouseFilter.ts`) ; compteur « mouvements écartés » dans le diagnostic | Test unitaire avec la valeur observée (−640, −360) ; test de fumée : orientation identique avant/après capture. Sur ton PC réel : à confirmer (protocole J0.1) |
+| 2 | Corrigé | Mode repli : glisser = regarder, clic bref = casser/poser ; message et consigne adaptés ; la capture est retentée à chaque clic (Chrome refuse une recapture pendant ~1 s après Échap) | Test de fumée avec l'API de capture retirée |
+| 3 | Corrigé | Point d'apparition calculé au sol (`World.findStandingY`) ; arbre éloigné du point d'apparition | Tests unitaires ; test de fumée « au sol » |
+| 4 | Corrigé | Bords horizontaux et dessous du monde = murs pour la physique (`World.isSolidForPhysics`) ; la visée ne les voit pas | Tests unitaires monde et joueur |
+| 5 | Corrigé | Détection par `(pointer: coarse)` ; sur PC tactile, l'interface tactile apparaît au premier toucher | Test de fumée (profil PC + toucher réel). Note : l'option `hasTouch` de Playwright fait passer un PC pour une tablette, elle ne sert donc pas à ce test |
+| 6 | Corrigé | Voix locales préférées (fonction pure `chooseVoice`) ; liste rafraîchie à chaque `voiceschanged` ; panneau « dont N locale(s) » | Tests unitaires ; sur tes appareils : à confirmer |
+| 7 | Corrigé | Référence conservée sur la phrase en cours + délai de secours | Test unitaire du délai ; comportement réel : à confirmer |
+| 8 | Corrigé | Message « Pas de place ici : tu es dedans ! » | Relecture |
+| 11 | En partie | Boucle de jeu protégée : écran « Oups » lisible avec le texte technique. Perte de contexte 3D : test ajouté au protocole, traitement au J1 si besoin | Relecture |
+| 16 | Corrigé | `touchcancel` géré sur Sauter | Relecture |
+| 17 | Corrigé | `@types/node` en v22 ; `tsconfig.json` (jeu, sans types Node) et `tsconfig.node.json` (tests) | `npm run typecheck` |
+| 18 | Corrigé | 40 tests unitaires (12 avant) ; 12 tests de fumée (6 avant), dont casser/poser à la souris, au doigt et en mode repli | `npm test`, `npm run test:e2e` |
+| 9, 10, 12-15 | Reporté | Selon les jalons indiqués dans le tableau des constats | — |
+| D1-D3 | Corrigé | `PLAN.md` (Node ≥ 22.12, taille mesurée), `RETOURS.md` (ligne corrigée, protocole J0.1 enrichi) | Relecture |
+| D4 | Corrigé | `PLAN.md` et `README.md` : transfert par câble, carte ou cloud personnel | Relecture |
+| D5 | À faire par Pierre | Supprimer `Claude outputs\cubes.html` (je ne peux pas supprimer de fichiers d'ici) | — |
+| Git | Fait, à publier | Dépôt git avec historique, livré dans `cubes.git.bundle` ; à pousser par Pierre vers `PB-EC92/Minecraft_Bou` (la session Cowork ne peut ni créer ni rattacher un dépôt) | `git bundle verify`, clone de contrôle |

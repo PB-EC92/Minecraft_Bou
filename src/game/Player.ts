@@ -112,11 +112,12 @@ export class Player {
     if (r.hitX) this.vx = 0;
     if (r.hitZ) this.vz = 0;
 
-    // Filet de sécurité : si on tombe sous le monde, on remonte au point de départ.
+    // Filet de sécurité (ne devrait plus servir : les bords et le dessous du
+    // monde sont des murs) : si on se retrouve sous le monde, retour au centre.
     if (this.y < -20) {
-      const sx = Math.floor(this.world.sizeX / 2) + 0.5;
-      const sz = Math.floor(this.world.sizeZ / 2) + 0.5;
-      this.setPosition(sx, this.world.surfaceHeight(Math.floor(sx), Math.floor(sz)) + 0.5, sz);
+      const cx = Math.floor(this.world.sizeX / 2);
+      const cz = Math.floor(this.world.sizeZ / 2);
+      this.setPosition(cx + 0.5, (this.world.findStandingY(cx, cz) ?? this.world.surfaceHeight(cx, cz)) + 0.01, cz + 0.5);
     }
   }
 }
