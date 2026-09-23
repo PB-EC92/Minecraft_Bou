@@ -1,7 +1,7 @@
 # Brief — « Cubes » (nom provisoire)
 
 Jeu de construction en blocs, éducatif, pour deux enfants.
-Brief validé par Pierre le 23 septembre 2026. Document de référence du projet : toute évolution du périmètre passe par une mise à jour de ce fichier.
+Brief validé par Pierre le 23 septembre 2026, complété le même jour après les retours J0.1 (types de monde, vue à la troisième personne, outils rigolos). Document de référence du projet : toute évolution du périmètre passe par une mise à jour de ce fichier.
 
 ## Objectif
 
@@ -23,9 +23,11 @@ Un « mode parent », d'accès discret, permet de régler la difficulté et de c
 
 ## Expérience de jeu
 
-Monde en blocs de taille limitée (pas d'infini), vue à la première personne, cycle jour/nuit. Aucune mort possible.
+Monde en blocs de taille limitée (pas d'infini), cycle jour/nuit. Aucune mort possible. À la création d'un monde, l'enfant choisit son type parmi quelques-uns (par exemple prairie, île, montagne, désert).
 
-Les « petits ennuis » sont des créatures rigolotes non violentes : elles chipent un objet, bloquent un passage, s'éloignent d'une lampe ou d'une clôture. On ne combat jamais.
+Vue à la première personne, avec en option une vue à la troisième personne pour voir son personnage (avatar original, choisi dans le profil).
+
+Les « petits ennuis » sont des créatures rigolotes non violentes : elles chipent un objet, bloquent un passage, s'éloignent d'une lampe ou d'une clôture. On ne combat jamais : pas d'armes, mais des outils rigolos (par exemple un lance-bulles qui fait fuir les créatures).
 
 Un compagnon-guide (petit robot ou animal) donne les missions, lit les consignes, félicite.
 
@@ -44,11 +46,11 @@ Chaque mission mobilise un ou deux domaines et s'adapte au profil (aide vocale, 
 
 ## Périmètre de la V1
 
-Bac à sable complet : se déplacer, casser et poser une dizaine de types de blocs, inventaire simple, sauvegarde, deux profils.
+Bac à sable complet : se déplacer, casser et poser une dizaine de types de blocs, inventaire simple, sauvegarde, deux profils, choix du type de monde (3 ou 4 types), vue à la troisième personne, un outil rigolo (le lance-bulles).
 
 Mission 1 — « Construis un abri avant la nuit » : le compagnon lit la consigne (lecture), il faut rassembler 6 bois et 4 pierres (comptage), les créatures rigolotes arrivent la nuit et on découvre que la lampe les éloigne (logique).
 
-Hors V1 : multijoueur, craft complexe, survie/faim, monstres violents, monde infini, missions 2 à n.
+Hors V1 : multijoueur, craft complexe, survie/faim, monstres violents, armes et combat, monde infini, missions 2 à n, autres outils rigolos (filet, bloc confettis…).
 
 ## Plateformes et contrôles
 

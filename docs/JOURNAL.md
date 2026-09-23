@@ -62,3 +62,15 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Proposé pour J1.** Diagnostic plus fin : deux compteurs distincts (après capture / trop grand) et plus grand déplacement reçu ; temps de calcul par image hors attente de l'écran, pour mesurer la marge réelle sur PC et tablette.
 
 **Idées de Pierre.** Avoir un personnage ; des armes (fun) ; plein de pays ; des monstres (quand viennent-ils ?) ; comment choisir son profil, comment enregistrer, quand apprend-on des choses. Rattachement aux jalons et décisions : voir l'entrée suivante.
+
+## 2026-09-23 — Décisions après les retours J0.1
+
+**Décisions de Pierre.**
+- Lancer J1 sans attendre le test de la tablette : distance de rendu réglable, la tablette testera directement la version J1.
+- Armes et monstres : pas de combat. Des outils rigolos non violents à la place. Proposition retenue dans le brief : un outil en V1, le lance-bulles qui fait fuir les créatures (J5) ; filet et bloc confettis en backlog V2.
+- « Plein de pays » = plusieurs types de monde au choix à la création (prairie, île, montagne, désert). Générateur paramétré dès J1, choix par l'enfant au J4.
+- « Avoir un personnage » = se voir à l'écran : vue à la troisième personne activable, avatar original choisi dans le profil (J4).
+
+**Documents mis à jour.** `BRIEF.md` (expérience de jeu, périmètre V1, hors V1), `PLAN.md` (J1, J4, J5, backlog V2, estimation portée à 13 à 15 sessions, risque « ergonomie » ramené à 6 ans).
+
+**Décision en attente.** Avancer au J2 une boucle « consigne lue + comptage » pour tester tôt la pédagogie avec les enfants (recommandé, sans réponse de Pierre à ce stade).

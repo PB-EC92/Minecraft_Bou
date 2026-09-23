@@ -78,15 +78,15 @@ Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni 
 |---|---|---|---|
 | J0 | Socle du projet et prototype technique | `cubes.html` minimal : marcher, casser/poser, test voix, compteur d'images | 1 à 2 |
 | J0.1 | Corrections issues de l'audit (`AUDIT-J0.md`) | Même prototype, fiabilisé pour les tests de Pierre | 1 |
-| J1 | Monde : chunks, terrain, textures, jour/nuit, eau | Se promener dans un monde généré | 2 |
+| J1 | Monde : chunks, terrain par type de monde, textures, jour/nuit, eau | Se promener dans un monde généré | 2 |
 | J2 | Interaction : visée, casser/poser, inventaire, sons | Construire une cabane au clavier | 1 |
 | J3 | Tactile et performances tablette | Construire la même cabane sur la tablette | 1 à 2 |
-| J4 | Profils, sauvegarde, export/import, mode parent | Deux enfants retrouvent chacun leur monde | 1 |
-| J5 | Compagnon, moteur de missions, créatures, lampe, clôture | Le compagnon parle ; les créatures rôdent la nuit | 2 |
+| J4 | Profils et avatars, choix du type de monde, vue à la 3e personne, sauvegarde, export/import, mode parent | Deux enfants retrouvent chacun leur monde et se voient jouer | 1 à 2 |
+| J5 | Compagnon, moteur de missions, créatures, lampe, clôture, lance-bulles | Le compagnon parle ; les créatures rôdent la nuit | 2 |
 | J6 | Tutoriel, mission 1 complète, finitions | Mission 1 jouable de bout en bout | 2 |
 | J7 | Recette V1 avec les enfants, corrections | Version 1.0 | 1 |
 
-Total indicatif : 12 à 14 sessions de travail (J0.1 compris), au fil de l'eau.
+Total indicatif : 13 à 15 sessions de travail (J0.1 compris), au fil de l'eau (une de plus qu'au départ, pour les ajouts du 23/09 : types de monde, vue à la 3e personne, lance-bulles).
 
 ### J0 — Socle et prototype technique
 
@@ -102,6 +102,8 @@ Porte de décision à la fin du J0 : Pointer Lock fonctionnel ou repli ; voix fr
 
 Chunks, maillage avec suppression des faces cachées, génération de terrain à graine, atlas de textures procédurales, éclairage jour/nuit (couleur du ciel, intensité), eau, arbres et fleurs. Physique du joueur. Mesure des performances et réglage de la distance de rendu.
 
+Le générateur accepte dès J1 un type de monde (prairie, île, montagne, désert) ; le choix par l'enfant arrive avec l'écran d'accueil au J4. Diagnostic affiné à la suite des retours J0.1 : temps de calcul par image hors attente de l'écran (la marge réelle, masquée par le plafond de 60 images/s), et compteurs de mouvements souris écartés séparés (après capture / trop grand).
+
 ### J2 — Interaction et inventaire
 
 Visée par raycast avec surbrillance du bloc ciblé, casse (courte pression avec barre de progression, pour éviter les casses accidentelles), pose, barre d'inventaire à neuf cases avec compteurs (les blocs cassés sont ramassés : le comptage est le support de la mission 1). Sons synthétisés. Première session de test avec les enfants : consigne libre « construis une cabane ».
@@ -112,11 +114,11 @@ Joystick virtuel, regard au doigt, boutons, détection du tactile, plein écran,
 
 ### J4 — Profils, sauvegarde, mode parent
 
-Écran d'accueil avec deux profils (prénom, avatar), « nouveau monde » ou « continuer », sauvegarde automatique toutes les 30 secondes et à la fermeture, export/import, mode parent avec ses réglages et la progression.
+Écran d'accueil avec deux profils (prénom, avatar), « nouveau monde » (avec choix du type de monde) ou « continuer », sauvegarde automatique toutes les 30 secondes et à la fermeture, export/import, mode parent avec ses réglages et la progression. Avatar en blocs, dessin original (rien de Minecraft), visible dans une vue à la troisième personne activable par une touche et un bouton tactile ; la caméra ne traverse pas les murs.
 
 ### J5 — Compagnon, missions, créatures
 
-Compagnon qui suit le joueur, bulle de dialogue, lecture vocale, bouton « répète ». Moteur de missions déclaratif avec variantes par profil. Créatures rigolotes et leurs comportements ; bloc lampe et bloc clôture fonctionnels ; signal d'arrivée de la nuit (son, ciel).
+Compagnon qui suit le joueur, bulle de dialogue, lecture vocale, bouton « répète ». Moteur de missions déclaratif avec variantes par profil. Créatures rigolotes et leurs comportements ; bloc lampe et bloc clôture fonctionnels ; lance-bulles (outil rigolo, jamais une arme : les bulles font fuir les créatures) ; signal d'arrivée de la nuit (son, ciel).
 
 ### J6 — Tutoriel, mission 1, finitions
 
@@ -146,7 +148,7 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 | Pointer Lock indisponible en `file://` | Pas de regard souris | Test J0 ; repli clic-glisser ou serveur local |
 | Aucune voix française de synthèse | Consignes non lues pour le lecteur débutant | Test J0 ; repli icônes + sons ; option : enregistrer la voix d'un parent (fichiers audio embarqués, taille en hausse) |
 | Fichier HTML local non ouvrable sur Android | Le jeu ne se lance pas sur la tablette | Test J0 ; repli serveur sur le PC via le wifi domestique |
-| Ergonomie inadaptée à 7 ans | Frustration | Tests enfants dès J2, tutoriel J6, gros boutons, aucun échec bloquant |
+| Ergonomie inadaptée à 6 ans | Frustration | Tests enfants dès J2, tutoriel J6, gros boutons, aucun échec bloquant |
 | Dérive de périmètre (quatre domaines pédagogiques) | V1 jamais terminée | Périmètre gelé, une seule mission en V1, backlog V2 |
 | `node_modules` dans OneDrive | Synchronisation dégradée | Voir section 4 |
 | Perte de sauvegarde (vidage du navigateur) | Monde perdu | Export JSON proposé régulièrement, rappel en mode parent |
@@ -156,7 +158,7 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 
 ## 6. Backlog V2 (non planifié)
 
-Missions 2 à 5, une par domaine : mots à composer en blocs-lettres (lecture/écriture) ; construction symétrique à compléter (mathématiques) ; maison qui garde la chaleur la nuit et plantes à arroser (sciences) ; suite d'ordres à donner au compagnon pour franchir un parcours (logique). Puis : craft simple (planches à partir de tronc), animaux à nourrir, météo, musique d'ambiance, nom définitif choisi par les enfants, blocs et biomes supplémentaires.
+Missions 2 à 5, une par domaine : mots à composer en blocs-lettres (lecture/écriture) ; construction symétrique à compléter (mathématiques) ; maison qui garde la chaleur la nuit et plantes à arroser (sciences) ; suite d'ordres à donner au compagnon pour franchir un parcours (logique). Puis : craft simple (planches à partir de tronc), animaux à nourrir, météo, musique d'ambiance, nom définitif choisi par les enfants, blocs, biomes et types de monde supplémentaires, autres outils rigolos (filet pour attraper les créatures, bloc confettis qui fait sauter des blocs).
 
 ## 7. Éléments non vérifiés à confirmer
 
