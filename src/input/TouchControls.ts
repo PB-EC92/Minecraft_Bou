@@ -1,12 +1,14 @@
+import { newBreakPress, type BreakPress } from "./breakPress";
 import { CLICK_MAX_MS } from "./mouseFilter";
 
 export type TouchMode = "break" | "place";
 
 /**
- * Contrôles tactiles rudimentaires (J0) :
+ * Contrôles tactiles rudimentaires (J0, casse par appui maintenu au J2) :
  * - moitié gauche : joystick virtuel qui apparaît sous le doigt ;
- * - moitié droite : glisser pour regarder, tapoter pour agir (casser ou poser
- *   selon le mode) ;
+ * - moitié droite : glisser pour regarder ; en mode Casser, garder le doigt
+ *   immobile sur un bloc le casse (barre de progression) ; en mode Poser,
+ *   tapoter pose ;
  * - boutons : Sauter, bascule Casser/Poser.
  * J3 raffinera (taille, zones, retours visuels).
  */
@@ -28,6 +30,8 @@ export class TouchControls {
   pitchDelta = 0;
   jumpPressed = false;
   mode: TouchMode = "break";
+  /** Appui « casser » en cours (doigt de droite, mode Casser), ou null. Lu à chaque image par le jeu. */
+  breakPress: BreakPress | null = null;
 
   readonly root: HTMLDivElement;
   private readonly joystick: HTMLDivElement;
@@ -47,6 +51,7 @@ export class TouchControls {
   private lookMoved = false;
 
   private readonly actionHandlers: ((mode: TouchMode) => void)[] = [];
+  private readonly releaseHandlers: ((press: BreakPress) => void)[] = [];
   private readonly radius = 48;
   private readonly lookSensitivity = 0.005;
 
@@ -72,6 +77,7 @@ export class TouchControls {
       e.preventDefault();
       e.stopPropagation();
       this.mode = this.mode === "break" ? "place" : "break";
+      this.breakPress = null;
       this.updateModeButton();
     });
 
@@ -106,8 +112,14 @@ export class TouchControls {
     this.root.classList.toggle("enabled", on);
   }
 
+  /** Tapotement en mode Poser (le mode Casser passe par breakPress). */
   onAction(h: (mode: TouchMode) => void): void {
     this.actionHandlers.push(h);
+  }
+
+  /** Appelé quand le doigt qui cassait se lève (pas quand le toucher est annulé par le système). */
+  onBreakRelease(h: (press: BreakPress) => void): void {
+    this.releaseHandlers.push(h);
   }
 
   consumeLook(): { yaw: number; pitch: number } {
@@ -145,6 +157,7 @@ export class TouchControls {
         this.lookLastY = this.lookStartY = t.clientY;
         this.lookStartTime = performance.now();
         this.lookMoved = false;
+        if (this.mode === "break") this.breakPress = newBreakPress(this.lookStartTime, true);
       }
     }
   }
@@ -171,7 +184,10 @@ export class TouchControls {
         this.lookLastY = t.clientY;
         this.yawDelta -= dx * this.lookSensitivity;
         this.pitchDelta -= dy * this.lookSensitivity;
-        if (Math.hypot(t.clientX - this.lookStartX, t.clientY - this.lookStartY) > 12) this.lookMoved = true;
+        if (Math.hypot(t.clientX - this.lookStartX, t.clientY - this.lookStartY) > 12) {
+          this.lookMoved = true;
+          if (this.breakPress) this.breakPress.still = false;
+        }
       }
     }
   }
@@ -185,10 +201,13 @@ export class TouchControls {
         this.joystick.classList.remove("active");
       } else if (t.identifier === this.lookTouchId) {
         this.lookTouchId = null;
+        const press = this.breakPress;
+        this.breakPress = null;
+        if (press && e.type === "touchend") for (const h of this.releaseHandlers) h(press);
         // Seuil aligné sur le clic souris (450 ms) : un enfant de 6 ans tapote plus lentement
-        // qu'un adulte (constat 12 de l'audit J0 ; l'appui long pour casser viendra au J2-J3).
+        // qu'un adulte (constat 12 de l'audit J0). Casser se fait par appui maintenu (J2).
         const quick = performance.now() - this.lookStartTime < CLICK_MAX_MS;
-        if (quick && !this.lookMoved) {
+        if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend") {
           for (const h of this.actionHandlers) h(this.mode);
         }
       }

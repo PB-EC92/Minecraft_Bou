@@ -1,10 +1,29 @@
-import { BlockId, HOTBAR_BLOCKS, isPlantId } from "../engine/blocks";
+import { Sounds } from "../audio/sounds";
+import { BlockId, breakDurationMs, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
+import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { DAY_CYCLE_MS, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
+import { Inventory, MAX_STACK } from "../engine/inventory";
 import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
+import { emptiedText, maxStackText, pickupSpeech, pickupText } from "../edu/counting";
+import { Narrator, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
+import {
+  BOTTOM_LAYER,
+  EMPTY_HAND,
+  FLOWER_NEEDS_GROUND,
+  FULL_BAG,
+  HOLD_TO_BREAK,
+  NO_SPACE,
+  parseReadingLevel,
+  pick,
+  WELCOME,
+  WORLD_EDGE,
+  type ChildText,
+} from "../edu/texts";
+import { isHolding, shouldHintHold, type BreakPress } from "../input/breakPress";
 import { Keyboard } from "../input/Keyboard";
 import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
@@ -16,19 +35,27 @@ import { Player } from "./Player";
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J1";
+export const VERSION = "J2";
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
 const LOADING_RADIUS = 40;
 /** Budget de maillage par image (ms) : large pendant le chargement, réduit ensuite. */
 const MESH_BUDGET_LOADING_MS = 14;
 const MESH_BUDGET_MS = 5;
 const FAST_TIME = 20;
+/** Intervalle entre deux « tic » sonores pendant une casse (ms). */
+const BREAK_TICK_MS = 130;
+/** Délai avant de lire le compte à voix haute : en cassant vite, seul le dernier est lu (ms). */
+const PICKUP_VOICE_DELAY_MS = 550;
+/** Intervalle minimal entre deux conseils « Reste appuyé » (ms). */
+const HOLD_HINT_EVERY_MS = 6000;
+/** Kit du bouton « Remplir le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
+const TEST_KIT_COUNT = 20;
 
-const HINT_TOUCH = "Doigt gauche : bouger · doigt droit : regarder · tapoter : agir";
+const HINT_TOUCH = "Doigt gauche : bouger · doigt droit : regarder · garder le doigt sur un bloc : casser";
 const HINT_MOUSE =
-  "Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\nClic gauche casser · clic droit poser · 1-9 choisir un bloc · Échap libérer";
+  "Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\nGarder le clic gauche casser · clic droit poser · 1-9 ou molette choisir · Échap libérer";
 const HINT_MOUSE_FALLBACK =
-  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\nClic bref gauche casser · clic bref droit poser · 1-9 choisir un bloc";
+  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\nGarder le clic gauche sans bouger casser · clic bref droit poser · 1-9 choisir";
 
 interface PixelRequest {
   fx: number;
@@ -38,8 +65,10 @@ interface PixelRequest {
 
 /**
  * Assemble tout : monde, rendu, joueur, entrées, HUD, boucle de jeu.
- * J1 : monde généré par type et graine, jour/nuit, eau. Pas encore de
- * sauvegarde (J4) ni de missions (J5).
+ * J1 : monde généré par type et graine, jour/nuit, eau.
+ * J2 : casse par appui maintenu, blocs ramassés dans un sac de 9 cases
+ * (poser consomme), sons synthétisés, compte lu à voix haute.
+ * Pas encore de sauvegarde (J4) ni de missions (J5).
  */
 export class Game {
   world: World;
@@ -50,6 +79,9 @@ export class Game {
   readonly mouse: MouseLook;
   readonly touch: TouchControls;
   readonly speech = new Speech();
+  readonly sounds = new Sounds();
+  readonly inventory = new Inventory();
+  readonly narrator: Narrator;
   /** Appareil dont le pointeur principal est le doigt (tablette) : fixé au démarrage. */
   readonly coarsePointer: boolean;
   /** Interface tactile affichée : au démarrage sur tablette, ou dès le premier toucher (PC tactile). */
@@ -72,6 +104,11 @@ export class Game {
   private renderCalls = 0;
   private renderTriangles = 0;
   private readonly pixelRequests: PixelRequest[] = [];
+  private readonly breaker = new BreakTracker();
+  private lastBreakAt = -Infinity;
+  private lastHoldHintAt = -Infinity;
+  private lastTickAt = -Infinity;
+  private shownInventory = -1;
 
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
@@ -88,7 +125,15 @@ export class Game {
 
     this.view = new SceneView(canvas, this.world, this.coarsePointer);
     this.view.setRenderDistance(opts.distance ?? (this.coarsePointer ? 48 : 96));
-    this.hud = new Hud(root, this.view.atlasCanvas);
+    this.hud = new Hud(root, this.view.atlasCanvas, VERSION);
+    this.narrator = new Narrator({
+      show: (text, ms) => this.hud.showMessage(text, ms),
+      speak: (text) => void this.speech.speak(text),
+      now: () => performance.now(),
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    });
+    this.sounds.attachUnlock(window);
     this.touch = new TouchControls(root);
     this.touch.enable(this.touchUi);
     this.keyboard = new Keyboard();
@@ -107,7 +152,10 @@ export class Game {
 
     this.updateHint();
     this.hud.setDistance(this.view.renderDistance);
-    this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})`, 4000);
+    this.syncGameControls();
+    this.refreshInventory();
+    // Pas de voix ici : le navigateur la bloque tant que l'enfant n'a ni cliqué ni touché l'écran.
+    this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
 
     requestAnimationFrame((t) => this.safeFrame(t));
   }
@@ -138,6 +186,10 @@ export class Game {
     this.player = new Player(this.world);
     this.spawnPlayer();
     this.target = null;
+    this.breaker.reset();
+    // Nouveau monde, nouveau départ : le sac est vidé (la sauvegarde arrive au J4).
+    this.inventory.clear();
+    this.narrator.cancelPending();
     this.afterWorldChange();
     this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
   }
@@ -161,12 +213,23 @@ export class Game {
 
   private wireInputs(): void {
     this.keyboard.onPressed((code) => {
-      const m = /^Digit([1-9])$/.exec(code);
-      if (m) this.setSlot(Number(m[1]) - 1);
+      const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+      if (m) this.setSlot(Number(m[1]) - 1, true);
     });
-    this.hud.onSelectSlot((i) => this.setSlot(i));
+    this.hud.onSelectSlot((i) => this.setSlot(i, true));
+    this.view.renderer.domElement.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        if (e.deltaY === 0) return;
+        const n = this.inventory.size;
+        this.setSlot((this.selectedSlot + (e.deltaY > 0 ? 1 : n - 1)) % n, true);
+      },
+      { passive: false },
+    );
 
-    this.mouse.onAction((a) => (a === "break" ? this.breakBlock() : this.placeBlock()));
+    this.mouse.onAction(() => this.placeBlock());
+    this.mouse.onBreakRelease((p) => this.onBreakRelease(p));
     this.mouse.onLockChange((locked) => {
       this.hud.lockButton.textContent = locked ? "Souris capturée (Échap)" : "Capturer la souris";
       this.updateHint();
@@ -176,7 +239,8 @@ export class Game {
         2500,
       );
     });
-    this.touch.onAction((mode) => (mode === "break" ? this.breakBlock() : this.placeBlock()));
+    this.touch.onAction(() => this.placeBlock());
+    this.touch.onBreakRelease((p) => this.onBreakRelease(p));
 
     // PC à écran tactile : l'interface tactile n'apparaît qu'au premier vrai toucher.
     window.addEventListener(
@@ -226,6 +290,33 @@ export class Game {
       const d = Number(hud.distanceSelect.value);
       if (Number.isFinite(d)) this.view.setRenderDistance(d);
     });
+    hud.levelSelect.addEventListener("change", () => {
+      const level = parseReadingLevel(hud.levelSelect.value);
+      if (level) this.narrator.setLevel(level);
+      this.syncGameControls();
+    });
+    hud.voiceToggle.addEventListener("change", () => {
+      this.narrator.voice = hud.voiceToggle.checked;
+      if (!this.narrator.voice) this.narrator.cancelPending();
+    });
+    hud.soundToggle.addEventListener("change", () => {
+      this.sounds.enabled = hud.soundToggle.checked;
+    });
+    hud.fillBagButton.addEventListener("click", () => this.fillTestKit());
+    hud.clearBagButton.addEventListener("click", () => this.inventory.clear());
+  }
+
+  /** Recopie les réglages de jeu (lecture, voix, sons) dans le panneau. */
+  private syncGameControls(): void {
+    this.hud.levelSelect.value = this.narrator.level;
+    this.hud.voiceToggle.checked = this.narrator.voice;
+    this.hud.soundToggle.checked = this.sounds.enabled;
+  }
+
+  private fillTestKit(): void {
+    this.inventory.fill(HOTBAR_BLOCKS, TEST_KIT_COUNT);
+    this.refreshInventory();
+    this.setSlot(this.selectedSlot, true);
   }
 
   setHour(hour: number): void {
@@ -246,50 +337,138 @@ export class Game {
     }
   }
 
-  private setSlot(i: number): void {
-    if (i < 0 || i >= HOTBAR_BLOCKS.length) return;
+  /** Choisit une case de la barre. byUser : geste de l'enfant (son, nom du bloc affiché). */
+  private setSlot(i: number, byUser = false): void {
+    if (i < 0 || i >= this.inventory.size) return;
     this.selectedSlot = i;
     this.hud.setSelectedSlot(i);
+    if (!byUser) return;
+    this.sounds.play("select");
+    const s = this.inventory.slot(i);
+    this.hud.showSlotName(s ? this.hud.blockName(s.id) : "case vide");
   }
 
-  private selectedBlock(): BlockId {
-    return HOTBAR_BLOCKS[this.selectedSlot] ?? BlockId.Stone;
+  /** Texte du bloc tenu pour la ligne d'infos. */
+  private heldLabel(): string {
+    const s = this.inventory.slot(this.selectedSlot);
+    return s ? `${this.hud.blockName(s.id)} ×${s.count}` : "(case vide)";
   }
 
-  private breakBlock(): void {
-    if (!this.target) return;
-    const { x, y, z } = this.target;
+  private refreshInventory(): void {
+    if (this.shownInventory === this.inventory.version) return;
+    this.shownInventory = this.inventory.version;
+    this.hud.setInventory(this.inventory.slots());
+  }
+
+  private tell(text: ChildText, opts?: TellOptions): void {
+    this.narrator.tell(text, opts);
+  }
+
+  private deny(text: ChildText): void {
+    this.sounds.play("deny");
+    this.tell(text, { ms: 1800 });
+  }
+
+  /** Casse par appui maintenu : appelé à chaque image. */
+  private updateBreaking(now: number, dtMs: number): void {
+    const press = this.mouse.breakPress ?? this.touch.breakPress;
+    const holding = isHolding(press, now);
+    const t = this.target;
+    const pos: BlockPos | null = t ? { x: t.x, y: t.y, z: t.z } : null;
+    const duration = t ? breakDurationMs(this.world.get(t.x, t.y, t.z)) : 0;
+    const step = this.breaker.update(holding, pos, duration, dtMs);
+    if (step.kind === "done") {
+      this.hud.setBreakProgress(null);
+      this.breakBlock(step.pos);
+      return;
+    }
+    const progress = step.kind === "progress" ? step.progress : 0;
+    this.hud.setBreakProgress(progress > 0 ? progress : null);
+    if (progress > 0 && now - this.lastTickAt >= BREAK_TICK_MS && t) {
+      this.lastTickAt = now;
+      this.sounds.play("breakTick", this.world.get(t.x, t.y, t.z));
+    }
+  }
+
+  /** Relâchement d'un appui « casser » : conseil si l'enfant a seulement cliqué ou tapoté. */
+  private onBreakRelease(press: BreakPress): void {
+    const now = performance.now();
+    if (!this.target || !shouldHintHold(press, now, this.lastBreakAt)) return;
+    if (now - this.lastHoldHintAt < HOLD_HINT_EVERY_MS) return;
+    this.lastHoldHintAt = now;
+    this.tell(HOLD_TO_BREAK, { ms: 2000 });
+  }
+
+  private breakBlock(pos: BlockPos): void {
+    const { x, y, z } = pos;
     const w = this.world;
     const id = w.get(x, y, z);
+    if (id === BlockId.Air) return;
     if (y === 0 && !isPlantId(id)) {
-      this.hud.showMessage("Le sol tout en bas ne se casse pas");
+      this.deny(BOTTOM_LAYER);
       return;
     }
     if (!w.set(x, y, z, BlockId.Air)) return;
-    // Une fleur posée sur le bloc cassé tombe avec lui.
-    if (isPlantId(w.get(x, y + 1, z))) w.set(x, y + 1, z, BlockId.Air);
-    this.hud.showMessage(`${isPlantId(id) ? "Cueilli" : "Cassé"} : ${this.hud.blockName(id)}`, 1200);
+    this.lastBreakAt = performance.now();
+    this.sounds.play("break", id);
+    this.collect(id);
+    // Une fleur posée sur le bloc cassé tombe avec lui : elle est ramassée aussi.
+    const above = w.get(x, y + 1, z);
+    if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above);
+  }
+
+  /** Met un bloc cassé dans le sac et annonce le nouveau compte. */
+  private collect(id: BlockId): void {
+    const r = this.inventory.add(id);
+    if (!r.ok) {
+      this.tell(r.reason === "full" ? FULL_BAG : maxStackText(id, MAX_STACK), { ms: 2500 });
+      return;
+    }
+    this.sounds.play("pickup", id);
+    this.hud.pulseSlot(r.slot);
+    // Main vide : le bloc ramassé passe dans la main (premier ramassage, case épuisée…).
+    if (!this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
+    this.refreshInventory();
+    this.tell(pickupText(id, r.count), { spoken: pickupSpeech(id, r.count), voiceDelayMs: PICKUP_VOICE_DELAY_MS, ms: 1800 });
   }
 
   private placeBlock(): void {
     if (!this.target) return;
     const t = this.target;
     const w = this.world;
-    // Viser une fleur et poser : le bloc prend sa place.
+    // Viser une fleur et poser : le bloc prend sa place (la fleur est ramassée).
     const onPlant = isPlantId(w.get(t.x, t.y, t.z));
     const x = onPlant ? t.x : t.x + t.nx;
     const y = onPlant ? t.y : t.y + t.ny;
     const z = onPlant ? t.z : t.z + t.nz;
     if (!w.inBounds(x, y, z)) {
-      this.hud.showMessage("Trop loin : le monde s'arrête ici");
+      this.deny(WORLD_EDGE);
       return;
     }
-    if (boxesIntersect(blockBox(x, y, z), this.player.box())) {
-      this.hud.showMessage("Pas de place ici : tu es dedans !", 1500);
+    const stack = this.inventory.slot(this.selectedSlot);
+    if (!stack) {
+      this.deny(EMPTY_HAND);
       return;
     }
-    const id = this.selectedBlock();
-    if (w.set(x, y, z, id)) this.hud.showMessage(`Posé : ${this.hud.blockName(id)}`, 1200);
+    const id = stack.id;
+    if (isPlantId(id)) {
+      // Une fleur se pose sur un bloc plein, dans l'air (pas dans l'eau).
+      const cell = w.get(x, y, z);
+      if (!isOpaqueId(w.get(x, y - 1, z)) || !(cell === BlockId.Air || isPlantId(cell))) {
+        this.deny(FLOWER_NEEDS_GROUND);
+        return;
+      }
+    } else if (boxesIntersect(blockBox(x, y, z), this.player.box())) {
+      this.deny(NO_SPACE);
+      return;
+    }
+    const replaced = w.get(x, y, z);
+    if (replaced === id || !w.set(x, y, z, id)) return;
+    this.inventory.takeFrom(this.selectedSlot);
+    if (isPlantId(replaced)) this.inventory.add(replaced);
+    this.sounds.play("place", id);
+    this.refreshInventory();
+    if (!this.inventory.slot(this.selectedSlot)) this.tell(emptiedText(id), { ms: 2200 });
   }
 
   private testStorage(): void {
@@ -350,7 +529,21 @@ export class Game {
         renderDistance: this.view.renderDistance,
         target: this.target ? { ...this.target } : null,
         slot: this.selectedSlot,
+        inventory: this.inventory.slots(),
+        breakProgress: this.breaker.progress,
+        level: this.narrator.level,
+        voice: this.narrator.voice,
+        sound: this.sounds.state,
       }),
+      /** Donne des blocs (tests) : renvoie le résultat de l'ajout. */
+      give: (id: number, n = 1) => {
+        const r = this.inventory.add(id as BlockId, n);
+        this.refreshInventory();
+        return r;
+      },
+      clearInventory: () => this.inventory.clear(),
+      fillInventory: () => this.fillTestKit(),
+      selectSlot: (i: number) => this.setSlot(i),
       setHour: (h: number) => this.setHour(h),
       /** Oriente le regard (degrés ; cap 0 = vers −Z, inclinaison positive = vers le haut). */
       look: (yawDeg: number, pitchDeg: number) => {
@@ -402,10 +595,12 @@ export class Game {
     this.view.setUnderwater(this.player.headInWater);
     this.hud.setUnderwater(this.player.headInWater);
 
-    // Visée
+    // Visée, casse par appui maintenu, sac
     this.target = raycast(this.world, eye, this.player.lookDir(), REACH);
     if (this.target) this.view.setHighlight(this.target.x, this.target.y, this.target.z);
     else this.view.hideHighlight();
+    this.updateBreaking(performance.now(), dt * 1000);
+    this.refreshInventory();
 
     // Monde : sections à (re)mailler, les plus proches d'abord
     const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);
@@ -459,7 +654,7 @@ export class Game {
     this.hud.setInfo(
       `${Math.round(1000 / frameAvg)} i/s  (moy. ${frameAvg.toFixed(1)} ms, pire ${worst.toFixed(0)} ms, calcul ${cpuAvg.toFixed(1)} ms)\n` +
         `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${where}  regard ${cap}° ${deg(p.pitch)}°\n` +
-        `faces ${cs.faces}  sections ${cs.visibleSections}/${cs.sections}  bloc : ${this.hud.blockName(this.selectedBlock())}\n` +
+        `faces ${cs.faces}  sections ${cs.visibleSections}/${cs.sections}  bloc : ${this.heldLabel()}\n` +
         `${worldTypeName(this.gen.type)} · graine ${this.gen.seed} · ${formatHour(this.sky.hour)}  ${VERSION}`,
     );
     const g = this.view.gpu;
@@ -484,6 +679,9 @@ export class Game {
         `Contexte 3D : ${this.view.contextLost ? "perdu" : "ok"}, perdu ${this.view.contextLosses} fois`,
         `Stockage local : ${this.storageOk}`,
         `Synthèse vocale : ${this.speech.supported ? "disponible" : "absente"}`,
+        `Sons : ${this.sounds.state}`,
+        `Lecture : ${this.narrator.level}, voix ${this.narrator.voice ? "active" : "coupée"}`,
+        `Sac : ${this.inventory.usedSlots()}/${this.inventory.size} cases, ${this.inventory.totalBlocks()} blocs`,
       ].join("\n"),
     );
   }

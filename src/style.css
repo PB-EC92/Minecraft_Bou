@@ -76,6 +76,27 @@ canvas.game {
   transform: translateY(-50%);
 }
 
+/* Anneau de casse (J2) : se remplit pendant l'appui maintenu. --p ∈ [0, 1]. */
+.break-ring {
+  --p: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: conic-gradient(var(--ui-accent) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.25) 0);
+  /* Ne garder qu'un anneau épais : le centre reste transparent pour voir le bloc. */
+  -webkit-mask: radial-gradient(circle, transparent 17px, #000 18px);
+  mask: radial-gradient(circle, transparent 17px, #000 18px);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.break-ring.visible {
+  opacity: 0.95;
+}
+
 .info {
   position: absolute;
   left: 10px;
@@ -100,6 +121,7 @@ canvas.game {
   font-size: clamp(16px, 2.4vw, 24px);
   text-align: center;
   max-width: 90vw;
+  white-space: pre-line;
   opacity: 0;
   transition: opacity 0.25s;
 }
@@ -145,6 +167,54 @@ canvas.game {
   top: 2px;
   font-size: 12px;
   text-shadow: 0 1px 2px #000;
+}
+/* Compteur : gros chiffres bien contrastés, lisibles par un enfant de 6 ans. */
+.slot .count {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: clamp(16px, 2.6vh, 22px);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 3px #000,
+    0 1px 2px #000;
+}
+.slot.empty {
+  background: rgba(60, 60, 60, 0.6);
+}
+.slot.pulse {
+  animation: slot-pulse 0.35s ease-out;
+}
+@keyframes slot-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Nom du bloc tenu, au-dessus de la barre. */
+.slot-name {
+  position: absolute;
+  left: 50%;
+  /* Juste au-dessus de la barre (marge + case + rembourrage et bordures de la barre). */
+  bottom: calc(14px + clamp(44px, 7vh, 64px) + 36px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: var(--ui-bg);
+  border-radius: var(--ui-radius);
+  font-size: clamp(16px, 2.4vh, 22px);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.slot-name.visible {
+  opacity: 1;
 }
 
 /* ---------- Boutons ---------- */
@@ -226,6 +296,14 @@ canvas.game {
 }
 .panel input {
   width: 11em;
+}
+.panel label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.panel label.check input {
+  width: auto;
 }
 .btn.on {
   background: rgba(255, 210, 63, 0.85);
@@ -353,7 +431,8 @@ canvas.game {
 .hint {
   position: absolute;
   left: 50%;
-  bottom: calc(100px + env(safe-area-inset-bottom));
+  /* Au-dessus du nom du bloc tenu (.slot-name). */
+  bottom: calc(14px + clamp(44px, 7vh, 64px) + 76px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   font-size: 13px;
   opacity: 0.85;

@@ -2,6 +2,47 @@
 
 Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, ce qui a coincé, et les idées. Les enfants ont toujours raison sur ce qui est amusant ou frustrant.
 
+## Protocole J2 (à faire par Pierre, puis séance avec les enfants)
+
+Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 ». Le protocole J1 ci-dessous reste valable (tablette en priorité) : le dérouler avec ce fichier J2. Au départ, **le sac est vide** : on ne pose que ce qu'on a ramassé. Le panneau **Tests** contient une nouvelle section **Jeu** : niveau de lecture, voix, sons, « Remplir le sac » (20 blocs de chaque sorte), « Vider le sac ». « — » = sans objet.
+
+| Vérification | PC (Chrome) | Tablette Android |
+|---|---|---|
+| Un clic bref (ou un tapotement) sur un bloc ne le casse pas ; le message « Reste appuyé ! » s'affiche | | |
+| Garder l'appui : un anneau jaune se remplit autour du viseur, puis le bloc se casse (noter si la durée paraît trop longue ou trop courte) | | |
+| Le bloc cassé apparaît dans la barre du bas avec son nombre ; le nombre augmente à chaque bloc du même type | | |
+| Le compte s'affiche (« 3 pierres ! ») et est lu à voix haute, sans bégayer quand on casse vite | | |
+| Poser (clic droit / mode Poser + tapoter) retire un bloc du compte ; à zéro, la case se vide et le jeu le dit | | |
+| Poser avec une case vide : message « Ta case est vide. » | | |
+| Casser une fleur : elle est cueillie tout de suite ; un bloc sous une fleur emporte la fleur dans le sac | | |
+| Touches 1 à 9, molette (PC), toucher une case (tablette) : la case choisie change, son nom s'affiche au-dessus | | |
+| Sons : casse (petits « tic » puis un bruit), pose (« toc »), ramassage (« pop »), refus (deux notes douces). Volume correct ? Rien d'agaçant ? | | |
+| Panneau → Jeu → Lecture « autonome » : phrases complètes (« Tu as ramassé… »), voix coupée ; la case « Lire les messages » la rallume | | |
+| Diagnostic : lignes « Sons : actif » (après un premier clic), « Lecture », « Sac » | | |
+| Tablette : garder le doigt immobile casse ; glisser le doigt regarde sans casser | — | |
+
+### Séance enfants J2 (première séance, consigne libre)
+
+Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ; noter ce qui bloque avant d'aider. Suggestion : monde prairie, sac vide (ils doivent casser pour ramasser) ; au bout de 10 minutes, si ça coince, « Remplir le sac ».
+
+À observer : comprennent-ils seuls qu'il faut rester appuyé ? La durée de casse les agace-t-elle ? Regardent-ils le nombre dans les cases, le lisent-ils, le répètent-ils ? La voix les aide-t-elle, les gêne-t-elle (6 ans / 8 ans) ? Que construisent-ils ? Combien de temps jouent-ils avant de décrocher ?
+
+## Séance du … — J2
+
+Appareil :
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Diagnostic (copié depuis le panneau) :
+
+```
+```
+
+Idées des enfants :
+
 ## Protocole J1 (à faire par Pierre)
 
 Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J1 ». Le panneau **Tests** (en haut à droite) contient maintenant : Monde (type, graine, « Nouveau monde »), Heure, Distance de rendu, Voix, Diagnostic. La priorité est la **tablette** : c'est elle qui fixera la distance de rendu et la taille du monde. « — » = sans objet.
