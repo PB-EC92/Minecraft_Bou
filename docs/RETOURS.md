@@ -29,6 +29,9 @@ Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ;
 
 À observer : comprennent-ils seuls qu'il faut rester appuyé ? La durée de casse les agace-t-elle ? Regardent-ils le nombre dans les cases, le lisent-ils, le répètent-ils ? La voix les aide-t-elle, les gêne-t-elle (6 ans / 8 ans) ? Que construisent-ils ? Combien de temps jouent-ils avant de décrocher ?
 Ils arrivent à prendre en main, deconstruisent plus que construisent pour l'instant, intéressés
+La voix est répétitive ; ils ont vite pris les choses en main.
+
+Appareils : colonne « PC (Chrome) » = ordinateur portable classique (autre que le PC du bureau) ; colonne « Tablette » = convertible Acer Nitro 5 Spin NP515-51 en mode tablette, Firefox.
 
 ## Séance du 24/09/2026 — J2 (diagnostic seul, protocole J2 non encore rempli)
 

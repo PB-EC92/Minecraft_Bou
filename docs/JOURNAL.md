@@ -146,12 +146,12 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 
 ## 2026-09-24 — Retours J2 (PC et convertible) et première séance des enfants
 
-**Reçu de Pierre.** Protocole J2 rempli (colonnes « PC (Chrome) » et « Tablette », c'est-à-dire le convertible sous Firefox), reporté dans `RETOURS.md` (le fichier envoyé datait d'avant les réponses J1 : fusion faite à la main).
+**Reçu de Pierre.** Protocole J2 rempli (colonnes « PC (Chrome) », un ordinateur portable classique autre que le PC du bureau, et « Tablette », c'est-à-dire le convertible sous Firefox), reporté dans `RETOURS.md` (le fichier envoyé datait d'avant les réponses J1 : fusion faite à la main).
 
 **Constats.** Passent sur les deux appareils : clic bref sans casse et « Appuie longtemps ! », anneau puis casse, compteurs dans la barre, compte affiché et lu sans bégayer, poser et case vidée, « Ta case est vide », un seul bloc sous les pieds par appui, sons, lignes du diagnostic. Molette et touches 1 à 9 : oui sur PC. Doigt maintenu, glisser pour regarder, viser puis tenir : oui, **mais « parfois on se déplace alors qu'on veut casser un bloc »** sur le convertible. Hypothèse non vérifiée : tout toucher dans la moitié gauche de l'écran commande le déplacement ; un enfant qui touche le bloc là où il le voit (et non la croix du milieu) avance au lieu de casser, d'autant plus en portrait.
 
 **Non testé.** Fleur, escalade hors d'un trou, choix d'une case au doigt, lecture « autonome ».
 
-**Séance enfants.** « Ils arrivent à prendre en main, déconstruisent plus que construisent pour l'instant, intéressés. » Pas encore de détails sur l'appui maintenu, la voix, la durée de jeu.
+**Séance enfants.** « Ils arrivent à prendre en main, déconstruisent plus que construisent pour l'instant, intéressés. » Ils ont vite pris les choses en main (appui maintenu compris). **La voix est jugée répétitive** : chaque ramassage relit le compte (« trois pierres », « quatre pierres »…). Durée de jeu non notée.
 
 **Suite.** Audit de compatibilité « convertible Windows + Firefox » en cours ; mise à jour des documents (Android → convertible) ensuite ; le déplacement involontaire au doigt entre au J3.
