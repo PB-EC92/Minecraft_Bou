@@ -231,3 +231,40 @@ Non traités : import non atomique (un échec d'écriture au milieu laisse un é
 **Non vérifié.** Tout sur Firefox (stockage en `file://` par chemin, téléchargement de l'export, appui long au doigt — Windows peut transformer un appui long en clic droit —, sélecteur de fichier en mode tablette).
 
 **Attendu de Pierre.** Protocoles J3 et J4 de `RETOURS.md`, dont la ligne « stockage sous Firefox » (copier le fichier ailleurs), puis séance enfants.
+
+## 2026-09-24 — J5, compagnon, missions, Grignotes
+
+**Décisions de Pierre.** Compagnon : le renard « Pixel ». Créatures : les « Grignotes », qui chipent un bloc au contact puis s'enfuient. Lampe et clôture trouvées dans la nature.
+
+**Fait.**
+- Blocs ajoutés à la fin du registre : lampe (13), clôture (14), pierre brillante (15), avec textures dessinées. `dropsOf` : la pierre brillante donne une lampe ; un tronc donne aussi une clôture (sans message, le compte annoncé reste celui des troncs). Kit de test : lampe et clôture remplacent neige et cactus.
+- Générateur **version 2** : pierres brillantes en surface (5 à 16 par monde, visibles). `generateWorld(type, graine, version)` : un monde enregistré en version 1 se régénère en version 1 et le reste. Les mondes du J4 reçoivent leurs pierres brillantes au chargement, là où le terrain n'a pas été touché ; l'écart enregistré les garde. Empreintes du terrain v1 (inchangées) et v2 dans les tests.
+- Grignotes (`engine/creatures.ts`, pur, testé) : deux le jour, loin ; jusqu'à quatre la nuit, qui approchent ; au contact (même hauteur, rien de plein entre elles et l'enfant), une Grignote chipe un bloc, au plus un vol toutes les 25 s, jamais une lampe ni le bloc de l'étape de mission en cours ; elles fuient une lampe à moins de 6 blocs, ne montent jamais sur une clôture, ne passent pas en diagonale entre deux clôtures, ne sautent pas au fond d'un trou profond, n'apparaissent ni sur un toit ni sur une construction. Une bulle les fait fuir et fait rendre le bloc chipé. Un bloc emporté n'est jamais perdu (rendu si la Grignote disparaît, compté dans la sauvegarde). Réglage « Grignotes actives » dans le mode parent.
+- Lance-bulles : bouton Bulles (colonne tactile), bouton en haut à droite, touche B ; bulles translucides, son « bloup ».
+- Signal de la nuit à 17 h 30 : carillon et « La nuit arrive ! ». Halo jaune autour des lampes la nuit.
+- Pixel (`render/Fox.ts`, `game/companion.ts`) : trottine devant l'enfant, sur sa gauche (visible en vue normale), se tourne vers lui à l'arrêt, réapparaît s'il est resté loin. Bandeau en haut : portrait, consigne, avancement (« 3 / 6 »), bouton « répète ».
+- Moteur de missions (`edu/missions.ts`, déclaratif, pur, testé) : objectifs « ramasser » et « poser », textes écrits et dits en deux variantes, progression enregistrée dans le monde. Mission 1, première version : 6 troncs, 4 pierres, 10 blocs posés, une lampe trouvée, la lampe posée.
+- Narrateur : option « consigne importante » ; pendant qu'elle est lue, les autres phrases (comptes, vols) sont affichées sans couper la voix.
+- Sons ajoutés : rire de Grignote, bulles, carillon de la nuit (recettes Web Audio, ≤ 0,4 s).
+- Mode adresse : Grignotes et Pixel coupés sauf `&creatures=1` / `&mission=1`.
+
+**Relecture.** Agent indépendant : 12 constats, 9 corrigés, dont les deux majeurs :
+- mission 1 impossible à finir dans les mondes du J4, faute de pierres brillantes (reproduit) ;
+- vol à travers un toit, le fond d'un trou ou le coin d'une clôture en diagonale (reproduit).
+
+Également corrigés :
+- bloc chipé perdu à l'enregistrement ou à la disparition de la Grignote ;
+- vol possible de la seule lampe ;
+- doigt gardé sur le bandeau de Pixel qui cassait un bloc (reproduit) ;
+- consignes de Pixel coupées par les comptes ;
+- apparition sur un toit ;
+- signal de la nuit au chargement d'un monde ;
+- bandeau réécrit à chaque image.
+
+Non traités : un enclos de clôture de plus de 14 blocs de côté peut voir naître une Grignote à l'intérieur ; le halo de la lampe paraît plus petit que la zone réelle (6 blocs) ; le bandeau peut masquer en partie le message central sur petit écran ; Pixel peut réapparaître dans l'eau quand il n'y a pas de sol près de sa place.
+
+**Tests.** 492 tests unitaires ; 89 tests de fumée verts (pierre brillante, clôture, vol et bulles, lampe, compagnon et mission, mission enregistrée, monde du J4 complété, bandeau au doigt). `dist/cubes.html` : 677 ko ; ligne d'infos terminée par « J5 ».
+
+**Non vérifié.** Tout sur Firefox et le convertible ; l'intérêt réel des Grignotes pour les enfants (amusement ou agacement du vol) ; le rendu du halo la nuit sur une vraie carte graphique.
+
+**Attendu de Pierre.** Protocole J5 de `RETOURS.md` (et J3, J4 s'ils ne sont pas faits), puis séance enfants. Le J6 finira la mission 1 (tutoriel, cabane vérifiée, finitions).

@@ -137,3 +137,55 @@ describe("les Grignotes", () => {
     }
   });
 });
+
+describe("les Grignotes ne trichent pas (relecture J5)", () => {
+  it("pas de vol à travers un toit ni depuis le bord d'un trou", () => {
+    const w = flat();
+    // Enfant au fond d'un trou de 3 blocs.
+    for (let y = 1; y < 4; y++) w.set(48, y, 48, BlockId.Air);
+    const sim = new CreatureSim(w, 5);
+    const c = ctx({ night: true, player: { x: 48.5, y: 1, z: 48.5 } });
+    const g = sim.spawnAt(49.5, 48.5)!;
+    expect(g.y).toBe(4);
+    const events = run(sim, 20_000, c);
+    expect(events.some((e) => e.kind === "steal")).toBe(false);
+  });
+
+  it("pas d'apparition sur un toit ou une construction", () => {
+    const w = flat();
+    for (let x = 20; x < 80; x++) for (let z = 20; z < 80; z++) w.set(x, 8, z, BlockId.Planks); // grand toit
+    const sim = new CreatureSim(w, 5);
+    run(sim, 20_000, ctx({ night: true }));
+    for (const g of sim.creatures) expect(g.y).toBeLessThan(7);
+  });
+
+  it("clôture en diagonale : ni passage ni vol à travers le coin", () => {
+    const w = flat();
+    for (let i = 0; i < 96; i++) w.set(i, 4, i, BlockId.Fence);
+    const sim = new CreatureSim(w, 7);
+    const c = ctx({ night: true, player: { x: 50.7, y: 4, z: 51.3 } }); // côté z > x
+    // (Les Grignotes nées du côté de l'enfant peuvent voler : seules comptent celles de l'autre côté.)
+    const far = new Set<number>();
+    for (let k = 0; k < 6; k++) {
+      const g = sim.spawnAt(52.5, 50.5); // de l'autre côté, contre le coin
+      if (!g) continue;
+      g.mode = "approach";
+      far.add(g.id);
+      for (let t = 0; t < 5000; t += 50) {
+        for (const e of sim.update(50, c)) expect(e.kind === "steal" && far.has(e.id)).toBe(false);
+        for (const x of sim.creatures) if (far.has(x.id)) expect(Math.floor(x.z) > Math.floor(x.x)).toBe(false);
+      }
+    }
+  });
+
+  it("une voleuse retirée (trop loin, créatures coupées, autre monde) rend son bloc", () => {
+    const sim = new CreatureSim(flat(), 5);
+    const g = sim.spawnAt(40.5, 40.5)!;
+    g.carried = BlockId.Stone;
+    const events = sim.update(50, ctx({ enabled: false }));
+    expect(events).toContainEqual({ kind: "despawn", id: g.id, carried: BlockId.Stone });
+    const g2 = sim.spawnAt(40.5, 40.5)!;
+    g2.carried = BlockId.Log;
+    expect(sim.setWorld(flat())).toEqual([BlockId.Log]);
+  });
+});

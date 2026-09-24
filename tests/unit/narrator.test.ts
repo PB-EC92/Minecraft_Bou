@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Narrator, readingMs, REPEAT_MS, type NarratorDeps } from "../../src/edu/Narrator";
+import { Narrator, readingMs, REPEAT_MS, speechMs, type NarratorDeps } from "../../src/edu/Narrator";
 
 function harness() {
   let time = 0;
@@ -147,5 +147,27 @@ describe("Narrator", () => {
   it("readingMs : croît avec le nombre de mots, plafonnée", () => {
     expect(readingMs("Trois pierres !", "debutant")).toBeLessThan(readingMs("Tu as ramassé une pierre. Tu en as 3.", "autonome"));
     expect(readingMs("mot ".repeat(100), "autonome")).toBe(9000);
+  });
+});
+
+describe("consignes importantes (J5)", () => {
+  const PIXEL = { debutant: "Ramasse quatre pierres.", autonome: "Casse des pierres grises pour en ramasser quatre." };
+  it("une phrase ordinaire ne coupe pas une consigne importante : elle est affichée, pas lue", () => {
+    const h = harness();
+    h.n.tell(PIXEL, { important: true });
+    h.advance(500);
+    h.n.tell(T);
+    expect(h.shown).toEqual([PIXEL.debutant, T.debutant]);
+    expect(h.spoken).toEqual([PIXEL.debutant]);
+    // Une fois la consigne lue, la voix revient.
+    h.advance(speechMs(PIXEL.debutant));
+    h.n.tell(T);
+    expect(h.spoken).toEqual([PIXEL.debutant, T.debutant]);
+  });
+  it("une consigne importante peut en remplacer une autre", () => {
+    const h = harness();
+    h.n.tell(PIXEL, { important: true });
+    h.n.tell(T, { important: true });
+    expect(h.spoken).toEqual([PIXEL.debutant, T.debutant]);
   });
 });

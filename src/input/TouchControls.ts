@@ -200,7 +200,7 @@ export class TouchControls {
   }
 
   private isUiTarget(t: EventTarget | null): boolean {
-    return t instanceof Element && t.closest(".touch-btn, .btn, .panel, .hotbar") !== null;
+    return t instanceof Element && t.closest(".touch-btn, .btn, .panel, .hotbar, .companion") !== null;
   }
 
   /** Centre et rayon du rond à l'écran (rayon nul s'il n'est pas affiché). */

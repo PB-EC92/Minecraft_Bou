@@ -311,9 +311,10 @@ export class Game {
 
   /** Après la création d'un monde : adresse, panneau, écran de chargement. */
   private afterWorldChange(): void {
-    this.sim?.setWorld(this.world);
+    this.sim?.setWorld(this.world); // blocs portés par les Grignotes : déjà comptés dans la dernière sauvegarde (snapshot)
     this.lampsDirty = true;
     this.companion = null;
+    this.prevHour = -1; // pas de signal de la nuit au chargement d'un monde
     this.hud.setWorldControls(this.gen.type, this.gen.seed);
     // L'adresse ne retient le monde qu'en mode adresse : sinon un rechargement sauterait l'accueil.
     if (this.urlMode) {
@@ -370,6 +371,20 @@ export class Game {
         8000,
       );
     }
+    // Monde d'avant le J5 (générateur 1) : sans pierres brillantes, la mission 1 ne pourrait pas finir.
+    // On les ajoute là où le terrain n'a pas été touché ; l'écart enregistré les gardera (le monde reste en version 1).
+    if (this.worldGen < 2) {
+      const v2 = generateWorld(save.type, save.seed, 2).world.data;
+      const d = this.world.data;
+      const layer = this.world.sizeX * this.world.sizeZ;
+      for (let i = 0; i < v2.length; i++) {
+        if (v2[i] !== BlockId.GlowStone || d[i] !== this.baseData[i]) continue;
+        const up = i + layer;
+        if (up < d.length && d[up] !== this.baseData[up]) continue; // l'enfant a construit juste au-dessus
+        d[i] = BlockId.GlowStone;
+        if (up < d.length) d[up] = v2[up] ?? BlockId.Air;
+      }
+    }
     this.world.markAllChanged();
     this.view.setWorld(this.world);
     this.player = new Player(this.world);
@@ -399,11 +414,20 @@ export class Game {
       seed: this.gen.seed,
       edits: toBase64(diffBlocks(this.baseData, this.world.data)),
       player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch },
-      inventory: this.inventory.toJSON(),
+      inventory: this.inventoryWithCarried(),
       phase: this.phase,
       savedAt: Date.now(),
       ...(this.mission ? { mission: this.mission.toJSON() } : {}),
     };
+  }
+
+  /** Sac enregistré : les blocs chipés que portent encore les Grignotes y sont remis (rien n'est perdu en quittant). */
+  private inventoryWithCarried(): ReturnType<Inventory["toJSON"]> {
+    const carried = this.sim.creatures.flatMap((c) => (c.carried === null ? [] : [c.carried]));
+    if (carried.length === 0) return this.inventory.toJSON();
+    const copy = Inventory.fromJSON(this.inventory.toJSON());
+    for (const id of carried) copy.add(id);
+    return copy.toJSON();
   }
 
   /** Enregistre la partie en cours (rien hors d'une partie d'un profil). Renvoie vrai si c'est fait. */
@@ -447,7 +471,7 @@ export class Game {
     this.mission = new MissionRunner(MISSION_1, saved);
     this.missionDoneAt = 0;
     if (fresh) {
-      this.tell(MISSION_1.intro, { ms: 4500 });
+      this.tell(MISSION_1.intro, { ms: 4500, important: true });
       this.announceStepAt = performance.now() + 4500;
     } else this.announceStepAt = performance.now() + 1200;
     this.refreshCompanionPanel();
@@ -457,7 +481,7 @@ export class Game {
   private announceStep(): void {
     const step = this.mission?.current();
     if (!step) return;
-    this.tell(step.text, { spoken: step.spoken ?? step.text, ms: 4000 });
+    this.tell(step.text, { spoken: step.spoken ?? step.text, ms: 4000, important: true });
     this.refreshCompanionPanel();
   }
 
@@ -467,9 +491,12 @@ export class Game {
     this.companionPanel.hidden = !on;
     if (!m || !on) return;
     const step = m.current();
-    this.companionText.textContent = pick(step ? step.text : MISSION_1.outro, this.narrator.level);
+    const text = pick(step ? step.text : MISSION_1.outro, this.narrator.level);
     const p = m.progress(this.inventory);
-    this.companionProgress.textContent = p ? `${p.have} / ${p.need}` : "";
+    const prog = p ? `${p.have} / ${p.need}` : "";
+    // Écrire seulement ce qui change (le panneau est rafraîchi à chaque image).
+    if (this.companionText.textContent !== text) this.companionText.textContent = text;
+    if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
   }
 
   private companionOn(): boolean {
@@ -497,8 +524,33 @@ export class Game {
         this.hud.pulseSlot(r.slot);
         this.sounds.play("pickup", c.carried);
         this.tell(returnedText(c.carried), { ms: 2500 });
+      } else {
+        // Sac plein : elle le garde pour l'instant (il n'est pas perdu, voir snapshot).
+        const live = this.sim.creatures.find((x) => x.id === c.id);
+        if (live) live.carried = c.carried;
       }
     }
+  }
+
+  /**
+   * Case où une Grignote chipe un bloc : jamais une lampe ni le bloc de l'étape de mission en cours ;
+   * de préférence dans une grosse pile (tirage proportionnel au nombre). null : rien à prendre.
+   */
+  private pickStealSlot(): number | null {
+    const goal = this.mission?.current()?.goal;
+    const protectedId = goal && goal.block !== "any" ? goal.block : null;
+    const slots = this.inventory.slots();
+    let total = 0;
+    for (const st of slots) if (st && st.id !== BlockId.Lamp && st.id !== protectedId) total += st.count;
+    if (total === 0) return null;
+    let r = Math.random() * total;
+    for (let i = 0; i < slots.length; i++) {
+      const st = slots[i];
+      if (!st || st.id === BlockId.Lamp || st.id === protectedId) continue;
+      r -= st.count;
+      if (r < 0) return i;
+    }
+    return null;
   }
 
   /** Recherche des lampes posées (après un changement de monde ou la pose/casse d'une lampe). */
@@ -553,7 +605,7 @@ export class Game {
     for (const ev of ["mousedown", "touchstart"]) repeat.addEventListener(ev, (e) => e.stopPropagation());
     repeat.addEventListener("click", () => {
       const m = this.mission;
-      if (m?.done) this.tell(MISSION_1.outro, { ms: 4000 });
+      if (m?.done) this.tell(MISSION_1.outro, { ms: 4000, important: true });
       else this.announceStep();
     });
     panel.append(face, text, progress, repeat);
@@ -618,9 +670,9 @@ export class Game {
     if (!this.paused) {
       // Signal de la nuit : à 17 h 30, un carillon et le compagnon prévient.
       const h = this.sky.hour;
-      if (this.creaturesOn() && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
+      if (this.creaturesOn() && this.prevHour >= 0 && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
         this.sounds.play("night");
-        this.tell(NIGHT_COMING, { ms: 4000 });
+        this.tell(NIGHT_COMING, { ms: 4000, important: true });
       }
       this.prevHour = h;
       const events = this.sim.update(dt * 1000, {
@@ -632,15 +684,16 @@ export class Game {
       });
       for (const e of events) {
         if (e.kind === "steal") {
-          const full = this.inventory.slots().map((st, i) => (st ? i : -1)).filter((i) => i >= 0);
-          const slot = full[Math.floor(Math.random() * full.length)];
-          const id = slot === undefined ? null : this.inventory.takeFrom(slot);
+          const slot = this.pickStealSlot();
+          const id = slot === null ? null : this.inventory.takeFrom(slot);
           const c = this.sim.creatures.find((x) => x.id === e.id);
           if (id !== null) {
             if (c) c.carried = id;
             this.sounds.play("giggle");
             this.tell(stolenText(id), { ms: 3500 });
           }
+        } else if (e.kind === "despawn" && e.carried !== null) {
+          this.inventory.add(e.carried); // partie trop loin ou créatures coupées : rien n'est perdu
         } else if (e.kind === "flee-lamp" && now - this.lampScareToldAt > 60_000 && this.companionOn()) {
           this.lampScareToldAt = now;
           this.tell(LAMP_SCARES, { ms: 3000, dedupe: true });
@@ -651,11 +704,11 @@ export class Game {
       if (m && this.companionOn()) {
         const ev = m.update(this.inventory);
         if (ev?.kind === "step") {
-          this.tell(BRAVO, { ms: 1500 });
+          this.tell(BRAVO, { ms: 1500, important: true });
           this.announceStepAt = now + 1600;
         } else if (ev?.kind === "done") {
           this.missionDoneAt = now;
-          this.tell(MISSION_1.outro, { ms: 5000 });
+          this.tell(MISSION_1.outro, { ms: 5000, important: true });
           this.saveNow();
         }
         if (this.announceStepAt !== null && now >= this.announceStepAt) {
@@ -1211,6 +1264,8 @@ export class Game {
         lamps: this.lamps.length,
         bubbles: this.bubbles.count,
       }),
+      /** Nombre de blocs de ce type dans le monde (tests). */
+      countBlocks: (id: number) => this.world.data.reduce((n, v) => (v === id ? n + 1 : n), 0),
       /** Lance des bulles (comme le bouton). */
       bubbles: () => this.throwBubbles(),
       /** Fait apparaître une Grignote à (dx, dz) du joueur ; renvoie son identifiant ou null. */

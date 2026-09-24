@@ -79,6 +79,7 @@ declare global {
       saveNow(): boolean;
       bubbles(): void;
       spawnCreature(dx: number, dz: number): number | null;
+      countBlocks(id: number): number;
     };
   }
 }
@@ -1373,5 +1374,52 @@ test("partie d'un enfant : la mission est enregistrée avec le monde et reprend 
   await page.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
   expect((await state(page)).mission).toEqual({ step: 1, done: false });
   await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("pierres");
+  expect(errors).toEqual([]);
+});
+
+test("monde enregistré au J4 (générateur 1) : les pierres brillantes sont ajoutées, la mission peut finir", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1 },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 1, type: "prairie", seed: 1234, edits: "",
+      player: { x: 64.5, y: 30, z: 64.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(),
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
+  expect(await page.evaluate(() => window.cubesDebug.countBlocks(15))).toBeGreaterThanOrEqual(5);
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0")!));
+  expect(saved.gen).toBe(1);
+  expect(saved.edits.length).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : garder le doigt sur le bandeau de Pixel ne casse rien et ne tourne pas la vue @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1");
+  await expect(page.locator(".companion")).toBeVisible({ timeout: 10_000 });
+  await page.evaluate(() => window.cubesDebug.look(0, -60));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const aimed = await aimedBlock(page);
+  const before = await readInfo(page);
+  const box = (await page.locator(".companion-text").boundingBox())!;
+  await page.touchscreen.tap(box.x + 5, box.y + 5); // un toucher bref ne suffit pas à vérifier la tenue : CDP ci-dessous
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + 10, y: box.y + 10, id: 1 }] });
+  await page.waitForTimeout(1500);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: box.x + 60, y: box.y + 10, id: 1 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  expect(await blockAt(page, aimed)).toBe(aimed.id);
+  expect((await readInfo(page)).yaw).toBe(before.yaw);
   expect(errors).toEqual([]);
 });

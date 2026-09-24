@@ -55,13 +55,27 @@ export interface TellOptions {
   voice?: boolean;
   /** Vrai pour un refus ou un conseil : ne pas relire la même phrase avant REPEAT_MS. */
   dedupe?: boolean;
+  /**
+   * Consigne importante (J5 : paroles de Pixel, mission) : tant qu'elle est lue,
+   * les autres phrases sont seulement affichées, sans voix (une lecture coupe la précédente).
+   */
+  important?: boolean;
 }
+
+/** Durée estimée d'une lecture à voix haute (ms) : synthèse française, débit normal. */
+export function speechMs(text: string): number {
+  return 600 + text.length * 75;
+}
+
+type Say = { text: string; dedupe: boolean; important: boolean };
 
 export class Narrator {
   level: ReadingLevel = "debutant";
   voice = true;
   private pending: number | null = null;
-  private pendingSay: { text: string; dedupe: boolean } | null = null;
+  private pendingSay: Say | null = null;
+  /** Fin estimée de la consigne importante en cours de lecture. */
+  private busyUntil = -Infinity;
   private lastSpoken = "";
   private lastSpokenAt = -Infinity;
 
@@ -77,7 +91,7 @@ export class Narrator {
     const shown = pick(text, this.level);
     this.deps.show(shown, Math.max(opts.ms ?? 2500, readingMs(shown, this.level)));
     if (!this.voice || opts.voice === false) return;
-    const say = { text: pick(opts.spoken ?? text, this.level), dedupe: opts.dedupe === true };
+    const say: Say = { text: pick(opts.spoken ?? text, this.level), dedupe: opts.dedupe === true, important: opts.important === true };
     this.cancelPending();
     if (opts.voiceDelayMs && opts.voiceDelayMs > 0) this.schedule(say, opts.voiceDelayMs);
     else this.speakNow(say);
@@ -104,7 +118,7 @@ export class Narrator {
     this.pendingSay = null;
   }
 
-  private schedule(say: { text: string; dedupe: boolean }, ms: number): void {
+  private schedule(say: Say, ms: number): void {
     this.pendingSay = say;
     this.pending = this.deps.setTimer(() => {
       this.pending = null;
@@ -113,10 +127,13 @@ export class Narrator {
     }, ms);
   }
 
-  private speakNow({ text: say, dedupe }: { text: string; dedupe: boolean }): void {
+  private speakNow({ text: say, dedupe, important }: Say): void {
     if (!this.voice) return;
     const t = this.deps.now();
     if (dedupe && say === this.lastSpoken && t - this.lastSpokenAt < REPEAT_MS) return;
+    // Une consigne importante est en cours : on ne la coupe pas (la phrase reste affichée).
+    if (!important && t < this.busyUntil) return;
+    if (important) this.busyUntil = t + speechMs(say);
     this.lastSpoken = say;
     this.lastSpokenAt = t;
     this.deps.speak(say);

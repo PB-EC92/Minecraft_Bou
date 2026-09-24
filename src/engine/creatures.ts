@@ -35,6 +35,8 @@ const APPROACH_SPEED = 2.2;
 const FLEE_SPEED = 3.4;
 /** Au-delà, une Grignote est retirée (et une autre apparaîtra plus près si besoin). */
 const DESPAWN_DISTANCE = 40;
+/** Sols naturels où une Grignote peut apparaître. */
+const NATURAL_GROUND = new Set<number>([BlockId.Grass, BlockId.Dirt, BlockId.Sand, BlockId.Snow, BlockId.Stone]);
 
 export type CreatureMode = "wander" | "approach" | "flee";
 
@@ -76,7 +78,8 @@ export type CreatureEvent =
   | { kind: "steal"; id: number }
   | { kind: "flee-lamp"; id: number }
   | { kind: "spawn"; id: number }
-  | { kind: "despawn"; id: number };
+  /** Retirée ; carried : le bloc qu'elle portait, que le jeu remet dans le sac (rien n'est perdu). */
+  | { kind: "despawn"; id: number; carried: BlockId | null };
 
 export class CreatureSim {
   readonly creatures: Creature[] = [];
@@ -92,9 +95,10 @@ export class CreatureSim {
     this.rng = createRng(seed);
   }
 
-  setWorld(world: World): void {
+  /** Change de monde. Renvoie les blocs que portaient les Grignotes retirées (le jeu les rend). */
+  setWorld(world: World): BlockId[] {
     this.world = world;
-    this.creatures.length = 0;
+    return this.creatures.splice(0).flatMap((c) => (c.carried === null ? [] : [c.carried]));
   }
 
   get time(): number {
@@ -107,7 +111,7 @@ export class CreatureSim {
     const events: CreatureEvent[] = [];
     const dt = Math.min(dtMs, 100) / 1000;
     if (!ctx.enabled) {
-      for (const c of this.creatures.splice(0)) events.push({ kind: "despawn", id: c.id });
+      for (const c of this.creatures.splice(0)) events.push({ kind: "despawn", id: c.id, carried: c.carried });
       return events;
     }
     // Population : quelques Grignotes le jour, plus la nuit.
@@ -117,7 +121,7 @@ export class CreatureSim {
       const d = Math.hypot(c.x - ctx.player.x, c.z - ctx.player.z);
       if (d > DESPAWN_DISTANCE || (this.creatures.length > want && d > SPAWN_MIN && c.carried === null)) {
         this.creatures.splice(i, 1);
-        events.push({ kind: "despawn", id: c.id });
+        events.push({ kind: "despawn", id: c.id, carried: c.carried });
       }
     }
     if (this.creatures.length < want) {
@@ -179,6 +183,8 @@ export class CreatureSim {
       const z = Math.floor(ctx.player.z + Math.cos(a) * r);
       const y = this.standY(x, z);
       if (y === null) continue;
+      // Jamais sur un toit ni une construction (elles viennent de la nature), ni plus haut que l'enfant.
+      if (y > ctx.player.y + 2 || !NATURAL_GROUND.has(this.world.get(x, y - 1, z))) continue;
       if (this.nearLamp(x + 0.5, z + 0.5, ctx.lamps)) continue;
       const c: Creature = {
         id: this.nextId++,
@@ -215,7 +221,9 @@ export class CreatureSim {
     if (c.mode !== "flee") c.mode = ctx.night && c.carried === null ? "approach" : "wander";
 
     // Contact : vol d'un bloc, puis fuite en riant.
-    if (c.mode === "approach" && toPlayer < CONTACT_DISTANCE && ctx.bagHasBlocks && this.now - this.lastStealAt >= STEAL_COOLDOWN_MS) {
+    // Contact vrai : même hauteur et rien de plein entre elles (pas de vol à travers un toit, un mur ou le fond d'un trou).
+    const contact = toPlayer < CONTACT_DISTANCE && Math.abs(c.y - p.y) < 1 && this.clearBetween(c, p);
+    if (c.mode === "approach" && contact && ctx.bagHasBlocks && this.now - this.lastStealAt >= STEAL_COOLDOWN_MS) {
       this.lastStealAt = this.now;
       events.push({ kind: "steal", id: c.id });
       this.flee(c, p);
@@ -265,6 +273,13 @@ export class CreatureSim {
       return true;
     }
     if (!this.world.inBounds(ix, 0, iz)) return false;
+    // En diagonale : les deux cases de côté doivent être praticables (pas de passage entre deux clôtures en coin).
+    const ox = Math.floor(c.x);
+    const oz = Math.floor(c.z);
+    if (ix !== ox && iz !== oz) {
+      const y0 = Math.floor(c.y);
+      if (this.groundNear(ix, oz, y0) === null || this.groundNear(ox, iz, y0) === null) return false;
+    }
     const ny = this.groundNear(ix, iz, Math.floor(c.y));
     if (ny === null || ny > Math.floor(c.y) + 1) return false;
     if (c.mode !== "flee" && this.nearLamp(nx, nz, lamps)) return false;
@@ -275,9 +290,9 @@ export class CreatureSim {
     return true;
   }
 
-  /** Sol praticable dans la colonne (x, z), de y+1 à y−3 : bloc plein dessous (pas une clôture), air à hauteur, pas d'eau. */
+  /** Sol praticable dans la colonne (x, z), de y+1 à y−2 (pas de saut au fond d'un trou profond) : bloc plein dessous (pas une clôture), air à hauteur, pas d'eau. */
   private groundNear(x: number, z: number, y: number): number | null {
-    for (let yy = y + 1; yy >= Math.max(1, y - 3); yy--) {
+    for (let yy = y + 1; yy >= Math.max(1, y - 2); yy--) {
       const below = this.world.get(x, yy - 1, z);
       const here = this.world.get(x, yy, z);
       if (!isSolidId(below) || below === BlockId.Fence) continue;
@@ -299,6 +314,19 @@ export class CreatureSim {
       }
     }
     return y;
+  }
+
+  /** Rien de plein entre la Grignote et le joueur, à mi-hauteur de la Grignote. */
+  private clearBetween(c: Creature, p: { x: number; y: number; z: number }): boolean {
+    const steps = 8;
+    for (let k = 1; k < steps; k++) {
+      const t = k / steps;
+      const x = Math.floor(c.x + (p.x - c.x) * t);
+      const y = Math.floor(c.y + 0.4 + (p.y - c.y) * t);
+      const z = Math.floor(c.z + (p.z - c.z) * t);
+      if (isSolidId(this.world.get(x, y, z))) return false;
+    }
+    return true;
   }
 
   private nearLamp(x: number, z: number, lamps: SimContext["lamps"]): { x: number; z: number } | null {
