@@ -1,6 +1,7 @@
 :root {
   /* Côté d'une case de la barre : borné par la hauteur ET par la largeur (portrait, petit écran). */
-  --slot: clamp(34px, min(7vh, calc((100vw - 110px) / 9)), 64px);
+  /* Au moins 44 px (cible tactile) tant que la largeur le permet ; seule la largeur peut descendre plus bas. */
+  --slot: clamp(34px, min(max(44px, 7vh), calc((100vw - 110px) / 9)), 64px);
   --ui-bg: rgba(20, 24, 32, 0.72);
   --ui-fg: #f4f6f8;
   --ui-accent: #ffd23f;
@@ -37,7 +38,8 @@ canvas.game {
   width: 100%;
   height: 100%;
   display: block;
-  cursor: crosshair;
+  /* Pas de curseur en croix : on vise avec la croix du milieu de l'écran, pas avec la souris (mode repli). */
+  cursor: default;
 }
 
 /* ---------- HUD ---------- */

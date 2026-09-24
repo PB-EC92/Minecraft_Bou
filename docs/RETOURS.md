@@ -4,7 +4,7 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 ## Protocole J2 (à faire par Pierre, puis séance avec les enfants)
 
-Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 ». Le protocole J1 ci-dessous reste valable (tablette en priorité) : le dérouler avec ce fichier J2. Au départ, **le sac est vide** : on ne pose que ce qu'on a ramassé. Le panneau **Tests** contient une nouvelle section **Jeu** : niveau de lecture, voix, sons, « Remplir le sac » (20 blocs de chaque sorte), « Vider le sac ». « — » = sans objet.
+Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 ». Le protocole J1 ci-dessous reste valable (tablette en priorité) : le dérouler avec ce fichier J2. Au départ, **le sac est vide** : on ne pose que ce qu'on a ramassé. Le panneau **Tests** contient une nouvelle section **Jeu** : niveau de lecture, voix, sons, « Compléter le sac » (jusqu'à 20 blocs de chaque sorte, dans la limite des 9 cases ; « Vider le sac » d'abord pour avoir tout le kit), « Vider le sac ». « — » = sans objet.
 
 | Vérification | PC (Chrome) | Tablette Android |
 |---|---|---|
@@ -14,16 +14,18 @@ Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 »
 | Le compte s'affiche (« 3 pierres ! ») et est lu à voix haute, sans bégayer quand on casse vite | | |
 | Poser (clic droit / mode Poser + tapoter) retire un bloc du compte ; à zéro, la case se vide et le jeu le dit | | |
 | Poser avec une case vide : message « Ta case est vide. » | | |
-| Casser une fleur : elle est cueillie tout de suite ; un bloc sous une fleur emporte la fleur dans le sac | | |
+| Cueillir une fleur : un appui court suffit (plus court que pour un bloc), un clic bref ou un tapotement ne la cueille pas ; un bloc sous une fleur emporte la fleur dans le sac | | |
+| En gardant l'appui vers le sol : un seul bloc est creusé plus bas que les pieds ; relâcher puis rappuyer en creuse un autre | | |
+| Dans un trou de deux ou trois blocs : garder Espace (Sauter) en avançant contre la paroi fait grimper et sortir | | |
 | Touches 1 à 9, molette (PC), toucher une case (tablette) : la case choisie change, son nom s'affiche au-dessus | | |
 | Sons : casse (petits « tic » puis un bruit), pose (« toc »), ramassage (« pop »), refus (deux notes douces). Volume correct ? Rien d'agaçant ? | | |
 | Panneau → Jeu → Lecture « autonome » : phrases complètes (« Tu as ramassé… »), voix coupée ; la case « Lire les messages » la rallume | | |
 | Diagnostic : lignes « Sons : actif » (après un premier clic), « Lecture », « Sac » | | |
-| Tablette : garder le doigt immobile casse ; glisser le doigt regarde sans casser | — | |
+| Tablette : garder le doigt immobile casse le bloc sous la croix du milieu ; glisser le doigt regarde sans casser ; viser en glissant puis s'arrêter sans lever le doigt casse aussi | — | |
 
 ### Séance enfants J2 (première séance, consigne libre)
 
-Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ; noter ce qui bloque avant d'aider. Suggestion : monde prairie, sac vide (ils doivent casser pour ramasser) ; au bout de 10 minutes, si ça coince, « Remplir le sac ».
+Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ; noter ce qui bloque avant d'aider. Suggestion : monde prairie, sac vide (ils doivent casser pour ramasser) ; au bout de 10 minutes, si ça coince, « Compléter le sac ».
 
 À observer : comprennent-ils seuls qu'il faut rester appuyé ? La durée de casse les agace-t-elle ? Regardent-ils le nombre dans les cases, le lisent-ils, le répètent-ils ? La voix les aide-t-elle, les gêne-t-elle (6 ans / 8 ans) ? Que construisent-ils ? Combien de temps jouent-ils avant de décrocher ?
 

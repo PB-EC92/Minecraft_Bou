@@ -45,13 +45,15 @@ export class TouchControls {
   private lookTouchId: number | null = null;
   private lookLastX = 0;
   private lookLastY = 0;
-  private lookStartX = 0;
-  private lookStartY = 0;
   private lookStartTime = 0;
   private lookMoved = false;
 
   private readonly actionHandlers: ((mode: TouchMode) => void)[] = [];
   private readonly releaseHandlers: ((press: BreakPress) => void)[] = [];
+  private readonly modeHandlers: ((mode: TouchMode) => void)[] = [];
+  /** Point de référence du doigt de droite : un déplacement au-delà de 12 px le déplace et reprend l'appui. */
+  private anchorX = 0;
+  private anchorY = 0;
   private readonly radius = 48;
   private readonly lookSensitivity = 0.005;
 
@@ -79,8 +81,9 @@ export class TouchControls {
       this.mode = this.mode === "break" ? "place" : "break";
       // Doigt droit déjà posé et immobile : en passant en mode Casser, l'appui commence maintenant.
       this.breakPress =
-        this.mode === "break" && this.lookTouchId !== null && !this.lookMoved ? newBreakPress(performance.now(), true) : null;
+        this.mode === "break" && this.lookTouchId !== null ? newBreakPress(performance.now(), true, this.lookMoved) : null;
       this.updateModeButton();
+      for (const h of this.modeHandlers) h(this.mode);
     });
 
     const jump = document.createElement("button");
@@ -119,6 +122,11 @@ export class TouchControls {
     this.actionHandlers.push(h);
   }
 
+  /** Appelé à chaque changement de mode Casser / Poser (l'aide d'écran en dépend). */
+  onModeChange(h: (mode: TouchMode) => void): void {
+    this.modeHandlers.push(h);
+  }
+
   /** Appelé quand le doigt qui cassait se lève (pas quand le toucher est annulé par le système). */
   onBreakRelease(h: (press: BreakPress) => void): void {
     this.releaseHandlers.push(h);
@@ -155,8 +163,8 @@ export class TouchControls {
         this.setKnob(0, 0);
       } else if (!leftHalf && this.lookTouchId === null) {
         this.lookTouchId = t.identifier;
-        this.lookLastX = this.lookStartX = t.clientX;
-        this.lookLastY = this.lookStartY = t.clientY;
+        this.lookLastX = this.anchorX = t.clientX;
+        this.lookLastY = this.anchorY = t.clientY;
         this.lookStartTime = performance.now();
         this.lookMoved = false;
         if (this.mode === "break") this.breakPress = newBreakPress(this.lookStartTime, true);
@@ -186,9 +194,13 @@ export class TouchControls {
         this.lookLastY = t.clientY;
         this.yawDelta -= dx * this.lookSensitivity;
         this.pitchDelta -= dy * this.lookSensitivity;
-        if (Math.hypot(t.clientX - this.lookStartX, t.clientY - this.lookStartY) > 12) {
+        if (Math.hypot(t.clientX - this.anchorX, t.clientY - this.anchorY) > 12) {
+          // Le doigt glisse : c'est un regard. S'il s'immobilise ensuite (viser puis tenir),
+          // l'appui repart de là, avec une attente plus longue (voir breakPress).
           this.lookMoved = true;
-          if (this.breakPress) this.breakPress.still = false;
+          this.anchorX = t.clientX;
+          this.anchorY = t.clientY;
+          if (this.mode === "break") this.breakPress = newBreakPress(performance.now(), true, true);
         }
       }
     }

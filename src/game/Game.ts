@@ -54,7 +54,7 @@ const BREAK_TICK_MS = 130;
 const PICKUP_VOICE_DELAY_MS = 550;
 /** Intervalle minimal entre deux conseils « Appuie longtemps » (ms). */
 const HOLD_HINT_EVERY_MS = 6000;
-/** Kit du bouton « Remplir le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
+/** Kit du bouton « Compléter le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
 const TEST_KIT_COUNT = 20;
 /** Molette : défilement cumulé (px) pour passer d'une case à la suivante, et délai minimal entre deux cases dans le même sens (ms). */
 const WHEEL_STEP_PX = 60;
@@ -198,6 +198,7 @@ export class Game {
       // Adresse non modifiable (certains navigateurs en file://) : sans conséquence.
     }
     this.nearSections = Math.max(1, this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS));
+    // Vrai chargement (nouveau monde) : levé une fois le voisinage construit ; un bloc cassé ne le remet pas.
     this.loading = true;
   }
 
@@ -218,7 +219,13 @@ export class Game {
   }
 
   private updateHint(): void {
-    const h = this.touchUi ? HINTS.touch : this.mouse.inFallback() ? HINTS.mouseFallback : HINTS.mouse;
+    const h = this.touchUi
+      ? this.touch.mode === "place"
+        ? HINTS.touchPlace
+        : HINTS.touch
+      : this.mouse.inFallback()
+        ? HINTS.mouseFallback
+        : HINTS.mouse;
     this.hud.setHint(pick(h, this.narrator.level));
   }
 
@@ -277,6 +284,8 @@ export class Game {
     });
     this.hud.onSelectSlot((i) => this.setSlot(i, true));
     this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
+    // Aussi sur la barre : c'est là que l'enfant tourne la molette pour choisir (souris non capturée).
+    this.hud.hotbar.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 
     this.mouse.onAction(() => this.placeBlock());
     this.mouse.onBreakRelease((p) => this.onBreakRelease(p));
@@ -292,6 +301,7 @@ export class Game {
       else if (!fallback) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
     });
     this.touch.onAction(() => this.placeBlock());
+    this.touch.onModeChange(() => this.updateHint());
     this.touch.onBreakRelease((p) => this.onBreakRelease(p));
 
     // PC à écran tactile : l'interface tactile n'apparaît qu'au premier vrai toucher.
@@ -387,7 +397,10 @@ export class Game {
     if (Math.abs(this.wheelAccum) < WHEEL_STEP_PX) return;
     const dir = this.wheelAccum > 0 ? 1 : -1;
     // Le délai minimal n'absorbe que l'inertie (même sens) : un retour en arrière passe tout de suite.
-    if (dir === this.lastWheelDir && now - this.lastWheelStepAt < WHEEL_MIN_INTERVAL_MS) return;
+    if (dir === this.lastWheelDir && now - this.lastWheelStepAt < WHEEL_MIN_INTERVAL_MS) {
+      this.wheelAccum = 0; // inertie absorbée : rien n'est gardé pour plus tard
+      return;
+    }
     this.wheelAccum = 0;
     this.lastWheelStepAt = now;
     this.lastWheelDir = dir;
@@ -452,16 +465,19 @@ export class Game {
     const t = this.target;
     const id = t ? this.world.get(t.x, t.y, t.z) : BlockId.Air;
     if (holding && press && t) {
+      const brokeThisPress = this.lastBreakAt >= press.since;
       if (t.y === 0 && !isPlantId(id)) {
-        // Couche du bas : pas d'anneau qui promet une casse impossible ; on le dit une fois par appui.
+        // Couche du bas : pas d'anneau qui promet une casse impossible. Dit une fois, et seulement
+        // si l'enfant la vise dès le début de l'appui (pas au bout d'une série : le compte passe avant).
         holding = false;
-        if (this.bottomToldFor !== press) {
+        if (!brokeThisPress && this.bottomToldFor !== press) {
           this.bottomToldFor = press;
           this.deny(BOTTOM_LAYER);
         }
-      } else if (this.lastBreakAt >= press.since && this.isUnderFeet(t)) {
-        // Un bloc déjà cassé pendant cet appui : on ne creuse pas en continu sous ses pieds
-        // (l'enfant tomberait dans un puits trop profond pour en ressortir en sautant).
+      } else if (brokeThisPress && t.y < Math.floor(this.player.y + 0.001)) {
+        // Un bloc déjà cassé pendant cet appui : on ne creuse plus plus bas que ses pieds, dans aucune
+        // colonne (en diagonale, le puits se formerait juste devant). Un nouvel appui en casse un de plus ;
+        // si l'enfant tombe dans un trou, l'escalade de secours l'en sort (voir Player).
         holding = false;
       }
     }
@@ -481,12 +497,6 @@ export class Game {
       this.lastTickAt = now;
       this.sounds.play("breakTick", this.world.get(t.x, t.y, t.z));
     }
-  }
-
-  /** Le bloc visé est-il sous les pieds du joueur (colonne occupée par sa boîte, plus bas que ses pieds) ? */
-  private isUnderFeet(t: { x: number; y: number; z: number }): boolean {
-    const b = this.player.box();
-    return t.y < Math.floor(this.player.y + 0.001) && t.x + 1 > b.minX && t.x < b.maxX && t.z + 1 > b.minZ && t.z < b.maxZ;
   }
 
   /** Relâchement d'un appui « casser » : conseil si l'enfant a seulement cliqué ou tapoté. */
@@ -510,11 +520,11 @@ export class Game {
     if (!w.set(x, y, z, BlockId.Air)) return;
     this.lastBreakAt = performance.now();
     this.sounds.play("break", id);
-    // Une fleur posée sur le bloc cassé tombe avec lui : elle est ramassée aussi, en premier,
-    // pour que le dernier message (et la voix) parle du bloc que l'enfant a cassé.
+    // Le bloc cassé d'abord (il passe en main si elle est vide, et c'est lui qu'on annonce),
+    // puis la fleur posée dessus, qui tombe avec lui et rejoint le sac sans message.
     const above = w.get(x, y + 1, z);
-    if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above, false);
     this.collect(id);
+    if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above, false);
   }
 
   /**
@@ -532,8 +542,8 @@ export class Game {
     this.collectedTypes.add(id);
     this.sounds.play("pickup", id);
     this.hud.pulseSlot(r.slot);
-    // Main vide : le bloc ramassé passe dans la main (premier ramassage, case épuisée…).
-    if (!this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
+    // Main vide : le bloc annoncé passe dans la main (premier ramassage, case épuisée…).
+    if (announce && !this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
     this.refreshInventory();
     if (announce) {
       this.tell(pickupText(id, r.count, first), {
@@ -635,7 +645,15 @@ export class Game {
         type: this.gen.type,
         seed: this.gen.seed,
         spawn: this.gen.spawn,
-        player: { x: this.player.x, y: this.player.y, z: this.player.z, onGround: this.player.onGround, inWater: this.player.inWater, headInWater: this.player.headInWater },
+        player: {
+          x: this.player.x,
+          y: this.player.y,
+          z: this.player.z,
+          onGround: this.player.onGround,
+          inWater: this.player.inWater,
+          headInWater: this.player.headInWater,
+          climbing: this.player.climbing,
+        },
         hour: this.sky.hour,
         night: this.sky.night,
         brightness: this.sky.brightness,
@@ -731,7 +749,7 @@ export class Game {
 
     // Monde : sections à (re)mailler, les plus proches d'abord
     const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);
-    this.loading = pendingNear > 0;
+    if (pendingNear === 0) this.loading = false;
     this.view.chunks.update(eye.x, eye.y, eye.z, this.loading ? MESH_BUDGET_LOADING_MS : MESH_BUDGET_MS);
     this.hud.setLoading(this.loading ? 1 - pendingNear / this.nearSections : null);
 

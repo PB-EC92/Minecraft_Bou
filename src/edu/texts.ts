@@ -131,25 +131,39 @@ export const WELCOME: ChildText = {
 };
 
 /**
- * Aides permanentes en bas de l'écran (commandes), selon l'appareil. Plus
- * longues que les messages : elles restent affichées et servent aussi à
- * l'adulte. Le débutant a une version courte, sans abréviation.
+ * Aides permanentes en bas de l'écran (commandes), selon l'appareil et, au
+ * doigt, selon le mode Casser / Poser (le bouton affiche le mode en cours).
+ * Plus longues que les messages : elles restent affichées et servent aussi à
+ * l'adulte. Forme unique « geste : verbe », même verbe dans les deux niveaux.
  */
-export const HINTS: { readonly touch: ChildText; readonly mouse: ChildText; readonly mouseFallback: ChildText } = {
+export const HINTS: {
+  readonly touch: ChildText;
+  readonly touchPlace: ChildText;
+  readonly mouse: ChildText;
+  readonly mouseFallback: ChildText;
+} = {
   touch: {
-    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · garde le doigt${NBSP}: casser`,
-    autonome: `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix et garde le doigt immobile${NBSP}: casser · bouton Poser puis tape${NBSP}: poser`,
+    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · garde le doigt${NBSP}: casser · touche Casser${NBSP}: poser`,
+    autonome:
+      `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix du milieu et garde le doigt immobile${NBSP}: casser · ` +
+      `touche le bouton Casser, il devient Poser, puis tape${NBSP}: poser`,
+  },
+  touchPlace: {
+    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · tape${NBSP}: poser · touche Poser${NBSP}: casser`,
+    autonome:
+      `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix du milieu et tape${NBSP}: poser · ` +
+      `touche le bouton Poser, il redevient Casser${NBSP}: casser`,
   },
   mouse: {
     debutant: `Clique pour jouer · ZQSD${NBSP}: marcher · clic gauche gardé${NBSP}: casser · clic droit${NBSP}: poser`,
     autonome:
-      `Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\n` +
-      `Garder le clic gauche${NBSP}: casser · clic droit${NBSP}: poser · 1 à 9 ou molette${NBSP}: choisir · Échap${NBSP}: libérer`,
+      `Clique pour capturer la souris · ZQSD${NBSP}: marcher · Espace${NBSP}: sauter ou nager · Maj${NBSP}: plonger\n` +
+      `Clic gauche gardé${NBSP}: casser · clic droit${NBSP}: poser · 1 à 9 ou molette${NBSP}: choisir · Échap${NBSP}: libérer la souris`,
   },
   mouseFallback: {
     debutant: `Glisse${NBSP}: regarder · clic gauche gardé${NBSP}: casser · clic droit${NBSP}: poser`,
     autonome:
-      `Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\n` +
-      `Garder le clic gauche sans bouger${NBSP}: casser · clic bref droit${NBSP}: poser · 1 à 9${NBSP}: choisir`,
+      `Glisse en tenant le bouton${NBSP}: regarder · ZQSD${NBSP}: marcher · Espace${NBSP}: sauter ou nager\n` +
+      `Clic gauche gardé sans bouger${NBSP}: casser · clic droit${NBSP}: poser · 1 à 9 ou molette${NBSP}: choisir`,
   },
 };

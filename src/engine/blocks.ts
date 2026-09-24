@@ -127,7 +127,7 @@ export function isPlantId(id: number): boolean {
   return blockDef(id).shape === "cross";
 }
 
-/** Blocs proposés dans la barre d'inventaire du prototype (touches 1 à 9). */
+/** Kit de test (bouton « Compléter le sac » du panneau) : au J2, la barre montre le sac, plus cette liste. */
 export const HOTBAR_BLOCKS: readonly BlockId[] = [
   BlockId.Grass,
   BlockId.Dirt,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOLD_HINT_MAX_MS, HOLD_START_MS, isHolding, newBreakPress, shouldHintHold } from "../../src/input/breakPress";
+import { HOLD_AFTER_DRAG_MS, HOLD_HINT_MAX_MS, HOLD_START_MS, isHolding, newBreakPress, shouldHintHold } from "../../src/input/breakPress";
 
 describe("appui « casser »", () => {
   it("sans appui, rien n'est tenu", () => {
@@ -35,5 +35,13 @@ describe("appui « casser »", () => {
     const drag = newBreakPress(1000, true);
     drag.still = false;
     expect(shouldHintHold(drag, 1100, -Infinity)).toBe(false);
+  });
+
+  it("appui repris après un glisser (viser puis tenir) : attente plus longue, jamais de conseil", () => {
+    const p = newBreakPress(1000, true, true);
+    expect(isHolding(p, 1000 + HOLD_START_MS)).toBe(false);
+    expect(isHolding(p, 1000 + HOLD_AFTER_DRAG_MS - 1)).toBe(false);
+    expect(isHolding(p, 1000 + HOLD_AFTER_DRAG_MS)).toBe(true);
+    expect(shouldHintHold(p, 1100, -Infinity)).toBe(false);
   });
 });

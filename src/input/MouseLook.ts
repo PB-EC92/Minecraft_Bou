@@ -1,5 +1,5 @@
 import { newBreakPress, type BreakPress } from "./breakPress";
-import { classifyMouseDelta, CLICK_MAX_MOVE_PX, isClick, LOCK_SETTLE_MS } from "./mouseFilter";
+import { classifyMouseDelta, CLICK_MAX_MOVE_PX, LOCK_SETTLE_MS } from "./mouseFilter";
 
 /** Action immédiate de la souris. Casser n'en est pas une : c'est un appui maintenu (voir breakPress). */
 export type MouseAction = "place";
@@ -48,10 +48,11 @@ export class MouseLook {
   private dragButton = 0;
   private dragStartX = 0;
   private dragStartY = 0;
-  private dragStartTime = 0;
   private dragMoved = 0;
   private lastDragX = 0;
   private lastDragY = 0;
+  private anchorX = 0;
+  private anchorY = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -77,9 +78,8 @@ export class MouseLook {
       if (this.dragging) return;
       this.dragging = true;
       this.dragButton = e.button;
-      this.dragStartX = this.lastDragX = e.clientX;
-      this.dragStartY = this.lastDragY = e.clientY;
-      this.dragStartTime = performance.now();
+      this.dragStartX = this.lastDragX = this.anchorX = e.clientX;
+      this.dragStartY = this.lastDragY = this.anchorY = e.clientY;
       this.dragMoved = 0;
     });
 
@@ -95,13 +95,18 @@ export class MouseLook {
         this.dragging = false;
         if (this.locked || !this.inFallback()) return;
         const moved = Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY);
-        if (this.dragButton === 2 && isClick(Math.max(moved, this.dragMoved), performance.now() - this.dragStartTime)) {
+        // Clic droit sans glisser : poser, quelle que soit sa durée (un appui immobile ne tourne pas la vue).
+        if (this.dragButton === 2 && Math.max(moved, this.dragMoved) <= CLICK_MAX_MOVE_PX) {
           this.emit("place");
         }
       },
       { capture: true },
     );
-    window.addEventListener("blur", () => this.endBreakPress(false));
+    window.addEventListener("blur", () => {
+      // Relâchement hors de la page (Alt+Tab) : il ne nous parviendra jamais.
+      this.endBreakPress(false);
+      this.dragging = false;
+    });
 
     window.addEventListener("mousemove", (e) => {
       if (this.locked) {
@@ -115,12 +120,23 @@ export class MouseLook {
         this.yawDelta -= e.movementX * this.sensitivity;
         this.pitchDelta -= e.movementY * this.sensitivity;
       } else if (this.dragging) {
+        if (e.buttons === 0) {
+          // Relâchement perdu (menu contextuel, sortie de fenêtre) : le glisser est fini.
+          this.dragging = false;
+          this.endBreakPress(false);
+          return;
+        }
         const dx = e.clientX - this.lastDragX;
         const dy = e.clientY - this.lastDragY;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
         this.dragMoved = Math.max(this.dragMoved, Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY));
-        if (this.breakPress && this.dragMoved > CLICK_MAX_MOVE_PX) this.breakPress.still = false;
+        if (Math.hypot(e.clientX - this.anchorX, e.clientY - this.anchorY) > CLICK_MAX_MOVE_PX) {
+          // Glisser = regarder. Bouton gauche toujours enfoncé : l'appui repart de là (viser puis tenir).
+          this.anchorX = e.clientX;
+          this.anchorY = e.clientY;
+          if (this.breakPress) this.breakPress = newBreakPress(performance.now(), true, true);
+        }
         this.yawDelta -= dx * this.sensitivity * 1.5;
         this.pitchDelta -= dy * this.sensitivity * 1.5;
       }

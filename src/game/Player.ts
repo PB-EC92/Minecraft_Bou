@@ -34,6 +34,14 @@ export const PLAYER = {
   waterDrag: 6,
   /** Durée caractéristique du lissage de la caméra après une marche (s). */
   eyeSmoothing: 0.08,
+  /**
+   * Escalade de secours (J2) : garder le saut en avançant contre une paroi
+   * pendant climbDelay fait grimper à climbSpeed. Aucun trou ne peut ainsi
+   * piéger l'enfant (règle « aucun échec bloquant »). Sans saut, un mur de
+   * deux blocs arrête toujours.
+   */
+  climbDelay: 0.6,
+  climbSpeed: 3.0,
 };
 
 const EPS = 1e-4;
@@ -61,6 +69,12 @@ export class Player {
   autoStep = true;
   /** Nombre de marches montées automatiquement (diagnostic, tests). */
   stepsClimbed = 0;
+  /** Vrai pendant l'escalade de secours (saut gardé contre une paroi). */
+  climbing = false;
+  /** Temps passé à garder le saut en poussant contre une paroi (s). */
+  private climbHeld = 0;
+  /** À l'image précédente, le déplacement voulu a été arrêté par un bloc (pas par le bord du monde). */
+  private pushingWall = false;
   /** Décalage de la caméra après une marche, ramené à 0 en douceur. */
   private eyeOffset = 0;
 
@@ -139,11 +153,23 @@ export class Player {
       else target = probe ? PLAYER.floatUpSpeed : 0;
       this.vy += (target - this.vy) * Math.min(1, PLAYER.waterDrag * dt);
     } else {
-      if (input.jump && this.onGround) {
-        this.vy = PLAYER.jumpSpeed;
+      const pushing = this.pushingWall && Math.hypot(ix, iz) > 0.1;
+      this.climbHeld = input.jump && pushing ? this.climbHeld + dt : 0;
+      this.climbing = this.climbHeld >= PLAYER.climbDelay;
+      if (this.climbing) {
+        this.vy = PLAYER.climbSpeed;
         this.onGround = false;
+      } else {
+        if (input.jump && this.onGround) {
+          this.vy = PLAYER.jumpSpeed;
+          this.onGround = false;
+        }
+        this.vy = Math.max(this.vy - PLAYER.gravity * dt, -PLAYER.maxFallSpeed);
       }
-      this.vy = Math.max(this.vy - PLAYER.gravity * dt, -PLAYER.maxFallSpeed);
+    }
+    if (this.inWater) {
+      this.climbHeld = 0;
+      this.climbing = false;
     }
 
     const wasOnGround = this.onGround;
@@ -167,6 +193,12 @@ export class Player {
         this.stepsClimbed++;
       }
     }
+
+    // Paroi poussée (pour l'escalade de secours) : un vrai bloc, pas le mur invisible du bord du monde.
+    const border =
+      (hitX && ((wantX < 0 && box.minX <= 1e-3) || (wantX > 0 && box.maxX >= this.world.sizeX - 1e-3))) ||
+      (hitZ && ((wantZ < 0 && box.minZ <= 1e-3) || (wantZ > 0 && box.maxZ >= this.world.sizeZ - 1e-3)));
+    this.pushingWall = (hitX || hitZ) && !border && Math.abs(wantX) + Math.abs(wantZ) > 1e-6;
 
     this.x = (box.minX + box.maxX) / 2;
     this.y = box.minY;

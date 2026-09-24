@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Narrator, REPEAT_MS, type NarratorDeps } from "../../src/edu/Narrator";
+import { Narrator, readingMs, REPEAT_MS, type NarratorDeps } from "../../src/edu/Narrator";
 
 function harness() {
   let time = 0;
   let nextId = 1;
   const timers = new Map<number, { at: number; fn: () => void }>();
   const shown: string[] = [];
+  const durations: number[] = [];
   const spoken: string[] = [];
   const deps: NarratorDeps = {
-    show: (t) => shown.push(t),
+    show: (t, ms) => {
+      shown.push(t);
+      durations.push(ms);
+    },
     speak: (t) => spoken.push(t),
     now: () => time,
     setTimer: (fn, ms) => {
@@ -27,7 +31,7 @@ function harness() {
       }
     }
   };
-  return { n: new Narrator(deps), shown, spoken, advance };
+  return { n: new Narrator(deps), shown, spoken, advance, durations };
 }
 
 const T = { debutant: "Trois pierres !", autonome: "Tu as ramassé une pierre. Tu en as 3." };
@@ -127,5 +131,21 @@ describe("Narrator", () => {
     h.n.voice = false;
     h.advance(1000);
     expect(h.spoken).toEqual([]);
+  });
+
+  it("laisse le temps de lire : un long message autonome reste affiché plus longtemps", () => {
+    const h = harness();
+    h.n.setLevel("autonome");
+    const long = "Vise un bloc avec la croix et appuie longtemps pour le casser."; // 12 mots
+    h.n.tell({ debutant: "Appuie longtemps !", autonome: long }, { ms: 2000 });
+    expect(h.durations[0]).toBe(readingMs(long, "autonome"));
+    expect(h.durations[0]).toBeGreaterThanOrEqual(5000);
+    h.n.tell({ debutant: "a", autonome: "Court." }, { ms: 3000 });
+    expect(h.durations[1]).toBe(3000); // la durée demandée reste un minimum
+  });
+
+  it("readingMs : croît avec le nombre de mots, plafonnée", () => {
+    expect(readingMs("Trois pierres !", "debutant")).toBeLessThan(readingMs("Tu as ramassé une pierre. Tu en as 3.", "autonome"));
+    expect(readingMs("mot ".repeat(100), "autonome")).toBe(9000);
   });
 });

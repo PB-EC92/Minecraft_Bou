@@ -152,7 +152,7 @@ export class Hud {
     this.soundToggle = this.checkbox("Sons", rowToggles);
     this.panel.appendChild(rowToggles);
     const rowBag = this.row();
-    this.fillBagButton = this.button("Remplir le sac (20 de chaque)");
+    this.fillBagButton = this.button("Compléter le sac (20 de chaque)");
     this.clearBagButton = this.button("Vider le sac");
     rowBag.append(this.fillBagButton, this.clearBagButton);
     this.panel.appendChild(rowBag);

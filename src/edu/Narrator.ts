@@ -24,6 +24,18 @@ import { pick, type ChildText, type ReadingLevel } from "./texts";
 /** Délai minimal avant de relire exactement la même phrase (ms). */
 export const REPEAT_MS = 4000;
 
+/**
+ * Durée d'affichage minimale d'un message pour qu'un enfant ait le temps de
+ * le lire (ms) : un lecteur de CE2 lit bien moins vite qu'un adulte, et le
+ * lecteur autonome n'a pas la voix par défaut. Plafonnée à 9 s ; un message
+ * suivant remplace de toute façon le précédent.
+ */
+export function readingMs(text: string, level: ReadingLevel): number {
+  const words = text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  const ms = level === "autonome" ? 1200 + 400 * words : 1000 + 450 * words;
+  return Math.min(9000, ms);
+}
+
 export interface NarratorDeps {
   show(text: string, durationMs: number): void;
   speak(text: string): void;
@@ -35,7 +47,7 @@ export interface NarratorDeps {
 export interface TellOptions {
   /** Version à lire (nombres en lettres, par exemple) ; par défaut le texte affiché. */
   spoken?: ChildText;
-  /** Durée d'affichage (ms). */
+  /** Durée d'affichage minimale (ms) ; allongée si le texte est long à lire (voir readingMs). */
   ms?: number;
   /** Lecture différée (ms) : une nouvelle lecture différée remplace celle en attente. */
   voiceDelayMs?: number;
@@ -62,7 +74,8 @@ export class Narrator {
   }
 
   tell(text: ChildText, opts: TellOptions = {}): void {
-    this.deps.show(pick(text, this.level), opts.ms ?? 2500);
+    const shown = pick(text, this.level);
+    this.deps.show(shown, Math.max(opts.ms ?? 2500, readingMs(shown, this.level)));
     if (!this.voice || opts.voice === false) return;
     const say = { text: pick(opts.spoken ?? text, this.level), dedupe: opts.dedupe === true };
     this.cancelPending();

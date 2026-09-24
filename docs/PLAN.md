@@ -110,7 +110,7 @@ Le générateur accepte dès J1 un type de monde (prairie, île, montagne, dése
 
 Visée par raycast avec surbrillance du bloc ciblé, casse (courte pression avec barre de progression, pour éviter les casses accidentelles), pose, barre d'inventaire à neuf cases avec compteurs (les blocs cassés sont ramassés : le comptage est le support de la mission 1). Sons synthétisés. Première session de test avec les enfants : consigne libre « construis une cabane ».
 
-État : livré le 24/09/2026 (voir `JOURNAL.md`), avec la boucle « consigne lue + comptage » proposée à l'audit (le jeu annonce « trois pierres ! » à l'écran et, pour le lecteur débutant, à voix haute). Choix faits en l'absence de consigne, à confirmer par Pierre : sac vide au départ ; une case par type de bloc, 99 au plus ; sac plein = le bloc est cassé mais pas ramassé ; nouveau monde = sac vidé ; les planches ne se ramassent pas dans la nature (bouton « Remplir le sac » du panneau de tests en attendant le craft du backlog V2).
+État : livré le 24/09/2026 (voir `JOURNAL.md`), avec la boucle « consigne lue + comptage » proposée à l'audit (le jeu annonce « trois pierres ! » à l'écran et, pour le lecteur débutant, à voix haute). Choix faits en l'absence de consigne, à confirmer par Pierre : sac vide au départ ; une case par type de bloc, 99 au plus ; sac plein = le bloc est cassé mais pas ramassé ; nouveau monde = sac vidé ; les planches ne se ramassent pas dans la nature (bouton « Compléter le sac » du panneau de tests en attendant le craft du backlog V2) ; escalade de secours pour sortir d'un trou (garder le saut en avançant contre une paroi).
 
 ### J3 — Tactile et performances
 
