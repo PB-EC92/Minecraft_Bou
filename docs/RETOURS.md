@@ -29,18 +29,36 @@ Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ;
 
 À observer : comprennent-ils seuls qu'il faut rester appuyé ? La durée de casse les agace-t-elle ? Regardent-ils le nombre dans les cases, le lisent-ils, le répètent-ils ? La voix les aide-t-elle, les gêne-t-elle (6 ans / 8 ans) ? Que construisent-ils ? Combien de temps jouent-ils avant de décrocher ?
 
-## Séance du … — J2
+## Séance du 24/09/2026 — J2 (diagnostic seul, protocole J2 non encore rempli)
 
-Appareil :
-Testeurs :
+Appareil : tablette tactile sous Windows 10, Firefox 154 (d'après le diagnostic ; le tableau J1 ci-dessous est intitulé « Tablette Android » : même appareil ? à confirmer)
+Testeurs : Pierre
 
 Ce qui marche :
 
 Ce qui coince :
 
-Diagnostic (copié depuis le panneau) :
+Diagnostic (transcrit par Claude depuis la capture d'écran fournie en discussion) :
 
 ```
+Version : J2
+Monde : île, graine 870756, 128×64×128, arbres 51, fleurs 191, cactus 0
+Rendu : distance 128 blocs, sections affichées 127/256, en attente 0, appels 59, triangles 23584
+Calcul par image (hors attente de l'écran) : moy. 2.8 ms, pire 8.0 ms
+Heure : 12h31 (jour), vitesse ×20
+Adresse : file://(fichier local)
+Navigateur : Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:154.0) Gecko/20100101 Firefox/154.0
+Écran : 1080×1802 @ 1× (rendu 1×)
+Tactile : pointeur principal doigt, interface tactile affichée (5 points)
+WebGL2 : oui — ANGLE (Intel, Intel(R) HD Graphics 400 Direct3D11 vs_5_0 ps_5_0), or similar
+Pointer Lock : disponible, inactif, captures 4, écartés 0 après capture et 0 trop grands (> 200 px), plus grand reçu 0 px
+Contexte 3D : ok, perdu 0 fois
+Stockage local : ok
+Synthèse vocale : disponible
+Sons : actif
+Lecture : debutant, voix active
+Sac : 4/9 cases, 18 blocs
+Voix : Microsoft Hortense - French (France) (fr-FR) ; 4 voix françaises dont 4 locales (hors ligne), sur 5 voix au total
 ```
 
 Idées des enfants :
@@ -52,19 +70,19 @@ Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J1 »
 | Vérification | PC (Chrome) | Tablette Android |
 |---|---|---|
 | Le fichier s'ouvre ; l'écran « Construction du monde… » disparaît (noter en combien de secondes, à peu près) | | |
-| Au départ on est au sol, à ciel ouvert, dans une prairie (4ᵉ ligne des infos : « prairie · graine … ») | | |
-| Images par seconde après 10 s sans bouger (noter « moy. », « pire » et « calcul ») | | |
-| Même mesure en marchant 20 s dans le monde | | |
-| Panneau → Distance de rendu : noter les images par seconde à 48, 96 et 128 blocs | | |
-| Panneau → Monde : essayer île, montagne, désert (« Nouveau monde ») : chacun s'affiche, on apparaît au sol | | |
-| Marcher contre une marche d'un bloc : on monte sans sauter ; un mur de deux blocs arrête | | |
-| Entrer dans l'eau : on flotte ; en avançant vers la berge, on ressort | | |
+| Au départ on est au sol, à ciel ouvert, dans une prairie (4ᵉ ligne des infos : « prairie · graine … ») | |Oui |
+| Images par seconde après 10 s sans bouger (noter « moy. », « pire » et « calcul ») | |16.7 17 1,3 |
+| Même mesure en marchant 20 s dans le monde | |16.7 17 1,3 |
+| Panneau → Distance de rendu : noter les images par seconde à 48, 96 et 128 blocs | | 48 (16.7 17 2.2) 96 (16.7 17 2.3)|
+| Panneau → Monde : essayer île, montagne, désert (« Nouveau monde ») : chacun s'affiche, on apparaît au sol | |oui |
+| Marcher contre une marche d'un bloc : on monte sans sauter ; un mur de deux blocs arrête | | oui|
+| Entrer dans l'eau : on flotte ; en avançant vers la berge, on ressort | |oui |
 | Sous l'eau (Maj sur PC pour plonger) : l'image devient bleue ; en relâchant, on remonte | | — |
-| Panneau → Heure → Nuit : ciel sombre, étoiles, on voit encore le sol ; « Temps ×20 » : le soleil se couche puis se lève | | |
-| Casser, poser, cueillir une fleur (on vise la fleur) | | |
+| Panneau → Heure → Nuit : ciel sombre, étoiles, on voit encore le sol ; « Temps ×20 » : le soleil se couche puis se lève | |Oui |
+| Casser, poser, cueillir une fleur (on vise la fleur) | |Oui |
 | Souris : après quelques captures et des gestes très rapides, noter la ligne « Pointer Lock » du diagnostic (écartés… après capture, … trop grands, plus grand reçu … px) ; le regard « colle »-t-il parfois ? | | — |
-| Passer à une autre appli (ou verrouiller l'écran) 30 s puis revenir : le monde s'affiche toujours (ligne « Contexte 3D » du diagnostic) | — | |
-| Diagnostic : « Stockage local : ok » | | |
+| Passer à une autre appli (ou verrouiller l'écran) 30 s puis revenir : le monde s'affiche toujours (ligne « Contexte 3D » du diagnostic) | — |Oui |
+| Diagnostic : « Stockage local : ok » | |Oui |
 
 Copier le bloc « Diagnostic » de chaque appareil dans la séance ci-dessous (une capture d'écran convient aussi). Si les enfants essaient : quel type de monde préfèrent-ils, qu'est-ce qui les amuse, qu'est-ce qui les gêne ?
 

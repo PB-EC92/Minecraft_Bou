@@ -129,3 +129,15 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Attendu de Pierre.** Protocole J2 de `RETOURS.md` (il reprend le J1, tablette en priorité), puis première séance avec les enfants : « Construis une cabane ». Avis sur les huit choix ci-dessus.
 
 **Prochaine étape.** J3 (tactile et performances tablette) après les retours, ou corrections du J2 d'après la séance des enfants.
+
+## 2026-09-24 — Retours J1 sur tablette, diagnostic J2
+
+**Reçu de Pierre.** Colonne « Tablette » du protocole J1 remplie (`RETOURS.md`) et une capture du panneau « Tests » du J2 (diagnostic transcrit dans `RETOURS.md`). Le fichier `RETOURS.md` envoyé datait d'avant le J2 : seules les réponses J1 ont été reportées, le protocole J2 du dépôt est conservé.
+
+**Constats J1 (tablette).** Tout ce qui a été testé passe : apparition au sol dans la prairie, les quatre types de monde, marches, eau et sortie sur la berge, nuit et temps accéléré, casser / poser / cueillir, retour après 30 s dans une autre appli, stockage local. 60 images/s (moy. 16,7 ms, pire 17 ms) à l'arrêt comme en marchant, à 48 et 96 blocs ; calcul par image 1,3 ms (distance par défaut), 2,2 ms à 48 blocs, 2,3 ms à 96 (l'écart entre 1,3 et 2,2 n'est pas expliqué ; mesures faites à des moments différents, probablement). Temps d'ouverture non noté.
+
+**Constats J2 (capture).** Même tablette probablement, à 128 blocs sur une île : calcul moyen 2,8 ms, pire 8,0 ms, soit une large marge sous les 16,7 ms d'une image à 60 i/s, sur une puce graphique d'entrée de gamme (Intel HD Graphics 400). Écran portrait 1080 × 1802, interface tactile affichée, voix Microsoft Hortense locale, sons actifs, sac utilisé (18 blocs). La ligne d'images par seconde n'était pas visible sur la capture.
+
+**Point à éclaircir.** Le diagnostic décrit une tablette **Windows 10 avec Firefox**, alors que la colonne s'intitule « Tablette Android ». Si la tablette des enfants est bien celle-ci, la décision « distance de rendu tablette » peut être prise : 128 blocs tient largement (au lieu de 48 par défaut). Si une tablette Android existe aussi, elle reste à tester. « Captures 4 » sur un appareil tactile : clavier ou pavé tactile branché, ou bouton « Capturer la souris » ? À confirmer (un toucher ne devrait pas déclencher la capture).
+
+**Attendu de Pierre.** Confirmer l'appareil ; remplir le protocole J2 ; séance enfants « Construis une cabane » ; avis sur les huit choix du J2.
