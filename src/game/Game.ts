@@ -46,7 +46,7 @@ const FAST_TIME = 20;
 const BREAK_TICK_MS = 130;
 /** Délai avant de lire le compte à voix haute : en cassant vite, seul le dernier est lu (ms). */
 const PICKUP_VOICE_DELAY_MS = 550;
-/** Intervalle minimal entre deux conseils « Reste appuyé » (ms). */
+/** Intervalle minimal entre deux conseils « Appuie longtemps » (ms). */
 const HOLD_HINT_EVERY_MS = 6000;
 /** Kit du bouton « Remplir le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
 const TEST_KIT_COUNT = 20;

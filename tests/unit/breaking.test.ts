@@ -225,12 +225,21 @@ describe("BreakTracker — verrou après une casse", () => {
     expect(t.target).toEqual(Q);
   });
 
-  it("revenir sur la cible verrouillée après être parti la recasse, après l'écart", () => {
+  it("quitter la cible verrouillée puis y revenir la recasse, après l'écart", () => {
     const t = new BreakTracker();
     breakOnce(t);
     t.update(true, Q, 300, 16); // on quitte P
     expect(progressOf(t.update(true, P, 0, 100))).toBe(0); // −150 + 100
     expect(t.update(true, P, 0, 50)).toEqual({ kind: "done", pos: P });
+  });
+
+  it("perdre la cible sans relâcher lève aussi le verrou", () => {
+    const t = new BreakTracker();
+    breakOnce(t);
+    expect(t.update(true, P, 0, 16)).toEqual({ kind: "idle" }); // verrouillé
+    expect(t.update(true, null, 0, 16)).toEqual({ kind: "idle" });
+    // Remise à zéro complète : ni verrou, ni écart de répétition.
+    expect(t.update(true, P, 0, 0)).toEqual({ kind: "done", pos: P });
   });
 
   it("relâcher puis rappuyer sur la même cible lève le verrou", () => {
@@ -315,6 +324,13 @@ describe("BreakTracker — écart de répétition", () => {
     expect(t.update(true, R, 0, 0)).toEqual({ kind: "done", pos: R });
   });
 
+  it("perdre la cible sans relâcher efface aussi l'écart", () => {
+    const t = new BreakTracker();
+    breakOnce(t);
+    expect(t.update(true, null, 200, 16)).toEqual({ kind: "idle" });
+    expect(t.update(true, Q, 200, 200)).toEqual({ kind: "done", pos: Q });
+  });
+
   it("sans casse pendant l'appui, changer de cible ne met pas d'écart", () => {
     const t = new BreakTracker();
     hold(t, P, 500, 100, 2);
@@ -336,7 +352,7 @@ describe("BreakTracker — bornes et valeurs aberrantes", () => {
       expect(t.progress).toBe(p);
       last = p;
     }
-    // Juste avant la durée : plafonné à 0,999.
+    // Juste avant la durée : progress plafonné à 0,999.
     expect(progressOf(t.update(true, P, duration, 0.5))).toBe(0.999);
     expect(t.update(true, P, duration, 0.5).kind).toBe("done");
   });
@@ -359,7 +375,7 @@ describe("BreakTracker — bornes et valeurs aberrantes", () => {
     expect(t.update(true, Q, 0, 1)).toEqual({ kind: "done", pos: Q });
   });
 
-  it("durée NaN : immédiate ; durée infinie : jamais cassé, progress 0", () => {
+  it("durée NaN : casse immédiate ; durée infinie : jamais de casse, progress 0", () => {
     const t = new BreakTracker();
     expect(t.update(true, P, Number.NaN, 16)).toEqual({ kind: "done", pos: P });
     const t2 = new BreakTracker();
@@ -368,7 +384,7 @@ describe("BreakTracker — bornes et valeurs aberrantes", () => {
     expect(t2.progress).toBe(0);
   });
 
-  it("toute progression renvoyée est un nombre fini dans [0, 1[", () => {
+  it("2000 images au hasard : progression finie dans [0, 1[, repos sans appui, casse de la cible visée", () => {
     const t = new BreakTracker();
     const durations = [0, 1, 50, 350, 650, -1, Number.POSITIVE_INFINITY];
     const dts = [0, 1, 16, 33, 200, -5, Number.NaN];
@@ -382,6 +398,12 @@ describe("BreakTracker — bornes et valeurs aberrantes", () => {
       const holding = rnd(10) !== 0;
       const target = rnd(12) === 0 ? null : targets[rnd(targets.length)]!;
       const s = t.update(holding, target, durations[rnd(durations.length)]!, dts[rnd(dts.length)]!);
+      if (!holding || target === null) expect(s.kind).toBe("idle");
+      if (s.kind === "done") {
+        expect(s.pos).toEqual(target);
+        // Verrou : la même cible, appui gardé, ne recasse pas à l'image suivante.
+        expect(t.update(true, target, 0, 16)).toEqual({ kind: "idle" });
+      }
       if (s.kind === "progress") {
         expect(Number.isFinite(s.progress)).toBe(true);
         expect(s.progress).toBeGreaterThanOrEqual(0);

@@ -369,7 +369,7 @@ test("un clic bref ne casse rien et conseille de rester appuyé", async ({ page 
   const aimed = await aimedBlock(page);
   await page.mouse.down({ button: "left" });
   await page.mouse.up({ button: "left" });
-  await expect(page.locator(".message")).toContainText("Reste appuyé");
+  await expect(page.locator(".message")).toContainText("Appuie longtemps");
   await page.waitForTimeout(500);
   expect(await blockAt(page, aimed)).toBe(aimed.id);
   expect((await state(page)).inventory.every((s) => s === null)).toBe(true);
@@ -454,6 +454,8 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   const after = await readInfo(page);
   expect(after.pitch).toBeLessThan(before.pitch - 30);
   expect((await state(page)).inventory.every((s) => s === null)).toBe(true);
+  // Revenir au centre sans bouton enfoncé (ne tourne pas la vue) : en bas, on serait sur la barre.
+  await page.mouse.move(640, 360, { steps: 5 });
   const aimed = await aimedBlock(page);
   await page.mouse.down();
   await waitBroken(page, aimed);
@@ -471,7 +473,7 @@ test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mo
   const aimed = await aimedBlock(page);
   expect(aimed.id).toBe(B.grass);
   await t.tap(850, 420);
-  await expect(page.locator(".message")).toContainText("Reste appuyé");
+  await expect(page.locator(".message")).toContainText("Appuie longtemps");
   expect(await blockAt(page, aimed)).toBe(B.grass);
   await t.hold(850, 420, () => waitBroken(page, aimed));
   await expect(page.locator(".message")).toContainText("Un bloc d'herbe");

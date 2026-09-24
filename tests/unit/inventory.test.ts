@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { BLOCKS, BlockId, HOTBAR_BLOCKS } from "../../src/engine/blocks";
-import { INVENTORY_SLOTS, Inventory, MAX_STACK, isInventoryBlockId } from "../../src/engine/inventory";
+import {
+  INVENTORY_SLOTS,
+  Inventory,
+  MAX_STACK,
+  isInventoryBlockId,
+  type AddResult,
+  type InventoryData,
+  type Stack,
+} from "../../src/engine/inventory";
 
 /** Neuf types différents, pour remplir toutes les cases. */
 const NINE_TYPES: readonly BlockId[] = [
@@ -14,6 +22,34 @@ const NINE_TYPES: readonly BlockId[] = [
   BlockId.Snow,
   BlockId.Cactus,
 ];
+
+describe("inventaire : contrat d'interface (vérifié par npm run typecheck)", () => {
+  it("expose exactement les signatures de la spécification J2", () => {
+    expectTypeOf<Stack>().toEqualTypeOf<{ id: BlockId; count: number }>();
+    expectTypeOf<AddResult>().toEqualTypeOf<
+      { ok: true; slot: number; count: number; added: number } | { ok: false; reason: "full" | "max"; slot: number | null }
+    >();
+    expectTypeOf<InventoryData>().toEqualTypeOf<{ slots: ([number, number] | null)[] }>();
+    expectTypeOf(Inventory).constructorParameters.toEqualTypeOf<[size?: number]>();
+    expectTypeOf(Inventory.fromJSON).toEqualTypeOf<(data: unknown, size?: number) => Inventory>();
+    const inv = new Inventory();
+    expectTypeOf(inv.size).toEqualTypeOf<number>();
+    expectTypeOf(inv.version).toEqualTypeOf<number>();
+    expectTypeOf(inv.slot).toEqualTypeOf<(i: number) => Stack | null>();
+    expectTypeOf(inv.slots).toEqualTypeOf<() => (Stack | null)[]>();
+    expectTypeOf(inv.count).toEqualTypeOf<(id: BlockId) => number>();
+    expectTypeOf(inv.indexOf).toEqualTypeOf<(id: BlockId) => number>();
+    expectTypeOf(inv.totalBlocks).toEqualTypeOf<() => number>();
+    expectTypeOf(inv.usedSlots).toEqualTypeOf<() => number>();
+    expectTypeOf(inv.add).toEqualTypeOf<(id: BlockId, n?: number) => AddResult>();
+    expectTypeOf(inv.takeFrom).toEqualTypeOf<(i: number, n?: number) => BlockId | null>();
+    expectTypeOf(inv.clear).toEqualTypeOf<() => void>();
+    expectTypeOf(inv.fill).toEqualTypeOf<(ids: readonly BlockId[], count: number) => void>();
+    expectTypeOf(inv.toJSON).toEqualTypeOf<() => InventoryData>();
+    // size et version sont en lecture seule (version n'a qu'un accesseur de lecture).
+    expectTypeOf<Pick<Inventory, "size" | "version">>().toEqualTypeOf<{ readonly size: number; readonly version: number }>();
+  });
+});
 
 describe("inventaire : création", () => {
   it("a 9 cases vides par défaut", () => {
@@ -103,6 +139,9 @@ describe("inventaire : ajout", () => {
     }
     expect(inv.usedSlots()).toBe(0);
     expect(inv.version).toBe(0);
+    // Sac plein : l'air reste une erreur, pas un simple refus « full ».
+    for (const id of NINE_TYPES) inv.add(id);
+    expect(() => inv.add(BlockId.Air)).toThrow(Error);
   });
 
   it("lève une erreur pour un nombre à ajouter invalide", () => {
@@ -175,6 +214,8 @@ describe("inventaire : retrait", () => {
     inv.add(BlockId.Dirt);
     inv.takeFrom(1); // la pierre disparaît : trou en case 1
     expect(inv.slots().map((s) => s?.id ?? null)).toEqual([BlockId.Grass, null, BlockId.Dirt, null, null, null, null, null, null]);
+    // Un type déjà présent reste dans sa case, même s'il y a un trou avant elle.
+    expect(inv.add(BlockId.Dirt)).toEqual({ ok: true, slot: 2, count: 2, added: 1 });
     expect(inv.add(BlockId.Sand)).toEqual({ ok: true, slot: 1, count: 1, added: 1 });
     expect(inv.add(BlockId.Log)).toEqual({ ok: true, slot: 3, count: 1, added: 1 });
     // Les autres cases n'ont pas bougé.
@@ -240,6 +281,10 @@ describe("inventaire : version", () => {
     expect(inv.version).toBe(3);
     inv.takeFrom(0, 99); // vide la case
     expect(inv.version).toBe(4);
+    inv.add(BlockId.Log, 97);
+    inv.add(BlockId.Log, 10); // ajout partiel (2 sur 10) : c'est un changement
+    expect(inv.count(BlockId.Log)).toBe(MAX_STACK);
+    expect(inv.version).toBe(6);
   });
 
   it("ne bouge pas quand rien ne change", () => {
@@ -484,6 +529,20 @@ describe("inventaire : sauvegarde (toJSON / fromJSON)", () => {
     expect(inv.slots().filter((s) => s?.id === BlockId.Stone)).toHaveLength(1);
   });
 
+  it("tronque avant de fusionner : un doublon situé au-delà de la taille est ignoré", () => {
+    const inv = Inventory.fromJSON({ slots: [[BlockId.Stone, 2], [BlockId.Dirt, 1], [BlockId.Stone, 50]] }, 2);
+    expect(inv.toJSON()).toEqual({ slots: [[BlockId.Stone, 2], [BlockId.Dirt, 1]] });
+  });
+
+  it("relit aussi un Inventory passé directement (sans JSON.stringify)", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Stone, 3);
+    inv.add(BlockId.Log, 8);
+    const copy = Inventory.fromJSON(inv);
+    expect(copy).not.toBe(inv);
+    expect(copy.toJSON()).toEqual(inv.toJSON());
+  });
+
   it("une entrée invalide ne réserve pas le type : le doublon valide suivant est gardé à sa place", () => {
     const inv = Inventory.fromJSON({ slots: [[BlockId.Stone, 0], [BlockId.Stone, 3]] });
     expect(inv.toJSON().slots.slice(0, 2)).toEqual([null, [BlockId.Stone, 3]]);
@@ -495,11 +554,30 @@ describe("inventaire : sauvegarde (toJSON / fromJSON)", () => {
         throw new Error("piège");
       },
     });
-    const trappedEntry = { slots: [[BlockId.Stone, 2], new Proxy([], { get: () => { throw new Error("piège"); } })] };
-    expect(() => Inventory.fromJSON(trapped)).not.toThrow();
-    expect(Inventory.fromJSON(trapped).usedSlots()).toBe(0);
-    expect(() => Inventory.fromJSON(trappedEntry)).not.toThrow();
-    expect(Inventory.fromJSON(trappedEntry).size).toBe(INVENTORY_SLOTS);
+    const revoked = Proxy.revocable([], {});
+    revoked.revoke();
+    for (const data of [trapped, revoked.proxy, { slots: revoked.proxy }]) {
+      expect(() => Inventory.fromJSON(data)).not.toThrow();
+      expect(Inventory.fromJSON(data).usedSlots()).toBe(0);
+    }
+  });
+
+  it("une entrée piégée est ignorée comme les autres : les entrées valides restent", () => {
+    const throwing = new Proxy([], {
+      get() {
+        throw new Error("piège");
+      },
+    });
+    const getter = Object.defineProperty([BlockId.Dirt, 1], 1, {
+      get() {
+        throw new Error("piège");
+      },
+    });
+    const data = { slots: [[BlockId.Stone, 2], throwing, getter, revokedEntry(), [BlockId.Log, 5]] };
+    expect(() => Inventory.fromJSON(data)).not.toThrow();
+    expect(Inventory.fromJSON(data).toJSON()).toEqual({
+      slots: [[BlockId.Stone, 2], null, null, null, [BlockId.Log, 5], null, null, null, null],
+    });
   });
 });
 
@@ -509,3 +587,10 @@ describe("identifiants rangeables", () => {
     for (const bad of [BLOCKS.length, 255, -1, 1.5, Number.NaN, "3", null, undefined, {}]) expect(isInventoryBlockId(bad)).toBe(false);
   });
 });
+
+/** Tableau dont le Proxy a été révoqué : toute lecture, même Array.isArray, lève. */
+function revokedEntry(): unknown {
+  const r = Proxy.revocable([BlockId.Sand, 1], {});
+  r.revoke();
+  return r.proxy;
+}

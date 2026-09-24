@@ -87,7 +87,7 @@ export class BreakTracker {
   /**
    * À appeler à chaque image.
    * @param holding appui maintenu (bouton, doigt) en ce moment
-   * @param target bloc visé, ou null
+   * @param target bloc visé, ou null (même effet qu'un relâchement : tout est remis à zéro)
    * @param durationMs durée de casse du bloc visé (`breakDurationMs`), ≤ 0 = immédiat
    * @param dtMs temps écoulé depuis l'image précédente (négatif ou non fini → 0)
    */

@@ -24,7 +24,7 @@ export interface BreakPress {
 /** Immobilité exigée avant de commencer à casser, pour un appui ambigu (ms). */
 export const HOLD_START_MS = 150;
 
-/** Un relâchement plus rapide que cette durée, sans casse, déclenche le conseil « Reste appuyé » (ms). */
+/** Un relâchement plus rapide que cette durée, sans casse, déclenche le conseil « Appuie longtemps » (ms). */
 export const HOLD_HINT_MAX_MS = 400;
 
 export function newBreakPress(since: number, ambiguous: boolean): BreakPress {
@@ -38,7 +38,7 @@ export function isHolding(press: BreakPress | null, now: number): boolean {
 }
 
 /**
- * Faut-il conseiller « Reste appuyé » au relâchement ? Oui si l'appui était
+ * Faut-il conseiller « Appuie longtemps » au relâchement ? Oui si l'appui était
  * immobile, bref, et qu'aucun bloc n'a été cassé depuis son début.
  */
 export function shouldHintHold(press: BreakPress, releasedAt: number, lastBreakAt: number): boolean {

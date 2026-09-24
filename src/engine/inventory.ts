@@ -4,8 +4,8 @@ import { BlockId, BLOCKS } from "./blocks";
  * Inventaire du joueur (J2) : une rangée de cases, chacune contenant un seul
  * type de bloc et un compteur. Règle « une case par type » : un type de bloc
  * n'occupe jamais deux cases ; un nouveau type prend la première case vide.
- * Les blocs cassés sont ramassés avec `add`, poser un bloc consomme avec
- * `takeFrom`. Module pur (sans DOM ni Three.js), testé en Node.
+ * Les blocs cassés sont ramassés avec `add` ; poser un bloc en retire un
+ * avec `takeFrom`. Module pur (sans DOM ni Three.js), testé en Node.
  *
  * Le numéro de `version` augmente à chaque changement effectif : l'interface
  * (barre d'inventaire) ne se redessine que lorsqu'il change.
@@ -66,6 +66,27 @@ function isValidSize(size: number): boolean {
   return Number.isInteger(size) && size >= 1;
 }
 
+/**
+ * Lit l'entrée `i` d'une sauvegarde et renvoie ses deux premiers éléments,
+ * `[id, nombre]`, pas encore vérifiés. Renvoie null si l'entrée n'est pas un
+ * tableau d'au moins deux éléments, ou si sa lecture lève (accesseur ou Proxy
+ * piégé) : elle est alors ignorée, comme toute entrée invalide.
+ */
+function readEntry(raw: readonly unknown[], i: number): readonly [unknown, unknown] | null {
+  try {
+    const entry: unknown = raw[i];
+    if (!Array.isArray(entry) || entry.length < 2) return null;
+    return [entry[0], entry[1]];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sac du joueur : `size` cases (9 par défaut), une case par type de bloc, au
+ * plus MAX_STACK blocs par case. Les lectures renvoient des copies : seul
+ * l'inventaire modifie son contenu (et sa `version`).
+ */
 export class Inventory {
   /** Nombre de cases. */
   readonly size: number;
@@ -127,8 +148,10 @@ export class Inventory {
   /**
    * Ramasse `n` blocs (1 par défaut) : dans la case de ce type si elle existe,
    * sinon dans la première case vide. Ajoute min(n, MAX_STACK − nombre actuel).
-   * Lève une RangeError pour l'air, un identifiant inconnu, ou un `n` qui
-   * n'est pas un entier ≥ 1 (+Infinity accepté : remplit la case).
+   * Sans place, renvoie « max » (case de ce type pleine) ou « full » (aucune
+   * case libre) et ne change rien. Lève une RangeError pour l'air, un
+   * identifiant inconnu, ou un `n` qui n'est pas un entier ≥ 1 (+Infinity
+   * accepté : remplit la case).
    */
   add(id: BlockId, n = 1): AddResult {
     if (!isInventoryBlockId(id)) throw new RangeError(`Bloc impossible à ranger : ${String(id)}`);
@@ -175,10 +198,11 @@ export class Inventory {
   }
 
   /**
-   * Vide puis remplit dans l'ordre : `ids[k]` va dans la case k, avec `count`
-   * blocs (borné à [1, MAX_STACK]). Tronqué à `size` cases. Un type déjà placé
-   * est ignoré (une case par type) sans laisser de trou. Lève une RangeError,
-   * avant toute modification, si un identifiant est l'air ou inconnu.
+   * Vide puis remplit dans l'ordre, à partir de la case 0 : chaque type de
+   * `ids` reçoit `count` blocs (partie entière, bornée à [1, MAX_STACK]).
+   * Un type déjà placé est ignoré (une case par type), sans laisser de trou.
+   * Au plus `size` cases sont remplies. Lève une RangeError, avant toute
+   * modification, si un identifiant est l'air ou inconnu.
    */
   fill(ids: readonly BlockId[], count: number): void {
     for (const id of ids) if (!isInventoryBlockId(id)) throw new RangeError(`Bloc impossible à ranger : ${String(id)}`);
@@ -200,12 +224,14 @@ export class Inventory {
 
   /**
    * Reconstruit un inventaire de `size` cases (INVENTORY_SLOTS par défaut, ou
-   * si `size` est invalide) à partir de données quelconques. Robuste : ignore
+   * si `size` est invalide) à partir de données quelconques (sortie de
+   * `toJSON`, relue ou non par JSON.parse, ou un Inventory). Robuste : ignore
    * les entrées invalides (pas un tableau, id inconnu ou air, nombre non entier
-   * ou ≤ 0), borne le nombre à MAX_STACK, fusionne un type en double dans sa
-   * première case (la suivante reste vide), ne lit que les `size` premières
-   * entrées. Chaque case garde sa position. Ne lève jamais d'exception ; des
-   * données illisibles donnent un inventaire vide. Version de départ : 0.
+   * ou ≤ 0, lecture qui lève), borne le nombre à MAX_STACK, fusionne un type
+   * en double dans sa première case (la case du doublon reste vide), ne lit
+   * que les `size` premières entrées. Chaque case garde sa position. Ne lève
+   * jamais d'exception ; des données illisibles donnent un inventaire vide.
+   * Version de départ : 0.
    */
   static fromJSON(data: unknown, size?: number): Inventory {
     let inv: Inventory;
@@ -215,15 +241,16 @@ export class Inventory {
       inv = new Inventory(); // taille démesurée : tableau impossible à allouer
     }
     try {
-      if (typeof data !== "object" || data === null) return inv;
-      const raw: unknown = (data as { slots?: unknown }).slots;
+      // Un Inventory n'a pas de propriété `slots` (c'est une méthode) : passer par sa forme sérialisée.
+      const source: unknown = data instanceof Inventory ? data.toJSON() : data;
+      if (typeof source !== "object" || source === null) return inv;
+      const raw: unknown = (source as { slots?: unknown }).slots;
       if (!Array.isArray(raw)) return inv;
       const limit = Math.min(raw.length, inv.size);
       for (let i = 0; i < limit; i++) {
-        const entry: unknown = raw[i];
-        if (!Array.isArray(entry) || entry.length < 2) continue;
-        const id: unknown = entry[0];
-        const count: unknown = entry[1];
+        const entry = readEntry(raw, i);
+        if (!entry) continue;
+        const [id, count] = entry;
         if (!isInventoryBlockId(id)) continue;
         if (typeof count !== "number" || !Number.isInteger(count) || count <= 0) continue;
         const first = inv.indexOf(id);
@@ -236,7 +263,7 @@ export class Inventory {
       }
       return inv;
     } catch {
-      return new Inventory(inv.size);
+      return new Inventory(inv.size); // `slots` ou sa longueur illisibles (accesseur, Proxy)
     }
   }
 

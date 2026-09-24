@@ -8,7 +8,7 @@ Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 »
 
 | Vérification | PC (Chrome) | Tablette Android |
 |---|---|---|
-| Un clic bref (ou un tapotement) sur un bloc ne le casse pas ; le message « Reste appuyé ! » s'affiche | | |
+| Un clic bref (ou un tapotement) sur un bloc ne le casse pas ; le message « Appuie longtemps ! » s'affiche | | |
 | Garder l'appui : un anneau jaune se remplit autour du viseur, puis le bloc se casse (noter si la durée paraît trop longue ou trop courte) | | |
 | Le bloc cassé apparaît dans la barre du bas avec son nombre ; le nombre augmente à chaque bloc du même type | | |
 | Le compte s'affiche (« 3 pierres ! ») et est lu à voix haute, sans bégayer quand on casse vite | | |
