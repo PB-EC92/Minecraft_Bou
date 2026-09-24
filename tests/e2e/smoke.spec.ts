@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -40,6 +40,13 @@ interface DebugState {
   /** Phrases demandées à la voix, les plus récentes à la fin (20 au plus). */
   spoken: string[];
   sound: string;
+  paused: boolean;
+  home: boolean;
+  session: { profile: string; name: string; slot: number } | null;
+  view: "1re" | "3e";
+  avatarVisible: boolean;
+  camera: { x: number; y: number; z: number };
+  lastSavedAt: number;
 }
 
 /** Identifiants de blocs utiles aux tests (src/engine/blocks.ts). */
@@ -63,6 +70,7 @@ declare global {
       selectSlot(i: number): void;
       setBlock(x: number, y: number, z: number, id: number): boolean;
       breakBlock(x: number, y: number, z: number): void;
+      saveNow(): boolean;
     };
   }
 }
@@ -226,17 +234,33 @@ test.beforeAll(() => {
   test.skip(!existsSync(dist), "dist/cubes.html absent : lancer `npm run build` d'abord");
 });
 
-test("le jeu démarre en file:// sans erreur, sur une prairie générée", async ({ page }, testInfo) => {
+test("le jeu démarre en file:// sans erreur : accueil devant une prairie générée, adresse inchangée", async ({ page }, testInfo) => {
   const errors = await openGame(page, "");
   const info = await readInfo(page);
   const s = await state(page);
   expect(errors).toEqual([]);
   expect(s.type).toBe("prairie");
-  expect(info.faces).toBeGreaterThan(10_000);
+  expect(s.home).toBe(true);
+  expect(s.paused).toBe(true);
+  await expect(page.locator(".home h1")).toContainText("Réglages de l'adulte");
+  // Le monde se construit derrière l'accueil.
+  await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").innerText()).toMatch(/J3$/);
-  expect(page.url()).toMatch(/#monde=prairie&graine=\d+$/);
+  expect(await page.locator(".info").innerText()).toMatch(/J4$/);
+  // Sans #monde=… dans l'adresse : un rechargement doit ramener à l'accueil.
+  expect(page.url()).not.toContain("#");
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
+});
+
+test("mode adresse (#monde=…) : pas d'accueil, partie sans sauvegarde", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const s = await state(page);
+  expect(s.home).toBe(false);
+  expect(s.session).toBeNull();
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(false);
+  expect(page.url()).toMatch(/#monde=plat&graine=1$/);
+  expect(errors).toEqual([]);
 });
 
 for (const [type, name] of [
@@ -275,7 +299,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : J3");
+  await expect(diag).toContainText("Version : J4");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
@@ -1029,4 +1053,175 @@ test("le panneau voix se charge et indique les voix locales", async ({ page }) =
   const result = await page.locator(".panel").innerText();
   // En Chromium sans interface sous Linux il n'y a généralement aucune voix.
   expect(result).toMatch(/voix française\(s\) dont \d+ locale\(s\)|Synthèse vocale non disponible/);
+});
+
+// ---------- J4 : accueil, profils, sauvegarde, mode parent, troisième personne ----------
+
+/** Toucher sur tablette, clic sur PC. */
+async function press(_page: Page, locator: ReturnType<Page["locator"]>, info: TestInfo): Promise<void> {
+  if (isTouch(info)) await locator.tap();
+  else await locator.click();
+}
+
+/** Premier lancement complet : l'adulte règle les prénoms, Léa choisit l'avatar 2 et crée une île dans l'emplacement 1. */
+async function firstLaunch(page: Page, info: TestInfo): Promise<void> {
+  await page.getByLabel("Prénom du joueur 1").fill("Léa");
+  await page.getByLabel("Prénom du joueur 2").fill("Tom");
+  await press(page, page.getByRole("button", { name: "C'est parti !" }), info);
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  await expect(page.locator(".profile-card")).toHaveText(["Léa", "Tom"]);
+  await press(page, page.locator('.profile-card[data-profile="p1"]'), info);
+  await expect(page.locator(".home h1")).toHaveText("Choisis ton personnage !");
+  await press(page, page.locator('.avatar-card[data-avatar="2"]'), info);
+  await expect(page.locator(".slot-card")).toHaveCount(3);
+  await press(page, page.locator('.slot-card[data-slot="0"]'), info);
+  await press(page, page.locator('.type-card[data-type="ile"]'), info);
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+}
+
+test("premier lancement : prénoms par l'adulte, personnage et nouveau monde choisis par l'enfant @tactile", async ({ page }, testInfo) => {
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  const s = await state(page);
+  expect(s.session).toEqual({ profile: "p1", name: "Léa", slot: 0 });
+  expect(s.type).toBe("ile");
+  expect(s.paused).toBe(false);
+  expect(s.level).toBe("debutant");
+  expect(s.inventory.every((c) => c === null)).toBe(true);
+  // L'emplacement est aussitôt occupé.
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null"));
+  expect(stored?.type).toBe("ile");
+  const profiles = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:profils") ?? "null"));
+  expect(profiles.profiles[0]).toMatchObject({ name: "Léa", level: "debutant", avatar: 2 });
+  expect(profiles.profiles[1]).toMatchObject({ name: "Tom", level: "autonome", avatar: null });
+  expect(page.url()).not.toContain("#");
+  expect(errors).toEqual([]);
+});
+
+test("le monde est retrouvé après rechargement : blocs posés, sac, position", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  const s0 = await state(page);
+  const px = Math.floor(s0.player.x) + 2;
+  const pz = Math.floor(s0.player.z);
+  const before = await page.evaluate(
+    ([x, z]) => {
+      const d = window.cubesDebug;
+      const y = d.standY(x, z)!;
+      d.setBlock(x, y, z, 4); // planches posées
+      d.setBlock(x, y - 1, z, 0); // un bloc creusé dessous
+      d.give(3, 7);
+      d.give(6, 2);
+      return { y };
+    },
+    [px, pz] as const,
+  );
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
+  const saved = await state(page);
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).home).toBe(true);
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  const card = page.locator('.slot-card[data-slot="0"]');
+  await expect(card).toContainText("Île");
+  await expect(card).toContainText("aujourd'hui");
+  await card.click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  const s = await state(page);
+  expect(s.type).toBe("ile");
+  expect(s.inventory.filter(Boolean)).toEqual([
+    { id: 3, count: 7 },
+    { id: 6, count: 2 },
+  ]);
+  expect(await blockAt(page, { x: px, y: before.y, z: pz })).toBe(4);
+  expect(await blockAt(page, { x: px, y: before.y - 1, z: pz })).toBe(0);
+  expect(Math.abs(s.player.x - saved.player.x)).toBeLessThan(0.01);
+  expect(Math.abs(s.player.z - saved.player.z)).toBeLessThan(0.01);
+  expect(errors).toEqual([]);
+});
+
+test("bouton accueil : la partie est enregistrée et l'on revient à « Qui joue ? » @tactile", async ({ page }, testInfo) => {
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  await page.evaluate(() => window.cubesDebug.give(5, 3));
+  await press(page, page.locator(".home-btn"), testInfo);
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  const s = await state(page);
+  expect(s.paused).toBe(true);
+  expect(s.session).toBeNull();
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null"));
+  expect(stored.inventory.slots.filter(Boolean)).toEqual([[5, 3]]);
+  expect(errors).toEqual([]);
+});
+
+test("mode parent : appui long de 3 s ; effacer un monde, exporter puis importer", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  await page.locator(".home-btn").click();
+  const gear = page.locator(".parent-gear");
+  const box = (await gear.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // Appui court : rien.
+  await page.mouse.down();
+  await page.waitForTimeout(800);
+  await page.mouse.up();
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  // Appui long.
+  await page.mouse.down();
+  await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+  await page.mouse.up();
+  await expect(page.locator(".parent-note")).toContainText("cubes.html");
+  // Export.
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exporter (fichier)" }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^cubes-sauvegarde-\d{4}-\d{2}-\d{2}\.json$/);
+  const file = testInfo.outputPath("export.json");
+  await download.saveAs(file);
+  const exported = JSON.parse(readFileSync(file, "utf8"));
+  expect(Object.keys(exported.worlds)).toEqual(["cubes:monde:p1:0"]);
+  // Effacer le monde 1 de Léa (confirmation acceptée).
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: /^1\. île .* effacer$/ }).first().click();
+  expect(await page.evaluate(() => localStorage.getItem("cubes:monde:p1:0"))).toBeNull();
+  // Import : le monde revient.
+  page.once("dialog", (d) => void d.accept());
+  await page.getByLabel("Importer une sauvegarde").setInputFiles(file);
+  await expect(page.locator(".parent-status")).toHaveText("Sauvegarde importée.");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null")?.type)).toBe("ile");
+  // Un fichier qui n'est pas une sauvegarde est refusé sans rien effacer.
+  const bad = testInfo.outputPath("mauvais.json");
+  writeFileSync(bad, JSON.stringify({ app: "autre" }));
+  page.once("dialog", (d) => void d.accept());
+  await page.getByLabel("Importer une sauvegarde").setInputFiles(bad);
+  await expect(page.locator(".parent-status")).toContainText("pas une sauvegarde de Cubes");
+  expect(await page.evaluate(() => localStorage.getItem("cubes:monde:p1:0"))).not.toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test("troisième personne : touche V ou bouton œil, le personnage se voit, la caméra ne traverse pas un mur @tactile", async ({ page }, testInfo) => {
+  const errors = await openGame(page);
+  const eyeOf = (s: DebugState) => ({ x: s.player.x, y: s.player.y + 1.62, z: s.player.z });
+  await page.evaluate(() => window.cubesDebug.look(0, 0)); // regard vers -Z : caméra en arrière, vers +Z
+  await press(page, page.locator(".view-btn"), testInfo);
+  await expect.poll(async () => (await state(page)).view).toBe("3e");
+  await expect.poll(async () => (await state(page)).avatarVisible).toBe(true);
+  const s = await state(page);
+  const e = eyeOf(s);
+  expect(Math.hypot(s.camera.x - e.x, s.camera.y - e.y, s.camera.z - e.z)).toBeGreaterThan(3);
+  expect(s.camera.z).toBeGreaterThan(e.z);
+  // Mur juste derrière le personnage : la caméra reste devant lui.
+  const wz = Math.floor(e.z) + 2;
+  await page.evaluate(
+    ([x0, y0, z]) => {
+      for (let x = x0 - 3; x <= x0 + 3; x++) for (let y = y0; y < y0 + 5; y++) window.cubesDebug.setBlock(x, y, z, 3);
+    },
+    [Math.floor(e.x), Math.floor(s.player.y), wz] as const,
+  );
+  await expect.poll(async () => (await state(page)).camera.z).toBeLessThan(wz);
+  await page.screenshot({ path: testInfo.outputPath("troisieme-personne.png") });
+  await press(page, page.locator(".view-btn"), testInfo);
+  await expect.poll(async () => (await state(page)).view).toBe("1re");
+  await expect.poll(async () => (await state(page)).avatarVisible).toBe(false);
+  expect(errors).toEqual([]);
 });

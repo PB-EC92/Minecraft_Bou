@@ -167,3 +167,40 @@ export const HINTS: {
       `Clic gauche gardé sans bouger${NBSP}: casser · clic droit${NBSP}: poser · 1 à 9 ou molette${NBSP}: choisir`,
   },
 };
+
+/* ---------- Écran d'accueil et sauvegarde (J4) ---------- */
+
+export const WHO_PLAYS: ChildText = {
+  debutant: `Qui joue${NBSP}?`,
+  autonome: `Qui joue${NBSP}? Touche ton prénom.`,
+};
+
+export const CHOOSE_AVATAR: ChildText = {
+  debutant: `Choisis ton personnage${NBSP}!`,
+  autonome: `Choisis le personnage qui jouera pour toi.`,
+};
+
+export const CHOOSE_SLOT: ChildText = {
+  debutant: `Choisis ton monde${NBSP}!`,
+  autonome: `Continue un de tes mondes, ou crée-en un nouveau.`,
+};
+
+export const CHOOSE_WORLD_TYPE: ChildText = {
+  debutant: `Quel monde${NBSP}?`,
+  autonome: `Quel genre de monde veux-tu créer${NBSP}?`,
+};
+
+export const SAVED: ChildText = {
+  debutant: `C'est enregistré${NBSP}!`,
+  autonome: `Ton monde est enregistré.`,
+};
+
+export const VIEW_THIRD: ChildText = {
+  debutant: `Tu te vois${NBSP}!`,
+  autonome: `Tu te vois jouer. Touche encore l'œil pour revenir.`,
+};
+
+export const VIEW_FIRST: ChildText = {
+  debutant: `Tu vois par tes yeux.`,
+  autonome: `Tu vois de nouveau par tes yeux.`,
+};

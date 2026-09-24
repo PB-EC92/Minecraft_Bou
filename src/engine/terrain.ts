@@ -72,6 +72,15 @@ export function randomSeed(): number {
   return 1 + Math.floor(Math.random() * 999_999);
 }
 
+/**
+ * Version du générateur (J4). Une sauvegarde ne garde que l'écart avec le monde
+ * d'origine, régénéré à partir du type et de la graine : toute modification du
+ * générateur qui change le terrain d'une graine doit incrémenter ce numéro
+ * (le test « empreinte du terrain » le rappelle) et prévoir la lecture des
+ * anciennes sauvegardes.
+ */
+export const GENERATOR_VERSION = 1;
+
 export function generateWorld(type: WorldTypeId, seed: number): GeneratedWorld {
   if (type === "plat") return generateFlat(seed);
   return new TerrainGenerator(type, seed).run();

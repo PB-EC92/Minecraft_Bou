@@ -267,6 +267,15 @@ export class Inventory {
     }
   }
 
+  /**
+   * Remplace le contenu par celui de données sauvegardées (J4), avec les mêmes
+   * règles de robustesse que fromJSON. La version augmente si le contenu change.
+   */
+  load(data: unknown): void {
+    const other = Inventory.fromJSON(data, this.size);
+    this.replaceAll(other.cells.map((c) => (c ? { id: c.id, count: c.count } : null)));
+  }
+
   private inBounds(i: number): boolean {
     return Number.isInteger(i) && i >= 0 && i < this.size;
   }

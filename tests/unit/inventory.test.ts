@@ -594,3 +594,20 @@ function revokedEntry(): unknown {
   r.revoke();
   return r.proxy;
 }
+
+describe("rechargement d'une sauvegarde (J4)", () => {
+  it("load remplace le contenu, garde les positions et augmente la version", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Dirt, 4);
+    const v = inv.version;
+    inv.load({ slots: [null, [BlockId.Stone, 7], [999, 1]] });
+    expect(inv.slots()[0]).toBeNull();
+    expect(inv.slot(1)).toEqual({ id: BlockId.Stone, count: 7 });
+    expect(inv.count(BlockId.Dirt)).toBe(0);
+    expect(inv.version).toBe(v + 1);
+    inv.load({ slots: [null, [BlockId.Stone, 7]] });
+    expect(inv.version).toBe(v + 1);
+    inv.load("illisible");
+    expect(inv.totalBlocks()).toBe(0);
+  });
+});

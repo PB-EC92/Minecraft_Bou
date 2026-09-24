@@ -4,6 +4,40 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole J4 (accueil, profils, sauvegarde, mode parent, troisième personne)
+
+Sur le convertible replié, Firefox. Vérifier que la ligne d'infos (en jeu) se termine par « J4 ». Ouvrir `cubes.html` **sans rien après le nom dans l'adresse**.
+
+| Vérification | Convertible |
+|---|---|
+| Premier lancement : écran « Réglages de l'adulte » ; taper les deux prénoms, choisir les niveaux, « C'est parti ! » | |
+| « Qui joue ? » : les deux prénoms ; toucher un prénom → choix du personnage (6 dessins) → trois emplacements « + Nouveau » | |
+| « + Nouveau » → prairie, île, montagne ou désert → le jeu démarre ; la consigne est lue (lecteur débutant) | |
+| Construire un peu, ramasser des blocs, puis bouton maison (en haut à droite) : retour à « Qui joue ? » | |
+| Reprendre ce monde : constructions, sac et position retrouvés ; la vignette dit « aujourd'hui » | |
+| Fermer Firefox en pleine partie (sans passer par la maison), rouvrir le fichier : le monde est retrouvé (au plus 30 s perdues) | |
+| Bouton œil : on se voit de dos ; contre un mur, la caméra ne passe pas au travers ; second appui : retour aux yeux | |
+| Mode parent : garder le doigt 3 s sur l'engrenage (un anneau se remplit) ; un appui court n'ouvre rien | |
+| Mode parent → « Exporter » : un fichier `cubes-sauvegarde-….json` arrive dans les Téléchargements | |
+| Mode parent → effacer un monde, puis « Importer » le fichier exporté : le monde revient | |
+| Mode parent → nuit « pas de nuit » : en « Temps ×20 » (panneau Tests), la nuit ne tombe plus | |
+| **Stockage sous Firefox** : copier `cubes.html` dans un autre dossier et l'ouvrir : l'écran « Réglages de l'adulte » réapparaît-il (stockage lié au chemin du fichier) ? Noter oui / non | |
+
+### Séance enfants J4
+
+Chaque enfant retrouve-t-il seul son prénom et son monde ? Choisissent-ils un personnage facilement ? Aiment-ils se voir (œil) ? Combien de mondes créent-ils ?
+
+## Séance du … — J4
+
+Appareil : convertible, Firefox
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Idées des enfants :
+
 ## Protocole J3 (tactile et convertible)
 
 Sur le convertible replié, avec Firefox. Vérifier que la ligne d'infos se termine par « J3 ». Faire le tableau en portrait puis en paysage. Le protocole J2.1 (voix par paliers) ci-dessous peut se faire en même temps.

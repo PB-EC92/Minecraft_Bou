@@ -84,6 +84,9 @@ describe("messages fixes (texts.ts)", () => {
     expect(names).toEqual(
       [
         "BOTTOM_LAYER",
+        "CHOOSE_AVATAR",
+        "CHOOSE_SLOT",
+        "CHOOSE_WORLD_TYPE",
         "EMPTY_HAND",
         "FLOWER_IN_WATER",
         "FLOWER_NEEDS_GROUND",
@@ -94,7 +97,11 @@ describe("messages fixes (texts.ts)", () => {
         "MOUSE_FALLBACK",
         "MOUSE_RESUME",
         "NO_SPACE",
+        "SAVED",
+        "VIEW_FIRST",
+        "VIEW_THIRD",
         "WELCOME",
+        "WHO_PLAYS",
         "WORLD_EDGE",
       ].sort(),
     );

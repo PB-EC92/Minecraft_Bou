@@ -1,11 +1,11 @@
 import { Sounds } from "../audio/sounds";
 import { BlockId, breakDurationMs, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
-import { DAY_CYCLE_MS, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
+import { advancePhase, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { Inventory, MAX_STACK, type AddResult } from "../engine/inventory";
 import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
-import { generateWorld, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
+import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
 import { emptiedText, maxStackText, pickupSpeech, pickupText, shouldSpeakPickup } from "../edu/counting";
 import { Narrator, type TellOptions } from "../edu/Narrator";
@@ -25,6 +25,9 @@ import {
   NO_SPACE,
   parseReadingLevel,
   pick,
+  SAVED,
+  VIEW_FIRST,
+  VIEW_THIRD,
   WELCOME,
   WORLD_EDGE,
   type ChildText,
@@ -34,7 +37,15 @@ import { Keyboard } from "../input/Keyboard";
 import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
 import { TouchControls } from "../input/TouchControls";
+import { Avatar } from "../render/Avatar";
 import { SceneView } from "../render/SceneView";
+import { SaveStore } from "../save/SaveStore";
+import { SAVE_VERSION, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
+import { applyDiff, diffBlocks, fromBase64, toBase64 } from "../save/worldDiff";
+import { HomeScreen } from "../ui/HomeScreen";
+import { isInventoryBlockId } from "../engine/inventory";
+import { avatarDef } from "./avatars";
+import { thirdPersonCamera } from "./thirdPerson";
 import { showFatalError } from "../ui/fatal";
 import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
@@ -42,7 +53,9 @@ import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } 
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J3";
+export const VERSION = "J4";
+/** Sauvegarde automatique pendant une partie (ms). */
+const AUTOSAVE_MS = 30_000;
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
 const LOADING_RADIUS = 40;
 /** Budget de maillage par image (ms) : large pendant le chargement, réduit ensuite. */
@@ -72,7 +85,9 @@ interface PixelRequest {
  * J1 : monde généré par type et graine, jour/nuit, eau.
  * J2 : casse par appui maintenu, blocs ramassés dans un sac de 9 cases
  * (poser consomme), sons synthétisés, compte lu à voix haute.
- * Pas encore de sauvegarde (J4) ni de missions (J5).
+ * J4 : écran d'accueil (profils, trois mondes par enfant), sauvegarde
+ * automatique, mode parent, avatar et vue à la troisième personne.
+ * L'adresse #monde=…&graine=… (tests, adulte) saute l'accueil : partie sans sauvegarde.
  */
 export class Game {
   world: World;
@@ -134,13 +149,34 @@ export class Game {
   private welcomeSpoken = false;
   private wasFallback = false;
 
+  /** Démarré par l'adresse (#monde=…) : pas d'accueil ni de sauvegarde (tests de fumée, adulte). */
+  private readonly urlMode: boolean;
+  private readonly store = new SaveStore();
+  private settings: Settings;
+  private readonly home: HomeScreen | null = null;
+  /** Partie en cours d'un profil, dans un de ses emplacements (null : accueil ou mode adresse). */
+  private session: { profile: Profile; slot: number } | null = null;
+  /** Blocs du monde tel que généré : la sauvegarde n'enregistre que l'écart avec lui. */
+  private baseData: Uint8Array;
+  private paused = false;
+  private lastAutosaveAt = performance.now();
+  private lastSavedAt = 0;
+  private saveError: string | null = null;
+  private thirdPerson = false;
+  private avatar: Avatar;
+  private readonly homeButton: HTMLButtonElement;
+  private readonly viewButton: HTMLButtonElement;
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
 
     const opts = parseUrlOptions(location.hash);
+    this.urlMode = opts.type !== undefined || opts.seed !== undefined;
+    this.settings = this.store.loadSettings();
     this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
     this.world = this.gen.world;
+    this.baseData = this.world.data.slice();
     if (opts.hour !== undefined) this.phase = phaseForHour(opts.hour);
 
     const canvas = document.createElement("canvas");
@@ -172,6 +208,12 @@ export class Game {
     this.spawnPlayer();
     this.afterWorldChange();
 
+    this.avatar = new Avatar(avatarDef(0));
+    this.view.scene.add(this.avatar.group);
+    this.homeButton = this.topButton("home-btn", "Accueil", '<path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h5v-5h3v5h5V10"/>');
+    this.viewButton = this.topButton("view-btn", "Changer de vue", '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>');
+    this.homeButton.hidden = true;
+
     this.wireInputs();
     this.wirePanel();
     this.setSlot(0);
@@ -185,8 +227,23 @@ export class Game {
     this.refreshInventory();
     // Pas de voix ici : le navigateur la bloque tant que l'enfant n'a ni cliqué ni touché l'écran.
     // La consigne est lue au premier geste (voir onActivation).
-    this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
     this.watchActivation();
+    this.watchSaves();
+    if (this.urlMode) {
+      this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
+    } else {
+      // Accueil : qui joue, quel monde. Le jeu attend derrière, en pause.
+      this.paused = true;
+      this.welcomeSpoken = true; // la consigne d'accueil n'a pas de sens avant d'avoir choisi un monde
+      this.home = new HomeScreen(root, this.store, {
+        play: (profile, slot, save, type) => this.startSession(profile, slot, save, type),
+        speak: (text, profile) => {
+          if (profile.voice) this.speakWhenAllowed(pick(text, profile.level));
+        },
+        settingsChanged: (s) => (this.settings = s),
+      });
+      this.home.show();
+    }
 
     requestAnimationFrame((t) => this.safeFrame(t));
   }
@@ -201,10 +258,13 @@ export class Game {
   /** Après la création d'un monde : adresse, panneau, écran de chargement. */
   private afterWorldChange(): void {
     this.hud.setWorldControls(this.gen.type, this.gen.seed);
-    try {
-      history.replaceState(null, "", this.urlOptions());
-    } catch {
-      // Adresse non modifiable (certains navigateurs en file://) : sans conséquence.
+    // L'adresse ne retient le monde qu'en mode adresse : sinon un rechargement sauterait l'accueil.
+    if (this.urlMode) {
+      try {
+        history.replaceState(null, "", this.urlOptions());
+      } catch {
+        // Adresse non modifiable (certains navigateurs en file://) : sans conséquence.
+      }
     }
     this.nearSections = Math.max(1, this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS));
     // Vrai chargement (nouveau monde) : levé une fois le voisinage construit ; un bloc cassé ne le remet pas.
@@ -219,6 +279,7 @@ export class Game {
   newWorld(type: WorldTypeId, seed: number): void {
     this.gen = generateWorld(type, seed);
     this.world = this.gen.world;
+    this.baseData = this.world.data.slice();
     this.view.setWorld(this.world);
     this.player = new Player(this.world);
     this.spawnPlayer();
@@ -230,6 +291,140 @@ export class Game {
     this.narrator.cancelPending();
     this.afterWorldChange();
     this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
+  }
+
+  /** Recharge un monde enregistré : régénéré depuis sa graine, puis les blocs changés par l'enfant. */
+  private loadSave(save: WorldSave): void {
+    this.gen = generateWorld(save.type, save.seed);
+    this.world = this.gen.world;
+    this.baseData = this.world.data.slice();
+    const edits = fromBase64(save.edits);
+    const applied = edits ? applyDiff(this.world.data, edits, (id) => id === BlockId.Air || isInventoryBlockId(id)) : -1;
+    if (applied < 0) {
+      // Écart illisible : on repart du monde d'origine plutôt que d'un monde à moitié restauré.
+      this.world.data.set(this.baseData);
+      this.saveError = "Les constructions de ce monde n'ont pas pu être relues.";
+    }
+    this.world.markAllChanged();
+    this.view.setWorld(this.world);
+    this.player = new Player(this.world);
+    const p = save.player;
+    if (this.world.inBounds(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))) {
+      this.player.setPosition(p.x, p.y, p.z);
+      this.player.yaw = p.yaw;
+      this.player.pitch = p.pitch;
+    } else this.spawnPlayer();
+    this.target = null;
+    this.breaker.reset();
+    this.inventory.load(save.inventory);
+    this.collectedTypes.clear();
+    for (const st of this.inventory.slots()) if (st) this.collectedTypes.add(st.id);
+    this.phase = save.phase;
+    this.narrator.cancelPending();
+    this.afterWorldChange();
+  }
+
+  /** État du monde en cours, prêt à enregistrer. */
+  private snapshot(): WorldSave {
+    const p = this.player;
+    return {
+      version: SAVE_VERSION,
+      gen: GENERATOR_VERSION,
+      type: this.gen.type,
+      seed: this.gen.seed,
+      edits: toBase64(diffBlocks(this.baseData, this.world.data)),
+      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch },
+      inventory: this.inventory.toJSON(),
+      phase: this.phase,
+      savedAt: Date.now(),
+    };
+  }
+
+  /** Enregistre la partie en cours (rien hors d'une partie d'un profil). Renvoie vrai si c'est fait. */
+  saveNow(): boolean {
+    if (!this.session) return false;
+    const r = this.store.saveWorld(this.session.profile.id, this.session.slot, this.snapshot());
+    this.lastAutosaveAt = performance.now();
+    if (r.ok) {
+      this.lastSavedAt = Date.now();
+      this.saveError = null;
+      return true;
+    }
+    if (this.saveError !== r.error) this.hud.showMessage(r.error, 4000); // pour l'adulte
+    this.saveError = r.error;
+    return false;
+  }
+
+  /** Lance la partie d'un profil : monde enregistré, ou nouveau monde du type choisi. */
+  private startSession(profile: Profile, slot: number, save: WorldSave | null, type: WorldTypeId | null): void {
+    this.session = { profile, slot };
+    this.narrator.setLevel(profile.level);
+    this.narrator.voice = profile.voice;
+    this.syncGameControls();
+    this.updateHint();
+    this.setAvatar(profile.avatar);
+    if (save) this.loadSave(save);
+    else {
+      this.newWorld(type ?? "prairie", randomSeed());
+      this.saveNow(); // l'emplacement apparaît aussitôt comme occupé
+    }
+    this.home?.hide();
+    this.homeButton.hidden = false;
+    this.paused = false;
+    this.lastAutosaveAt = performance.now();
+    this.welcomeSpoken = !!save;
+    if (!save) this.tell(WELCOME, { ms: 4000 });
+  }
+
+  /** Retour à l'accueil : la partie est enregistrée, le jeu attend en pause. */
+  private goHome(): void {
+    if (!this.home) return;
+    const saved = this.saveNow();
+    this.narrator.cancelPending();
+    this.breaker.reset();
+    this.touch.reset();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.paused = true;
+    this.homeButton.hidden = true;
+    this.session = null;
+    this.home.show();
+    if (saved) this.hud.showMessage(pick(SAVED, this.narrator.level), 1500);
+  }
+
+  private setAvatar(index: number | null): void {
+    this.view.scene.remove(this.avatar.group);
+    this.avatar.dispose();
+    this.avatar = new Avatar(avatarDef(index));
+    this.view.scene.add(this.avatar.group);
+  }
+
+  /** Vue à la première ou à la troisième personne (touche V, bouton œil). */
+  private toggleView(): void {
+    this.thirdPerson = !this.thirdPerson;
+    this.viewButton.classList.toggle("on", this.thirdPerson);
+    this.tell(this.thirdPerson ? VIEW_THIRD : VIEW_FIRST, { ms: 1800, dedupe: true });
+  }
+
+  /** Sauvegarde automatique : toutes les 30 s (dans la boucle), et quand la page est masquée ou fermée. */
+  private watchSaves(): void {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.saveNow();
+    });
+    window.addEventListener("pagehide", () => this.saveNow());
+  }
+
+  /** Petit bouton rond en haut à droite, à côté de « Tests » (icône SVG en traits). */
+  private topButton(className: string, label: string, paths: string): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `btn top-btn ${className}`;
+    b.setAttribute("aria-label", label);
+    b.title = label;
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    // Pas de capture de la souris ni d'appui « casser » en touchant ces boutons.
+    for (const ev of ["mousedown", "touchstart"]) b.addEventListener(ev, (e) => e.stopPropagation());
+    this.hud.root.appendChild(b);
+    return b;
   }
 
   private updateHint(): void {
@@ -293,9 +488,13 @@ export class Game {
 
   private wireInputs(): void {
     this.keyboard.onPressed((code) => {
+      if (this.paused) return;
       const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
       if (m) this.setSlot(Number(m[1]) - 1, true);
+      if (code === "KeyV") this.toggleView();
     });
+    this.homeButton.addEventListener("click", () => this.goHome());
+    this.viewButton.addEventListener("click", () => this.toggleView());
     this.hud.onSelectSlot((i) => this.setSlot(i, true));
     this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     // Aussi sur la barre : c'est là que l'enfant tourne la molette pour choisir (souris non capturée).
@@ -320,7 +519,7 @@ export class Game {
     // « Actualiser » y ferait perdre la construction. Les champs du panneau le gardent (copier, coller).
     document.addEventListener("contextmenu", (e) => {
       const t = e.target;
-      if (t instanceof Element && (t.closest(".fatal") || (t.closest(".panel") && t.matches("input, textarea, select")))) return;
+      if (t instanceof Element && (t.closest(".fatal") || (t.closest(".panel, .home") && t.matches("input, textarea, select")))) return;
       e.preventDefault();
     });
     this.touch.onModeChange(() => this.updateHint());
@@ -383,7 +582,7 @@ export class Game {
       // Choix de l'adulte retenu (J3) : au prochain démarrage, et dans l'adresse (un rechargement le garde).
       writeStorage(DISTANCE_STORAGE_KEY, String(d));
       try {
-        history.replaceState(null, "", this.urlOptions());
+        if (this.urlMode) history.replaceState(null, "", this.urlOptions());
       } catch {
         // Adresse non modifiable : sans conséquence, le stockage local suffit.
       }
@@ -716,7 +915,17 @@ export class Game {
         voice: this.narrator.voice,
         spoken: [...this.spokenLog],
         sound: this.sounds.state,
+        paused: this.paused,
+        home: this.home?.visible ?? false,
+        session: this.session ? { profile: this.session.profile.id, name: this.session.profile.name, slot: this.session.slot } : null,
+        view: this.thirdPerson ? "3e" : "1re",
+        avatarVisible: this.avatar.group.visible,
+        camera: { x: this.view.camera.position.x, y: this.view.camera.position.y, z: this.view.camera.position.z },
+        nightLength: this.settings.night,
+        lastSavedAt: this.lastSavedAt,
       }),
+      /** Enregistre tout de suite la partie en cours (vrai si c'est fait). */
+      saveNow: () => this.saveNow(),
       /** Donne des blocs (tests) : renvoie le résultat de l'ajout. */
       give: (id: number, n = 1) => {
         const r = this.inventory.add(id as BlockId, n);
@@ -754,29 +963,44 @@ export class Game {
     const dt = Math.min(frameMs / 1000, 0.05);
     this.lastTime = now;
 
-    // Regard
+    // Regard (consommé même en pause : un geste fait sur l'accueil ne tourne pas la vue au retour)
     const m = this.mouse.consume();
     const t = this.touch.consumeLook();
-    this.player.rotate(m.yaw + t.yaw, m.pitch + t.pitch);
+    if (!this.paused) this.player.rotate(m.yaw + t.yaw, m.pitch + t.pitch);
 
     // Déplacement
     const kx = this.keyboard.axis(["KeyA", "ArrowLeft"], ["KeyD", "ArrowRight"]);
     const kz = this.keyboard.axis(["KeyS", "ArrowDown"], ["KeyW", "ArrowUp"]);
-    this.player.update(dt, {
-      x: kx + this.touch.moveX,
-      z: kz + this.touch.moveZ,
-      jump: this.keyboard.isDown("Space") || this.touch.jumpPressed,
-      down: this.keyboard.isDown("ShiftLeft") || this.keyboard.isDown("ShiftRight"),
-    });
+    if (!this.paused) {
+      this.player.update(dt, {
+        x: kx + this.touch.moveX,
+        z: kz + this.touch.moveZ,
+        jump: this.keyboard.isDown("Space") || this.touch.jumpPressed,
+        down: this.keyboard.isDown("ShiftLeft") || this.keyboard.isDown("ShiftRight"),
+      });
+    }
 
-    // Caméra
+    // Caméra : dans les yeux, ou derrière le personnage (troisième personne, jamais à travers un mur)
     const eye = this.player.eye();
-    this.view.camera.position.set(eye.x, eye.y, eye.z);
+    const pl = this.player;
     this.view.camera.rotation.order = "YXZ";
-    this.view.camera.rotation.set(this.player.pitch, this.player.yaw, 0);
+    this.view.camera.rotation.set(pl.pitch, pl.yaw, 0);
+    if (this.thirdPerson) {
+      const cam = thirdPersonCamera(this.world, eye, pl.yaw, pl.pitch);
+      this.view.camera.position.set(cam.x, cam.y, cam.z);
+      // Caméra collée au personnage (dos au mur) : on ne le dessine pas, il boucherait la vue.
+      this.avatar.group.visible = cam.distance > 0.8;
+    } else {
+      this.view.camera.position.set(eye.x, eye.y, eye.z);
+      this.avatar.group.visible = false;
+    }
+    if (this.avatar.group.visible) {
+      this.avatar.update(pl.x, pl.y, pl.z, pl.yaw, pl.pitch, Math.hypot(pl.vx, pl.vz), dt);
+      this.avatar.setBrightness(this.sky.brightness);
+    }
 
     // Jour et nuit, eau
-    this.phase = (this.phase + (dt * 1000 * this.timeScale) / DAY_CYCLE_MS) % 1;
+    if (!this.paused) this.phase = advancePhase(this.phase, dt * 1000, this.timeScale, this.settings.night);
     this.sky = skyState(solarTime(this.phase));
     this.view.setSky(this.sky);
     this.view.setUnderwater(this.player.headInWater);
@@ -786,8 +1010,9 @@ export class Game {
     this.target = raycast(this.world, eye, this.player.lookDir(), REACH);
     if (this.target) this.view.setHighlight(this.target.x, this.target.y, this.target.z);
     else this.view.hideHighlight();
-    this.updateBreaking(performance.now(), dt * 1000);
+    if (!this.paused) this.updateBreaking(performance.now(), dt * 1000);
     this.refreshInventory();
+    if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
 
     // Monde : sections à (re)mailler, les plus proches d'abord
     const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);

@@ -79,3 +79,20 @@ export function formatHour(hour: number): string {
   const m = Math.floor((hour - h) * 60);
   return `${h}h${String(m).padStart(2, "0")}`;
 }
+
+/** Durée de la nuit choisie en mode parent (J4). */
+export type NightLength = "normale" | "courte" | "aucune";
+/** Nuit « courte » : le temps de la nuit passe trois fois plus vite (1 minute au lieu de 3). */
+export const SHORT_NIGHT_SPEED = 3;
+
+/**
+ * Avance la phase du cycle de dtMs de temps réel (× timeScale), selon la durée de nuit choisie.
+ * « aucune » : arrivé à 18 h (la nuit commence vers 18 h 15), on passe directement au matin (6 h 15).
+ */
+export function advancePhase(phase: number, dtMs: number, timeScale: number, night: NightLength): number {
+  const p = wrap01(phase);
+  const speed = night === "courte" && p >= DAY_SHARE ? SHORT_NIGHT_SPEED : 1;
+  const next = wrap01(p + (dtMs * timeScale * speed) / DAY_CYCLE_MS);
+  if (night === "aucune" && (next >= phaseForHour(18) || next < phaseForHour(6.25))) return phaseForHour(6.25);
+  return next;
+}

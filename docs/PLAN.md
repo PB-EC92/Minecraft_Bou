@@ -130,6 +130,8 @@ Appareil cible : le convertible Windows (Acer Nitro 5 Spin NP515-51) replié en 
 
 Écran d'accueil avec deux profils (prénom, avatar), « nouveau monde » (avec choix du type de monde) ou « continuer », sauvegarde automatique toutes les 30 secondes et à la fermeture, export/import, mode parent avec ses réglages et la progression. Avatar en blocs, dessin original (rien de Minecraft), visible dans une vue à la troisième personne activable par une touche et un bouton tactile ; la caméra ne traverse pas les murs.
 
+État : livré le 24/09/2026 (voir `JOURNAL.md`). Choix de Pierre : trois emplacements de monde par enfant, profils créés par l'adulte, vue à la troisième personne dans le J4. Réglages du mode parent livrés : prénoms, niveau de lecture, voix, durée de la nuit ; « plage de nombres » et « créatures » arriveront avec les missions et les créatures (J5).
+
 ### J5 — Compagnon, missions, créatures
 
 Compagnon qui suit le joueur, bulle de dialogue, lecture vocale, bouton « répète ». Moteur de missions déclaratif avec variantes par profil. Créatures rigolotes et leurs comportements ; bloc lampe et bloc clôture fonctionnels ; lance-bulles (outil rigolo, jamais une arme : les bulles font fuir les créatures) ; signal d'arrivée de la nuit (son, ciel).
