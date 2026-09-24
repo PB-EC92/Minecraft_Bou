@@ -124,6 +124,8 @@ Appareil cible : le convertible Windows (Acer Nitro 5 Spin NP515-51) replié en 
 - si les enfants déplient l'appareil (à confirmer par Pierre) : interface et aides qui suivent le dernier moyen utilisé (doigt ou pavé tactile/souris), touches sans effet parasite dans Firefox (apostrophe du « 4 », Alt) ;
 - test des enfants sur le convertible, avec au protocole : balayages depuis les bords, sortie du jeu par accident, main posée sur l'écran.
 
+État : livré le 24/09/2026 (voir `JOURNAL.md`), sauf le volet « déplié » (Pierre : l'appareil reste toujours replié). À tester par Pierre et les enfants (protocole J3 de `RETOURS.md`).
+
 ### J4 — Profils, sauvegarde, mode parent
 
 Écran d'accueil avec deux profils (prénom, avatar), « nouveau monde » (avec choix du type de monde) ou « continuer », sauvegarde automatique toutes les 30 secondes et à la fermeture, export/import, mode parent avec ses réglages et la progression. Avatar en blocs, dessin original (rien de Minecraft), visible dans une vue à la troisième personne activable par une touche et un bouton tactile ; la caméra ne traverse pas les murs.

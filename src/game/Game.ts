@@ -320,7 +320,7 @@ export class Game {
     // « Actualiser » y ferait perdre la construction. Les champs du panneau le gardent (copier, coller).
     document.addEventListener("contextmenu", (e) => {
       const t = e.target;
-      if (t instanceof Element && t.closest(".panel") && t.matches("input, textarea, select")) return;
+      if (t instanceof Element && (t.closest(".fatal") || (t.closest(".panel") && t.matches("input, textarea, select")))) return;
       e.preventDefault();
     });
     this.touch.onModeChange(() => this.updateHint());
@@ -344,6 +344,12 @@ export class Game {
     // Adresse modifiée à la main (#monde=…&graine=…) : on régénère.
     window.addEventListener("hashchange", () => {
       const o = parseUrlOptions(location.hash);
+      // Distance tapée dans l'adresse : appliquée et retenue comme un choix du panneau.
+      if (o.distance !== undefined && o.distance !== this.view.renderDistance) {
+        this.view.setRenderDistance(o.distance);
+        this.hud.setDistance(o.distance);
+        writeStorage(DISTANCE_STORAGE_KEY, String(o.distance));
+      }
       const type = o.type ?? this.gen.type;
       const seed = o.seed ?? this.gen.seed;
       if (type !== this.gen.type || seed !== this.gen.seed) this.newWorld(type, seed);

@@ -183,3 +183,24 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Documents mis à jour.** `BRIEF.md` (plateformes, critère 3, points ouverts), `PLAN.md` (pile tactile, stockage, `file://`, J1, J3 réécrit « Tactile et convertible », risques, §7), `README.md` (installation sur le convertible avec Firefox, fichier toujours remplacé au même endroit), `CLAUDE.md` (appareil des enfants, règle 7, Firefox vérifié à la main), `RETOURS.md` (colonnes « Tablette Android » = convertible).
 
 **Questions ouvertes pour Pierre.** Les enfants jouent-ils en portrait ou en paysage ? Déplient-ils parfois l'appareil (clavier, pavé tactile) ? Lancement du J3 avec ce contenu ?
+
+## 2026-09-24 — J3, tactile et convertible
+
+**Décisions de Pierre.** Les enfants jouent en portrait comme en paysage ; l'appareil reste toujours replié (volet « déplié » du plan non traité) ; lancer le J3.
+
+**Fait.**
+- Joystick fixe et visible en bas à gauche (rond de 150 px, écarté de 28 px des bords) : seul un toucher qui commence sur lui ou tout près (1,5 fois son rayon) fait marcher, avec une petite zone morte au centre. Partout ailleurs, le doigt regarde et casse. Corrige le déplacement involontaire signalé au J2 (avant : toute la moitié gauche de l'écran commandait le déplacement). `input/touchZones.ts` (pur, testé).
+- Un nouveau doigt dans une zone déjà prise la reprend (paume posée, doigt d'un autre enfant) ; quand il se lève, le doigt resté posé reprend la main.
+- Doigts remis à zéro quand le jeu perd le focus (autre appli, geste de Windows) : le personnage ne marche plus tout seul.
+- Toute la barre du bas choisit la case la plus proche, marges comprises (`ui/nearestSlot.ts`) ; menu contextuel du navigateur bloqué sur le jeu, sauf dans les champs du panneau et sur l'écran d'erreur (copie au doigt).
+- Portrait : champ de vision vertical élargi pour garder 60° en largeur (88° en 1080 × 1802, contre 46° de large avant) ; paysage inchangé (70°). `render/fov.ts` (pur, testé). Verrouillage paysage retiré (Firefox sur PC ne le permet pas ; rotation laissée à Windows).
+- Bouton plein écran à la portée de l'enfant, dans la colonne des boutons tactiles ; masqué en plein écran.
+- Distance de rendu : 96 blocs par défaut quel que soit le pointeur ; choix de l'adulte retenu (`cubes:distance`) et gardé dans l'adresse ; une distance tapée dans l'adresse s'applique aussi en cours de partie. `game/renderDistance.ts`.
+- Aides d'écran au doigt réécrites (« Rond : marcher · glisse : regarder… »). Diagnostic : ligne « Fenêtre » (taille de la fenêtre, de l'écran, champ de vision, plein écran).
+- Tests de fumée : le profil « tablette » imite désormais le convertible en portrait (1080 × 1802, 1×) ; nouveau profil « tablette-paysage » (1920 × 1080) pour les cas marqués `@tactile`.
+
+**Relecture.** Un agent indépendant a relu le diff : 5 constats, 4 corrigés (menu contextuel bloqué sur l'écran d'erreur ; distance tapée dans l'adresse ignorée ; doigt resté posé inerte après une reprise ; rond qui chevauchait la barre entre 1001 et 1012 px de large, seuil porté à 1040 px). Non traité : sur un petit écran paysage de 800 × 400 (hors appareil cible), la colonne de boutons recouvre le bouton « Tests ». Il a aussi vu deux tests souris échouer une fois sous charge, puis passer 4 fois sur 4 relancés seuls.
+
+**Tests.** 410 tests unitaires ; 65 tests de fumée verts (pc, tablette portrait, tablette paysage). Chromium seulement : le comportement réel dans Firefox (événements tactiles, plein écran, menu contextuel) reste à vérifier par Pierre. `dist/cubes.html` : 614 ko ; ligne d'infos terminée par « J3 ».
+
+**Attendu de Pierre.** Protocole J3 de `RETOURS.md` (portrait et paysage, dont les images par seconde à 128 blocs), puis séance enfants.

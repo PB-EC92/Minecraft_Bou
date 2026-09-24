@@ -424,7 +424,8 @@ canvas.game {
   align-items: flex-end;
 }
 /* Écran étroit (portrait, petite tablette) : boutons et joystick remontent au-dessus de la barre pour ne pas couvrir de case. */
-@media (max-width: 1000px) {
+/* Seuil : largeur de la barre (9 cases de 64 px + marges, environ 660 px) plus le rond et les boutons des deux côtés. */
+@media (max-width: 1040px) {
   .touch-buttons,
   .joystick {
     bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));

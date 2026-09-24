@@ -48,6 +48,9 @@ export class TouchControls {
   private moveRadius = 0;
 
   private lookTouchId: number | null = null;
+  /** Doigts remplacés par un nouveau doigt : s'ils sont encore posés quand le nouveau se lève, ils reprennent la main. */
+  private prevMoveId: number | null = null;
+  private prevLookId: number | null = null;
   private lookLastX = 0;
   private lookLastY = 0;
   private lookStartTime = 0;
@@ -181,6 +184,8 @@ export class TouchControls {
   reset(): void {
     this.endMove();
     this.lookTouchId = null;
+    this.prevMoveId = null;
+    this.prevLookId = null;
     this.breakPress = null;
     this.jumpPressed = false;
   }
@@ -213,6 +218,7 @@ export class TouchControls {
       const { center, radius } = this.joystickGeometry();
       if (inJoystickZone(p, center, radius)) {
         // Un nouveau doigt sur le rond reprend le joystick.
+        if (this.moveTouchId !== null) this.prevMoveId = this.moveTouchId;
         this.moveTouchId = t.identifier;
         this.moveCenter = center;
         this.moveRadius = radius;
@@ -220,6 +226,7 @@ export class TouchControls {
         this.updateMove(p);
       } else {
         // Un nouveau doigt ailleurs reprend le regard ; l'appui du doigt précédent est oublié sans casser.
+        if (this.lookTouchId !== null) this.prevLookId = this.lookTouchId;
         this.lookTouchId = t.identifier;
         this.lookLastX = this.anchorX = t.clientX;
         this.lookLastY = this.anchorY = t.clientY;
@@ -257,8 +264,18 @@ export class TouchControls {
 
   private onEnd(e: TouchEvent): void {
     for (const t of Array.from(e.changedTouches)) {
+      if (t.identifier === this.prevMoveId) this.prevMoveId = null;
+      if (t.identifier === this.prevLookId) this.prevLookId = null;
       if (t.identifier === this.moveTouchId) {
         this.endMove();
+        const back = this.stillDown(e, this.prevMoveId);
+        this.prevMoveId = null;
+        if (back) {
+          // Le pouce resté sur le rond reprend la marche.
+          this.moveTouchId = back.identifier;
+          this.joystick.classList.add("active");
+          this.updateMove({ x: back.clientX, y: back.clientY });
+        }
       } else if (t.identifier === this.lookTouchId) {
         this.lookTouchId = null;
         const press = this.breakPress;
@@ -270,8 +287,25 @@ export class TouchControls {
         if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend") {
           for (const h of this.actionHandlers) h(this.mode);
         }
+        const back = this.stillDown(e, this.prevLookId);
+        this.prevLookId = null;
+        if (back) {
+          // Le doigt resté posé reprend le regard ; un appui « casser » repart de sa position.
+          this.lookTouchId = back.identifier;
+          this.lookLastX = this.anchorX = back.clientX;
+          this.lookLastY = this.anchorY = back.clientY;
+          this.lookStartTime = performance.now();
+          this.lookMoved = true;
+          this.breakPress = this.mode === "break" ? newBreakPress(this.lookStartTime, true, true) : null;
+        }
       }
     }
+  }
+
+  /** Le doigt id est-il encore posé (liste des doigts restants de l'événement) ? */
+  private stillDown(e: TouchEvent, id: number | null): Touch | null {
+    if (id === null) return null;
+    return Array.from(e.touches).find((t) => t.identifier === id) ?? null;
   }
 
   private updateMove(p: Point): void {

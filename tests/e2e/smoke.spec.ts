@@ -880,6 +880,29 @@ test("au doigt : un nouveau doigt reprend le regard (doigt d'un autre enfant, pa
   expect(errors).toEqual([]);
 });
 
+test("au doigt : quand le doigt qui a repris le rond se lève, le pouce resté posé fait de nouveau marcher @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const cdp = await context.newCDPSession(page);
+  const j = await joystickGeometry(page);
+  const a = { x: j.x, y: j.y - j.r, id: 1 }; // pouce qui pousse vers l'avant
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [a] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [a, { x: j.x, y: j.y, id: 2 }] }); // tapotement au centre
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    // Lever le seul doigt 2 (le protocole de Chrome ne sait pas lever un doigt sur deux) : dans la page.
+    const canvas = document.querySelector("canvas.game")!;
+    const r = document.querySelector(".joystick")!.getBoundingClientRect();
+    const t1 = new Touch({ identifier: 1, target: canvas, clientX: r.left + r.width / 2, clientY: r.top });
+    const t2 = new Touch({ identifier: 2, target: canvas, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+    canvas.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [t1], changedTouches: [t2] }));
+  });
+  const start = await state(page);
+  await expect.poll(async () => horizontalMove(start, await state(page)), { timeout: 5_000 }).toBeGreaterThan(0.3);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  expect(errors).toEqual([]);
+});
+
 test("au doigt : si le jeu perd le focus, le personnage s'arrête même sans doigt levé @tactile", async ({ page, context }, testInfo) => {
   test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page);
@@ -975,6 +998,14 @@ test("pas de menu contextuel du navigateur sur le jeu, sauf dans les champs du p
   expect(await prevented(".hotbar")).toBe(true);
   expect(await prevented(".panel-toggle")).toBe(true);
   expect(await prevented(".panel input")).toBe(false);
+  // Écran d'erreur : l'adulte doit pouvoir copier le texte au doigt (appui long).
+  await page.evaluate(() => {
+    const d = document.createElement("div");
+    d.className = "fatal";
+    d.innerHTML = "<pre>erreur</pre>";
+    document.body.appendChild(d);
+  });
+  expect(await prevented(".fatal pre")).toBe(false);
   expect(errors).toEqual([]);
 });
 
