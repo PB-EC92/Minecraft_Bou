@@ -40,7 +40,7 @@ import { TouchControls } from "../input/TouchControls";
 import { Avatar } from "../render/Avatar";
 import { SceneView } from "../render/SceneView";
 import { SaveStore } from "../save/SaveStore";
-import { SAVE_VERSION, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
+import { DEFAULT_SETTINGS, KEYS, SAVE_VERSION, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
 import { applyDiff, diffBlocks, fromBase64, toBase64 } from "../save/worldDiff";
 import { HomeScreen } from "../ui/HomeScreen";
 import { isInventoryBlockId } from "../engine/inventory";
@@ -173,7 +173,8 @@ export class Game {
 
     const opts = parseUrlOptions(location.hash);
     this.urlMode = opts.type !== undefined || opts.seed !== undefined;
-    this.settings = this.store.loadSettings();
+    // Mode adresse (tests, vérifications de l'adulte) : réglages par défaut, pas ceux du mode parent.
+    this.settings = this.urlMode ? { ...DEFAULT_SETTINGS } : this.store.loadSettings();
     this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
     this.world = this.gen.world;
     this.baseData = this.world.data.slice();
@@ -300,10 +301,16 @@ export class Game {
     this.baseData = this.world.data.slice();
     const edits = fromBase64(save.edits);
     const applied = edits ? applyDiff(this.world.data, edits, (id) => id === BlockId.Air || isInventoryBlockId(id)) : -1;
-    if (applied < 0) {
-      // Écart illisible : on repart du monde d'origine plutôt que d'un monde à moitié restauré.
-      this.world.data.set(this.baseData);
-      this.saveError = "Les constructions de ce monde n'ont pas pu être relues.";
+    const foreign = save.gen !== GENERATOR_VERSION || save.version > SAVE_VERSION;
+    if (applied < 0 || foreign) {
+      // Sauvegarde illisible ou d'une autre version du jeu : copie de secours intacte avant toute écriture
+      // (une version corrigée pourra la relire), puis on joue sur ce qui a pu être relu.
+      if (this.session) this.store.backupWorld(this.session.profile.id, this.session.slot, save);
+      if (applied < 0) this.world.data.set(this.baseData);
+      this.hud.showMessage(
+        "Adulte : ce monde vient d'une autre version du jeu ou n'a pas pu être relu entièrement. Une copie de secours est gardée (exporter depuis le mode parent).",
+        8000,
+      );
     }
     this.world.markAllChanged();
     this.view.setWorld(this.world);
@@ -376,10 +383,10 @@ export class Game {
     if (!save) this.tell(WELCOME, { ms: 4000 });
   }
 
-  /** Retour à l'accueil : la partie est enregistrée, le jeu attend en pause. */
-  private goHome(): void {
+  /** Retour à l'accueil : la partie est enregistrée (sauf save = faux), le jeu attend en pause. */
+  private goHome(save = true): void {
     if (!this.home) return;
-    const saved = this.saveNow();
+    const saved = save && this.saveNow();
     this.narrator.cancelPending();
     this.breaker.reset();
     this.touch.reset();
@@ -411,6 +418,15 @@ export class Game {
       if (document.visibilityState === "hidden") this.saveNow();
     });
     window.addEventListener("pagehide", () => this.saveNow());
+    // Le même monde ouvert dans un autre onglet (double-clic deux fois) : si l'autre onglet enregistre ce monde,
+    // celui-ci ne doit plus l'écraser avec un état plus ancien. On revient à l'accueil sans enregistrer.
+    window.addEventListener("storage", (e) => {
+      if (!this.session) return;
+      if (e.key === null || e.key === KEYS.world(this.session.profile.id, this.session.slot)) {
+        this.goHome(false);
+        this.hud.showMessage("Ce monde a été ouvert ailleurs : reprends-le depuis l'accueil.", 5000);
+      }
+    });
   }
 
   /** Petit bouton rond en haut à droite, à côté de « Tests » (icône SVG en traits). */
@@ -549,6 +565,7 @@ export class Game {
         this.hud.setDistance(o.distance);
         writeStorage(DISTANCE_STORAGE_KEY, String(o.distance));
       }
+      if (this.session) return; // jamais de régénération pendant la partie d'un enfant (monde enregistré)
       const type = o.type ?? this.gen.type;
       const seed = o.seed ?? this.gen.seed;
       if (type !== this.gen.type || seed !== this.gen.seed) this.newWorld(type, seed);
@@ -562,6 +579,11 @@ export class Game {
   private wirePanel(): void {
     const hud = this.hud;
     hud.newWorldButton.addEventListener("click", () => {
+      // Pendant la partie d'un enfant, un nouveau monde écraserait son monde enregistré : réservé au mode adresse.
+      if (this.session) {
+        this.hud.showMessage("« Nouveau monde » : seulement hors d'une partie d'enfant (adresse #monde=…). Pour un enfant : accueil → + Nouveau.", 5000);
+        return;
+      }
       const type = parseWorldType(hud.worldTypeSelect.value) ?? "prairie";
       let seed = parseSeed(hud.seedInput.value) ?? randomSeed();
       // Même type et même graine = le même monde : on en veut un autre.

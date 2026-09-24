@@ -64,6 +64,11 @@ export class SaveStore {
     return this.write(KEYS.world(profileId, slot), save);
   }
 
+  /** Copie de secours d'un monde (clé « …:secours »), gardée telle quelle ; exportée avec le reste. */
+  backupWorld(profileId: string, slot: number, save: WorldSave): WriteResult {
+    return this.write(`${KEYS.world(profileId, slot)}:secours`, save);
+  }
+
   deleteWorld(profileId: string, slot: number): void {
     try {
       this.storage?.removeItem(KEYS.world(profileId, slot));

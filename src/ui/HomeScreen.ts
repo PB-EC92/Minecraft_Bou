@@ -340,11 +340,13 @@ export class HomeScreen {
       this.store.saveSettings(s);
       this.cb.settingsChanged(s);
       this.profiles = next;
-      if (!r.ok) {
-        status.textContent = r.error;
-        return;
-      }
       this.showProfiles();
+      // Stockage indisponible : on joue quand même (rien ne sera retrouvé à la prochaine ouverture), l'adulte est prévenu.
+      if (!r.ok) {
+        const warn = this.div("home-warning");
+        warn.textContent = `Adulte : ${r.error} Les parties ne seront pas retrouvées.`;
+        this.content.appendChild(warn);
+      }
     });
     actions.appendChild(save);
     if (!first) {

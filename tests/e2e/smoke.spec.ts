@@ -1225,3 +1225,40 @@ test("troisième personne : touche V ou bouton œil, le personnage se voit, la c
   await expect.poll(async () => (await state(page)).avatarVisible).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test("pendant la partie d'un enfant, « Nouveau monde » du panneau Tests n'écrase pas son monde", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  const seed = (await state(page)).seed;
+  await page.getByRole("button", { name: "Tests" }).click();
+  await page.getByRole("button", { name: "Nouveau monde" }).click();
+  await expect(page.locator(".message")).toContainText("seulement hors d'une partie");
+  expect((await state(page)).seed).toBe(seed);
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null")?.seed)).toBe(seed);
+  expect(errors).toEqual([]);
+});
+
+test("le même monde ouvert dans deux onglets : l'onglet resté en arrière n'écrase pas le travail de l'autre", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  // Second onglet sur le même monde.
+  const b = await context.newPage();
+  await b.goto(url);
+  await b.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await b.locator('.profile-card[data-profile="p1"]').click();
+  await b.locator('.slot-card[data-slot="0"]').click();
+  await b.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
+  // L'onglet B joue et enregistre ; l'onglet A, resté en arrière, revient à l'accueil sans rien écrire.
+  await b.evaluate(() => {
+    window.cubesDebug.give(4, 42);
+    window.cubesDebug.saveNow();
+  });
+  await expect.poll(async () => (await state(page)).home).toBe(true);
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(false);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null"));
+  expect(stored.inventory.slots.filter(Boolean)).toEqual([[4, 42]]);
+  expect(errors).toEqual([]);
+});

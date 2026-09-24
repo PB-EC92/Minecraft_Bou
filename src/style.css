@@ -748,3 +748,11 @@ canvas.game {
   filter: grayscale(1);
   opacity: 0.35;
 }
+.home-warning {
+  max-width: 640px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(20, 24, 32, 0.88);
+  color: var(--ui-accent);
+  font-size: 15px;
+}

@@ -204,3 +204,30 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Tests.** 410 tests unitaires ; 65 tests de fumée verts (pc, tablette portrait, tablette paysage). Chromium seulement : le comportement réel dans Firefox (événements tactiles, plein écran, menu contextuel) reste à vérifier par Pierre. `dist/cubes.html` : 614 ko ; ligne d'infos terminée par « J3 ».
 
 **Attendu de Pierre.** Protocole J3 de `RETOURS.md` (portrait et paysage, dont les images par seconde à 128 blocs), puis séance enfants.
+
+## 2026-09-24 — J4, profils, sauvegarde, mode parent, troisième personne
+
+**Décisions de Pierre.** Trois emplacements de monde par enfant ; profils créés par l'adulte (prénoms, niveaux de lecture) ; vue à la troisième personne dans le J4. Lancé sans attendre les tests du J3.
+
+**Fait.**
+- Écran d'accueil (`ui/HomeScreen.ts`) : premier lancement « Réglages de l'adulte » (deux prénoms, niveau, voix) ; « Qui joue ? » avec les deux profils ; choix du personnage (6 dessins originaux, `game/avatars.ts`) ; trois emplacements par enfant (vignette : type de monde, « aujourd'hui », « hier » ou date) ; nouveau monde : prairie, île, montagne ou désert. Consignes en deux variantes, lues pour le lecteur débutant.
+- Sauvegarde : un monde = type + graine + **écart** avec le monde régénéré (`save/worldDiff.ts` : entiers variables, base64), plus position, sac, heure. Quelques kilo-octets. Enregistrement automatique toutes les 30 s, quand la page est masquée ou fermée, et au bouton maison. Lecture robuste (`save/saveFormat.ts`) : donnée abîmée ignorée, jamais d'erreur bloquante. `GENERATOR_VERSION` dans `terrain.ts`, avec un test d'empreinte du terrain pour les quatre types (toute modification du générateur le fera échouer).
+- Mode parent : appui long de 3 s sur l'engrenage (anneau qui se remplit) : prénoms, niveaux, voix, durée de la nuit (normale, courte, pas de nuit ; `advancePhase` dans `dayNight.ts`), effacer un monde, exporter tout dans `cubes-sauvegarde-AAAA-MM-JJ.json`, importer. Le chemin du fichier est affiché, avec l'avertissement Firefox (stockage probablement lié au chemin).
+- Personnage en blocs (`render/Avatar.ts`) et vue à la troisième personne : bouton œil ou touche V ; caméra un peu au-dessus de l'épaule (la tête ne cache pas la croix), jamais à travers un bloc plein (`game/thirdPerson.ts`, pur, testé) ; marche animée ; luminosité du jour et de la nuit.
+- Le jeu attend en pause derrière l'accueil. L'adresse `#monde=…&graine=…` saute l'accueil et n'enregistre rien (tests, vérifications) ; sans elle, l'adresse n'est plus réécrite (un rechargement ramène à l'accueil).
+- Nouveau : `Inventory.load` (moteur, testé).
+
+**Relecture.** Agent indépendant : 7 constats, 5 corrigés :
+- « Nouveau monde » du panneau Tests écrasait le monde enregistré de l'enfant (reproduit) : refusé pendant une partie d'enfant, de même qu'un changement de monde par l'adresse.
+- Le même monde ouvert dans deux onglets : l'onglet resté en arrière écrasait le travail de l'autre (reproduit). Désormais, dès qu'un autre onglet enregistre ce monde, celui-ci revient à l'accueil sans enregistrer.
+- Stockage indisponible : l'enfant restait bloqué sur l'écran de l'adulte (reproduit). On joue quand même, l'adulte est prévenu.
+- Sauvegarde illisible ou d'une autre version du générateur : copie de secours intacte (`…:secours`) avant toute écriture, et message à l'adulte.
+- Réglage de nuit du mode parent appliqué aussi en mode adresse : réglages par défaut en mode adresse.
+
+Non traités : import non atomique (un échec d'écriture au milieu laisse un état mélangé ; improbable, sauvegardes petites) ; voile sous l'eau qui suit la tête du personnage et non la caméra, en troisième personne ; caméra qui peut passer derrière un mur en escalier en diagonale (échantillonnage du rayon).
+
+**Tests.** 444 tests unitaires ; 79 tests de fumée verts (premier lancement, reprise après rechargement, bouton maison, mode parent avec export, effacement et import, fichier refusé, troisième personne avec mur, mode adresse, deux onglets, panneau Tests pendant une partie). Le test souris « garder le clic gauche » a échoué une fois sous charge au premier passage, puis est passé 4 fois sur 4 seul et à la série complète suivante (instabilité connue, antérieure au J4). `dist/cubes.html` : 643 ko ; ligne d'infos terminée par « J4 ».
+
+**Non vérifié.** Tout sur Firefox (stockage en `file://` par chemin, téléchargement de l'export, appui long au doigt — Windows peut transformer un appui long en clic droit —, sélecteur de fichier en mode tablette).
+
+**Attendu de Pierre.** Protocoles J3 et J4 de `RETOURS.md`, dont la ligne « stockage sous Firefox » (copier le fichier ailleurs), puis séance enfants.
