@@ -1,5 +1,5 @@
 import { Sounds } from "../audio/sounds";
-import { BlockId, breakDurationMs, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
+import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { Inventory, MAX_STACK, type AddResult } from "../engine/inventory";
@@ -7,7 +7,9 @@ import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, maxStackText, pickupSpeech, pickupText, shouldSpeakPickup } from "../edu/counting";
+import { emptiedText, maxStackText, pickupSpeech, pickupText, returnedText, shouldSpeakPickup, stolenText } from "../edu/counting";
+import { BRAVO, MISSION_1, MissionRunner } from "../edu/missions";
+import { CreatureSim } from "../engine/creatures";
 import { Narrator, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
@@ -24,6 +26,8 @@ import {
   MOUSE_RESUME,
   NO_SPACE,
   parseReadingLevel,
+  LAMP_SCARES,
+  NIGHT_COMING,
   pick,
   SAVED,
   VIEW_FIRST,
@@ -38,6 +42,10 @@ import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
 import { TouchControls } from "../input/TouchControls";
 import { Avatar } from "../render/Avatar";
+import { Bubbles } from "../render/Bubbles";
+import { Critters } from "../render/Critters";
+import { Fox } from "../render/Fox";
+import { LampGlow } from "../render/LampGlow";
 import { SceneView } from "../render/SceneView";
 import { SaveStore } from "../save/SaveStore";
 import { DEFAULT_SETTINGS, KEYS, SAVE_VERSION, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
@@ -46,6 +54,7 @@ import { HomeScreen } from "../ui/HomeScreen";
 import { isInventoryBlockId } from "../engine/inventory";
 import { avatarDef } from "./avatars";
 import { thirdPersonCamera } from "./thirdPerson";
+import { companionGoal, stepCompanion, type CompanionState } from "./companion";
 import { showFatalError } from "../ui/fatal";
 import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
@@ -53,7 +62,7 @@ import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } 
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J4";
+export const VERSION = "J5";
 /** Sauvegarde automatique pendant une partie (ms). */
 const AUTOSAVE_MS = 30_000;
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
@@ -158,6 +167,8 @@ export class Game {
   private session: { profile: Profile; slot: number } | null = null;
   /** Blocs du monde tel que généré : la sauvegarde n'enregistre que l'écart avec lui. */
   private baseData: Uint8Array;
+  /** Version du générateur qui a produit ce monde (un monde enregistré en version 1 reste en version 1). */
+  private worldGen = GENERATOR_VERSION;
   private paused = false;
   private lastAutosaveAt = performance.now();
   private lastSavedAt = 0;
@@ -167,12 +178,37 @@ export class Game {
   private readonly homeButton: HTMLButtonElement;
   private readonly viewButton: HTMLButtonElement;
 
+  // ---------- J5 : compagnon, mission, Grignotes, bulles, lampes ----------
+  private readonly urlCreatures: boolean;
+  private readonly urlMission: boolean;
+  private readonly sim: CreatureSim;
+  private readonly critters = new Critters();
+  private readonly fox = new Fox();
+  private readonly bubbles = new Bubbles();
+  private readonly lampGlow = new LampGlow();
+  private companion: CompanionState | null = null;
+  private mission: MissionRunner | null = null;
+  /** Date (performance.now) à laquelle annoncer l'étape en cours (après l'intro ou un « bravo »). */
+  private announceStepAt: number | null = null;
+  private missionDoneAt = 0;
+  private lamps: { x: number; y: number; z: number }[] = [];
+  private lampsDirty = true;
+  private lastBubbleAt = -Infinity;
+  private lampScareToldAt = -Infinity;
+  private prevHour = 0;
+  private readonly companionPanel: HTMLDivElement;
+  private readonly companionText: HTMLSpanElement;
+  private readonly companionProgress: HTMLSpanElement;
+  private readonly bubbleButton: HTMLButtonElement;
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
 
     const opts = parseUrlOptions(location.hash);
     this.urlMode = opts.type !== undefined || opts.seed !== undefined;
+    this.urlCreatures = opts.creatures === true;
+    this.urlMission = opts.mission === true;
     // Mode adresse (tests, vérifications de l'adulte) : réglages par défaut, pas ceux du mode parent.
     this.settings = this.urlMode ? { ...DEFAULT_SETTINGS } : this.store.loadSettings();
     this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
@@ -211,6 +247,22 @@ export class Game {
 
     this.avatar = new Avatar(avatarDef(0));
     this.view.scene.add(this.avatar.group);
+    this.sim = new CreatureSim(this.world, this.gen.seed);
+    this.view.scene.add(this.critters.group, this.fox.group, this.bubbles.group, this.lampGlow.group);
+    ({ panel: this.companionPanel, text: this.companionText, progress: this.companionProgress } = this.buildCompanionPanel());
+    this.bubbleButton = this.topButton("bubble-btn", "Bulles", '<circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.2"/><circle cx="18.5" cy="17" r="2"/>');
+    // Au doigt, le même bouton rejoint la colonne des boutons tactiles (sous le pouce droit).
+    const touchCol = this.touch.root.querySelector(".touch-buttons");
+    const touchBubble = document.createElement("button");
+    touchBubble.type = "button";
+    touchBubble.className = "touch-btn bubble-touch";
+    touchBubble.textContent = "Bulles";
+    touchBubble.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.throwBubbles();
+    });
+    touchCol?.appendChild(touchBubble);
     this.homeButton = this.topButton("home-btn", "Accueil", '<path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h5v-5h3v5h5V10"/>');
     this.viewButton = this.topButton("view-btn", "Changer de vue", '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>');
     this.homeButton.hidden = true;
@@ -232,6 +284,7 @@ export class Game {
     this.watchSaves();
     if (this.urlMode) {
       this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
+      if (this.urlMission) this.startMission(undefined, true);
     } else {
       // Accueil : qui joue, quel monde. Le jeu attend derrière, en pause.
       this.paused = true;
@@ -258,6 +311,9 @@ export class Game {
 
   /** Après la création d'un monde : adresse, panneau, écran de chargement. */
   private afterWorldChange(): void {
+    this.sim?.setWorld(this.world);
+    this.lampsDirty = true;
+    this.companion = null;
     this.hud.setWorldControls(this.gen.type, this.gen.seed);
     // L'adresse ne retient le monde qu'en mode adresse : sinon un rechargement sauterait l'accueil.
     if (this.urlMode) {
@@ -279,6 +335,7 @@ export class Game {
 
   newWorld(type: WorldTypeId, seed: number): void {
     this.gen = generateWorld(type, seed);
+    this.worldGen = GENERATOR_VERSION;
     this.world = this.gen.world;
     this.baseData = this.world.data.slice();
     this.view.setWorld(this.world);
@@ -296,12 +353,13 @@ export class Game {
 
   /** Recharge un monde enregistré : régénéré depuis sa graine, puis les blocs changés par l'enfant. */
   private loadSave(save: WorldSave): void {
-    this.gen = generateWorld(save.type, save.seed);
+    this.worldGen = Math.min(save.gen, GENERATOR_VERSION);
+    this.gen = generateWorld(save.type, save.seed, this.worldGen);
     this.world = this.gen.world;
     this.baseData = this.world.data.slice();
     const edits = fromBase64(save.edits);
     const applied = edits ? applyDiff(this.world.data, edits, (id) => id === BlockId.Air || isInventoryBlockId(id)) : -1;
-    const foreign = save.gen !== GENERATOR_VERSION || save.version > SAVE_VERSION;
+    const foreign = save.gen > GENERATOR_VERSION || save.version > SAVE_VERSION;
     if (applied < 0 || foreign) {
       // Sauvegarde illisible ou d'une autre version du jeu : copie de secours intacte avant toute écriture
       // (une version corrigée pourra la relire), puis on joue sur ce qui a pu être relu.
@@ -336,7 +394,7 @@ export class Game {
     const p = this.player;
     return {
       version: SAVE_VERSION,
-      gen: GENERATOR_VERSION,
+      gen: this.worldGen,
       type: this.gen.type,
       seed: this.gen.seed,
       edits: toBase64(diffBlocks(this.baseData, this.world.data)),
@@ -344,6 +402,7 @@ export class Game {
       inventory: this.inventory.toJSON(),
       phase: this.phase,
       savedAt: Date.now(),
+      ...(this.mission ? { mission: this.mission.toJSON() } : {}),
     };
   }
 
@@ -379,8 +438,127 @@ export class Game {
     this.homeButton.hidden = false;
     this.paused = false;
     this.lastAutosaveAt = performance.now();
-    this.welcomeSpoken = !!save;
-    if (!save) this.tell(WELCOME, { ms: 4000 });
+    this.welcomeSpoken = true;
+    this.startMission(save?.mission, !save);
+  }
+
+  /** Mission 1 et compagnon : intro pour un nouveau monde, sinon rappel de l'étape en cours. */
+  private startMission(saved: unknown, fresh: boolean): void {
+    this.mission = new MissionRunner(MISSION_1, saved);
+    this.missionDoneAt = 0;
+    if (fresh) {
+      this.tell(MISSION_1.intro, { ms: 4500 });
+      this.announceStepAt = performance.now() + 4500;
+    } else this.announceStepAt = performance.now() + 1200;
+    this.refreshCompanionPanel();
+  }
+
+  /** Le compagnon lit la consigne de l'étape en cours (bouton « répète » compris). */
+  private announceStep(): void {
+    const step = this.mission?.current();
+    if (!step) return;
+    this.tell(step.text, { spoken: step.spoken ?? step.text, ms: 4000 });
+    this.refreshCompanionPanel();
+  }
+
+  private refreshCompanionPanel(): void {
+    const m = this.mission;
+    const on = m !== null && this.companionOn() && !this.paused && !(m.done && performance.now() - this.missionDoneAt > 12_000);
+    this.companionPanel.hidden = !on;
+    if (!m || !on) return;
+    const step = m.current();
+    this.companionText.textContent = pick(step ? step.text : MISSION_1.outro, this.narrator.level);
+    const p = m.progress(this.inventory);
+    this.companionProgress.textContent = p ? `${p.have} / ${p.need}` : "";
+  }
+
+  private companionOn(): boolean {
+    return this.urlMode ? this.urlMission : this.session !== null;
+  }
+
+  private creaturesOn(): boolean {
+    return this.urlMode ? this.urlCreatures : this.session !== null && this.settings.creatures;
+  }
+
+  /** Lance-bulles (bouton, touche B) : les Grignotes visées fuient et rendent ce qu'elles avaient chipé. */
+  throwBubbles(): void {
+    if (this.paused) return;
+    const now = performance.now();
+    if (now - this.lastBubbleAt < 700) return;
+    this.lastBubbleAt = now;
+    const eye = this.player.eye();
+    const dir = this.player.lookDir();
+    this.bubbles.burst(eye, dir);
+    this.sounds.play("bubbles");
+    for (const c of this.sim.bubble(eye, dir)) {
+      if (c.carried === null) continue;
+      const r = this.inventory.add(c.carried);
+      if (r.ok) {
+        this.hud.pulseSlot(r.slot);
+        this.sounds.play("pickup", c.carried);
+        this.tell(returnedText(c.carried), { ms: 2500 });
+      }
+    }
+  }
+
+  /** Recherche des lampes posées (après un changement de monde ou la pose/casse d'une lampe). */
+  private refreshLamps(): void {
+    this.lampsDirty = false;
+    const w = this.world;
+    const out: { x: number; y: number; z: number }[] = [];
+    const d = w.data;
+    for (let i = 0; i < d.length; i++) {
+      if (d[i] !== BlockId.Lamp) continue;
+      const x = i % w.sizeX;
+      const z = Math.floor(i / w.sizeX) % w.sizeZ;
+      const y = Math.floor(i / (w.sizeX * w.sizeZ));
+      out.push({ x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    }
+    this.lamps = out;
+    this.lampGlow.setLamps(out);
+  }
+
+  /** Panneau du compagnon (haut de l'écran) : portrait de Pixel, consigne, avancement, bouton « répète ». */
+  private buildCompanionPanel(): { panel: HTMLDivElement; text: HTMLSpanElement; progress: HTMLSpanElement } {
+    const panel = document.createElement("div");
+    panel.className = "companion";
+    panel.hidden = true;
+    const face = document.createElement("canvas");
+    face.width = face.height = 8;
+    face.className = "companion-face";
+    const g = face.getContext("2d");
+    if (g) {
+      const px = (x: number, y: number, w: number, h: number, c: string) => {
+        g.fillStyle = c;
+        g.fillRect(x, y, w, h);
+      };
+      px(1, 0, 2, 2, "#e8762c");
+      px(5, 0, 2, 2, "#e8762c");
+      px(1, 2, 6, 4, "#e8762c");
+      px(2, 5, 4, 3, "#f4efe6");
+      px(2, 3, 1, 1, "#2a1d18");
+      px(5, 3, 1, 1, "#2a1d18");
+      px(3, 6, 2, 1, "#2a1d18");
+    }
+    const text = document.createElement("span");
+    text.className = "companion-text";
+    const progress = document.createElement("span");
+    progress.className = "companion-progress";
+    const repeat = document.createElement("button");
+    repeat.type = "button";
+    repeat.className = "companion-repeat";
+    repeat.setAttribute("aria-label", "Répète");
+    repeat.innerHTML =
+      '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+    for (const ev of ["mousedown", "touchstart"]) repeat.addEventListener(ev, (e) => e.stopPropagation());
+    repeat.addEventListener("click", () => {
+      const m = this.mission;
+      if (m?.done) this.tell(MISSION_1.outro, { ms: 4000 });
+      else this.announceStep();
+    });
+    panel.append(face, text, progress, repeat);
+    this.hud.root.appendChild(panel);
+    return { panel, text, progress };
   }
 
   /** Retour à l'accueil : la partie est enregistrée (sauf save = faux), le jeu attend en pause. */
@@ -394,6 +572,8 @@ export class Game {
     this.paused = true;
     this.homeButton.hidden = true;
     this.session = null;
+    this.mission = null;
+    this.companionPanel.hidden = true;
     this.home.show();
     if (saved) this.hud.showMessage(pick(SAVED, this.narrator.level), 1500);
   }
@@ -427,6 +607,77 @@ export class Game {
         this.hud.showMessage("Ce monde a été ouvert ailleurs : reprends-le depuis l'accueil.", 5000);
       }
     });
+  }
+
+  /** J5 : lampes, Grignotes, compagnon, mission, signal de la nuit, bulles. */
+  private updateLiving(now: number, dt: number): void {
+    if (this.lampsDirty) this.refreshLamps();
+    this.lampGlow.setDaylight(this.sky.daylight);
+    this.bubbles.update(dt);
+    const bright = this.sky.brightness;
+    if (!this.paused) {
+      // Signal de la nuit : à 17 h 30, un carillon et le compagnon prévient.
+      const h = this.sky.hour;
+      if (this.creaturesOn() && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
+        this.sounds.play("night");
+        this.tell(NIGHT_COMING, { ms: 4000 });
+      }
+      this.prevHour = h;
+      const events = this.sim.update(dt * 1000, {
+        player: { x: this.player.x, y: this.player.y, z: this.player.z },
+        night: this.sky.night,
+        lamps: this.lamps,
+        enabled: this.creaturesOn(),
+        bagHasBlocks: this.inventory.totalBlocks() > 0,
+      });
+      for (const e of events) {
+        if (e.kind === "steal") {
+          const full = this.inventory.slots().map((st, i) => (st ? i : -1)).filter((i) => i >= 0);
+          const slot = full[Math.floor(Math.random() * full.length)];
+          const id = slot === undefined ? null : this.inventory.takeFrom(slot);
+          const c = this.sim.creatures.find((x) => x.id === e.id);
+          if (id !== null) {
+            if (c) c.carried = id;
+            this.sounds.play("giggle");
+            this.tell(stolenText(id), { ms: 3500 });
+          }
+        } else if (e.kind === "flee-lamp" && now - this.lampScareToldAt > 60_000 && this.companionOn()) {
+          this.lampScareToldAt = now;
+          this.tell(LAMP_SCARES, { ms: 3000, dedupe: true });
+        }
+      }
+      // Mission.
+      const m = this.mission;
+      if (m && this.companionOn()) {
+        const ev = m.update(this.inventory);
+        if (ev?.kind === "step") {
+          this.tell(BRAVO, { ms: 1500 });
+          this.announceStepAt = now + 1600;
+        } else if (ev?.kind === "done") {
+          this.missionDoneAt = now;
+          this.tell(MISSION_1.outro, { ms: 5000 });
+          this.saveNow();
+        }
+        if (this.announceStepAt !== null && now >= this.announceStepAt) {
+          this.announceStepAt = null;
+          this.announceStep();
+        }
+      }
+    }
+    this.critters.sync(this.sim.creatures, dt, bright);
+    // Compagnon.
+    const showFox = this.companionOn() && !this.paused;
+    if (showFox) {
+      const goal = companionGoal(this.player, this.player.yaw);
+      const p = { x: this.player.x, y: this.player.y, z: this.player.z };
+      this.companion = this.companion ?? { x: goal.x, y: p.y, z: goal.z, yaw: this.player.yaw, moving: false };
+      this.companion = stepCompanion(this.companion, goal, p, this.world, dt);
+      const c = this.companion;
+      this.fox.update(c.x, c.y, c.z, c.yaw, c.moving, dt);
+      this.fox.setBrightness(bright);
+    }
+    this.fox.group.visible = showFox;
+    this.refreshCompanionPanel();
   }
 
   /** Petit bouton rond en haut à droite, à côté de « Tests » (icône SVG en traits). */
@@ -508,9 +759,11 @@ export class Game {
       const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
       if (m) this.setSlot(Number(m[1]) - 1, true);
       if (code === "KeyV") this.toggleView();
+      if (code === "KeyB") this.throwBubbles();
     });
     this.homeButton.addEventListener("click", () => this.goHome());
     this.viewButton.addEventListener("click", () => this.toggleView());
+    this.bubbleButton.addEventListener("click", () => this.throwBubbles());
     this.hud.onSelectSlot((i) => this.setSlot(i, true));
     this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     // Aussi sur la barre : c'est là que l'enfant tourne la molette pour choisir (souris non capturée).
@@ -775,12 +1028,16 @@ export class Game {
       return;
     }
     if (!w.set(x, y, z, BlockId.Air)) return;
+    if (id === BlockId.Lamp) this.lampsDirty = true;
     this.lastBreakAt = performance.now();
     this.sounds.play("break", id);
     // Le bloc cassé d'abord (il passe en main si elle est vide, et c'est lui qu'on annonce),
     // puis la fleur posée dessus, qui tombe avec lui et rejoint le sac sans message.
     const above = w.get(x, y + 1, z);
-    this.collect(id);
+    // Ce que rapporte le bloc (J5) : la pierre brillante donne une lampe, un tronc donne aussi une clôture (sans message).
+    const drops = dropsOf(id);
+    if (drops.main !== null) this.collect(drops.main);
+    if (drops.extra !== null) this.collect(drops.extra, false);
     if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above, false);
   }
 
@@ -853,6 +1110,8 @@ export class Game {
     const replaced = w.get(x, y, z);
     if (replaced === id || !w.set(x, y, z, id)) return;
     this.inventory.takeFrom(this.selectedSlot);
+    this.mission?.notePlaced(id);
+    if (id === BlockId.Lamp) this.lampsDirty = true;
     const emptied = this.inventory.count(id) === 0;
     this.sounds.play("place", id);
     // Fleur remplacée par le bloc posé : elle est cueillie (comptée, ou « sac plein » si elle ne rentre pas).
@@ -945,7 +1204,17 @@ export class Game {
         camera: { x: this.view.camera.position.x, y: this.view.camera.position.y, z: this.view.camera.position.z },
         nightLength: this.settings.night,
         lastSavedAt: this.lastSavedAt,
+        creatures: this.sim.creatures.map((c) => ({ id: c.id, x: c.x, y: c.y, z: c.z, mode: c.mode, carried: c.carried })),
+        companion: this.fox.group.visible && this.companion ? { x: this.companion.x, y: this.companion.y, z: this.companion.z } : null,
+        mission: this.mission ? { step: this.mission.stepIndex, done: this.mission.done } : null,
+        companionText: this.companionPanel.hidden ? null : this.companionText.textContent,
+        lamps: this.lamps.length,
+        bubbles: this.bubbles.count,
       }),
+      /** Lance des bulles (comme le bouton). */
+      bubbles: () => this.throwBubbles(),
+      /** Fait apparaître une Grignote à (dx, dz) du joueur ; renvoie son identifiant ou null. */
+      spawnCreature: (dx: number, dz: number) => this.sim.spawnAt(this.player.x + dx, this.player.z + dz)?.id ?? null,
       /** Enregistre tout de suite la partie en cours (vrai si c'est fait). */
       saveNow: () => this.saveNow(),
       /** Donne des blocs (tests) : renvoie le résultat de l'ajout. */
@@ -956,7 +1225,10 @@ export class Game {
       },
       clearInventory: () => this.inventory.clear(),
       /** Pose un bloc sans passer par le sac (préparer un scénario de test). */
-      setBlock: (x: number, y: number, z: number, id: number) => this.world.set(x, y, z, id as BlockId),
+      setBlock: (x: number, y: number, z: number, id: number) => {
+        this.lampsDirty = true;
+        return this.world.set(x, y, z, id as BlockId);
+      },
       /** Casse un bloc comme au terme d'un appui maintenu (règles du jeu comprises : ramassage, fleur au-dessus…). */
       breakBlock: (x: number, y: number, z: number) => this.breakBlock({ x, y, z }),
       fillInventory: () => this.fillTestKit(),
@@ -1035,6 +1307,7 @@ export class Game {
     if (!this.paused) this.updateBreaking(performance.now(), dt * 1000);
     this.refreshInventory();
     if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
+    this.updateLiving(performance.now(), dt);
 
     // Monde : sections à (re)mailler, les plus proches d'abord
     const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);
@@ -1098,7 +1371,7 @@ export class Game {
     this.hud.setDiagnostics(
       [
         `Version : ${VERSION}`,
-        `Monde : ${worldTypeName(this.gen.type)}, graine ${this.gen.seed}, ${w.sizeX}×${w.sizeY}×${w.sizeZ}, arbres ${this.gen.stats.trees}, fleurs ${this.gen.stats.flowers}, cactus ${this.gen.stats.cacti}`,
+        `Monde : ${worldTypeName(this.gen.type)}, graine ${this.gen.seed}, ${w.sizeX}×${w.sizeY}×${w.sizeZ}, arbres ${this.gen.stats.trees}, fleurs ${this.gen.stats.flowers}, cactus ${this.gen.stats.cacti}, pierres brillantes ${this.gen.stats.glowStones}`,
         `Rendu : distance ${this.view.renderDistance} blocs, sections affichées ${cs.visibleSections}/${cs.sections}, en attente ${cs.pending}, appels ${this.renderCalls}, triangles ${this.renderTriangles}`,
         `Calcul par image (hors attente de l'écran) : moy. ${cpuAvg.toFixed(1)} ms, pire ${cpuWorst.toFixed(1)} ms`,
         `Heure : ${formatHour(this.sky.hour)} (${this.sky.night ? "nuit" : "jour"}), vitesse ×${this.timeScale}`,

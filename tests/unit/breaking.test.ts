@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKS, BlockId, breakDurationMs } from "../../src/engine/blocks";
+import { BLOCKS, BlockId, breakDurationMs, dropsOf } from "../../src/engine/blocks";
 import { BreakTracker, REPEAT_GAP_MS, samePos, type BlockPos, type BreakStep } from "../../src/engine/breaking";
 
 const P: BlockPos = { x: 3, y: 2, z: 5 };
@@ -40,6 +40,9 @@ describe("breakDurationMs", () => {
       [BlockId.FlowerYellow]: 150,
       [BlockId.Snow]: 300,
       [BlockId.Cactus]: 450,
+      [BlockId.Lamp]: 250,
+      [BlockId.Fence]: 400,
+      [BlockId.GlowStone]: 500,
     };
     for (const d of BLOCKS) {
       expect(breakDurationMs(d.id), d.name).toBe(expected[d.id]);
@@ -425,5 +428,17 @@ describe("samePos", () => {
     expect(samePos(P, Q)).toBe(false);
     expect(samePos(Q, R)).toBe(false);
     expect(samePos(P, { x: 3, y: 2, z: 6 })).toBe(false);
+  });
+});
+
+describe("ce que rapporte un bloc cassé (J5)", () => {
+  it("son propre type en général, une lampe pour la pierre brillante, une clôture en plus pour un tronc", () => {
+    expect(dropsOf(BlockId.Stone)).toEqual({ main: BlockId.Stone, extra: null });
+    expect(dropsOf(BlockId.GlowStone)).toEqual({ main: BlockId.Lamp, extra: null });
+    expect(dropsOf(BlockId.Log)).toEqual({ main: BlockId.Log, extra: BlockId.Fence });
+    expect(dropsOf(BlockId.Lamp)).toEqual({ main: BlockId.Lamp, extra: null });
+    expect(dropsOf(BlockId.Air)).toEqual({ main: null, extra: null });
+    expect(dropsOf(BlockId.Water)).toEqual({ main: null, extra: null });
+    expect(dropsOf(200)).toEqual({ main: null, extra: null });
   });
 });

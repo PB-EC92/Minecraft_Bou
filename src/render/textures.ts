@@ -163,6 +163,39 @@ export function drawAtlas(): HTMLCanvasElement {
     }
   }
 
+  // J5 — Lampe : cage de bois sombre, verre jaune lumineux au centre
+  const frame: Rgb = [92, 62, 34];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const edge = x < 2 || y < 2 || x > S - 3 || y > S - 3 || x === 7 || x === 8;
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      px(Tile.Lamp, x, y, edge ? mix(frame, [60, 40, 22], rng() * 0.4) : mix([255, 236, 140], [250, 190, 60], Math.min(1, d / 7) * 0.8 + rng() * 0.1));
+    }
+  }
+
+  // Clôture : planches verticales claires sur fond sombre, deux traverses
+  const fence: Rgb = [196, 150, 96];
+  const fenceDark: Rgb = [120, 84, 48];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const post = x % 5 < 3;
+      const rail = y === 4 || y === 5 || y === 11 || y === 12;
+      px(Tile.Fence, x, y, post || rail ? mix(fence, fenceDark, rng() * 0.35) : mix([70, 52, 34], [50, 36, 24], rng()));
+    }
+  }
+
+  // Pierre brillante : pierre grise semée de cristaux cyan et blancs
+  noiseFill(Tile.GlowStone, stone, stoneDark, 0.5);
+  for (let i = 0; i < 9; i++) {
+    const cx = 2 + Math.floor(rng() * (S - 4));
+    const cy = 2 + Math.floor(rng() * (S - 4));
+    px(Tile.GlowStone, cx, cy, [230, 255, 255]);
+    px(Tile.GlowStone, cx + 1, cy, [110, 230, 245]);
+    px(Tile.GlowStone, cx - 1, cy, [110, 230, 245]);
+    px(Tile.GlowStone, cx, cy + 1, [80, 200, 230]);
+    px(Tile.GlowStone, cx, cy - 1, [160, 245, 255]);
+  }
+
   return canvas;
 }
 

@@ -9,7 +9,9 @@ import {
   pickupText,
   PICKUP_VOICE_STEP,
   quantity,
+  returnedText,
   shouldSpeakPickup,
+  stolenText,
   spokenQuantity,
   withDe,
 } from "../../src/edu/counting";
@@ -84,6 +86,7 @@ describe("messages fixes (texts.ts)", () => {
     expect(names).toEqual(
       [
         "BOTTOM_LAYER",
+        "BUBBLES_FLY",
         "CHOOSE_AVATAR",
         "CHOOSE_SLOT",
         "CHOOSE_WORLD_TYPE",
@@ -94,8 +97,10 @@ describe("messages fixes (texts.ts)", () => {
         "HOLD_TO_BREAK",
         "IMAGE_BACK",
         "IMAGE_LOST",
+        "LAMP_SCARES",
         "MOUSE_FALLBACK",
         "MOUSE_RESUME",
+        "NIGHT_COMING",
         "NO_SPACE",
         "SAVED",
         "VIEW_FIRST",
@@ -531,5 +536,14 @@ describe("typographie", () => {
     expect(pickupText(BlockId.Stone, 3).debutant).toBe(`3 pierres${NBSP}!`);
     expect(maxStackText(BlockId.Stone, 99).autonome).toContain(`pierres${NBSP}:`);
     expect(texts.NO_SPACE.debutant).toBe(`Pas de place${NBSP}!`);
+  });
+});
+
+describe("vol et retour d'un bloc (J5)", () => {
+  it("accorde le pronom au genre du nom", () => {
+    expect(plain(stolenText(BlockId.Stone).autonome)).toContain("qu'elle te la rende");
+    expect(plain(stolenText(BlockId.Log).autonome)).toContain("qu'elle te le rende");
+    expect(plain(stolenText(BlockId.Stone).debutant)).toBe("Une Grignote a pris une pierre !");
+    expect(plain(returnedText(BlockId.Log).debutant)).toBe("Elle te rend un tronc !");
   });
 });

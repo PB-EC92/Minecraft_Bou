@@ -64,7 +64,7 @@ export interface GeneratedWorld {
   type: WorldTypeId;
   seed: number;
   spawn: Spawn;
-  stats: { trees: number; flowers: number; cacti: number };
+  stats: { trees: number; flowers: number; cacti: number; glowStones: number };
 }
 
 /** Graine au hasard, courte pour pouvoir être notée et retapée. */
@@ -79,11 +79,15 @@ export function randomSeed(): number {
  * (le test « empreinte du terrain » le rappelle) et prévoir la lecture des
  * anciennes sauvegardes.
  */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;
+/*
+ * Historique : 1 (J1) ; 2 (J5) : pierres brillantes en surface. Les mondes
+ * enregistrés en version 1 se régénèrent en version 1 (generateWorld(type, graine, 1)).
+ */
 
-export function generateWorld(type: WorldTypeId, seed: number): GeneratedWorld {
+export function generateWorld(type: WorldTypeId, seed: number, version: number = GENERATOR_VERSION): GeneratedWorld {
   if (type === "plat") return generateFlat(seed);
-  return new TerrainGenerator(type, seed).run();
+  return new TerrainGenerator(type, seed, Math.max(1, Math.min(GENERATOR_VERSION, Math.floor(version) || 1))).run();
 }
 
 function generateFlat(seed: number): GeneratedWorld {
@@ -94,7 +98,7 @@ function generateFlat(seed: number): GeneratedWorld {
   const sz = FLAT_SIZE / 2 + 4;
   // Au sol, jamais sur un feuillage ni dans un bloc (constat 3 de l'audit J0).
   const y = w.findStandingY(sx, sz) ?? FLAT_GROUND;
-  return { world: w, type: "plat", seed, spawn: { x: sx + 0.5, y: y + 0.01, z: sz + 0.5 }, stats: { trees: 1, flowers: 0, cacti: 0 } };
+  return { world: w, type: "plat", seed, spawn: { x: sx + 0.5, y: y + 0.01, z: sz + 0.5 }, stats: { trees: 1, flowers: 0, cacti: 0, glowStones: 0 } };
 }
 
 /** Quelques éléments du J0 pour tester saut, collisions et visée : escalier, mur à porte, arbre, sable. */
@@ -142,11 +146,12 @@ class TerrainGenerator {
   private readonly n1: Noise2D;
   private readonly n2: Noise2D;
   private readonly n3: Noise2D;
-  private readonly stats = { trees: 0, flowers: 0, cacti: 0 };
+  private readonly stats = { trees: 0, flowers: 0, cacti: 0, glowStones: 0 };
 
   constructor(
     private readonly type: Exclude<WorldTypeId, "plat">,
     private readonly seed: number,
+    private readonly version: number,
   ) {
     this.world = new World(this.S, WORLD_HEIGHT, this.S);
     this.world.seaLevel = SEA_LEVEL;
@@ -161,6 +166,7 @@ class TerrainGenerator {
     this.computeHeights();
     this.fillColumns();
     this.decorate();
+    if (this.version >= 2) this.placeGlowStones();
     this.world.markAllChanged();
     return { world: this.world, type: this.type, seed: this.seed, spawn: this.findSpawn(), stats: this.stats };
   }
@@ -300,6 +306,32 @@ class TerrainGenerator {
         const id = hash2(x, z, this.seed ^ 0xc01) < 0.5 ? BlockId.FlowerRed : BlockId.FlowerYellow;
         this.world.data[this.world.index(x, H, z)] = id;
         this.stats.flowers++;
+      }
+    }
+  }
+
+  /**
+   * Version 2 (J5) : pierres brillantes à la place du bloc de surface, une au plus
+   * par case de 16 × 16, jamais sous l'eau ni sous un arbre : visibles de loin,
+   * elles donnent une lampe quand on les casse.
+   */
+  private placeGlowStones(): void {
+    const g = 16;
+    const n = Math.ceil(this.S / g);
+    for (let cz = 0; cz < n; cz++) {
+      for (let cx = 0; cx < n; cx++) {
+        if (hash2(cx, cz, this.seed ^ 0x9105) >= 0.45) continue;
+        const x = cx * g + 2 + Math.floor(hash2(cx, cz, this.seed ^ 0x9106) * (g - 4));
+        const z = cz * g + 2 + Math.floor(hash2(cx, cz, this.seed ^ 0x9107) * (g - 4));
+        const H = this.h(x, z);
+        if (H <= SEA_LEVEL) continue;
+        const top = this.surface(x, z);
+        if (top !== BlockId.Grass && top !== BlockId.Sand && top !== BlockId.Stone && top !== BlockId.Snow) continue;
+        const above = this.world.get(x, H, z);
+        if (above !== BlockId.Air && above !== BlockId.FlowerRed && above !== BlockId.FlowerYellow) continue;
+        this.world.data[this.world.index(x, H, z)] = BlockId.Air;
+        this.world.data[this.world.index(x, H - 1, z)] = BlockId.GlowStone;
+        this.stats.glowStones++;
       }
     }
   }

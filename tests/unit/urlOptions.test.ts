@@ -25,6 +25,11 @@ describe("options de l'adresse", () => {
     expect(parseUrlOptions(formatUrlOptions("ile", 5, 128, 96))).toEqual({ type: "ile", seed: 5, distance: 128 });
   });
 
+  it("options du J5 : créatures et mission, seulement à 1", () => {
+    expect(parseUrlOptions("#monde=plat&creatures=1&mission=1")).toEqual({ type: "plat", creatures: true, mission: true });
+    expect(parseUrlOptions("#monde=plat&creatures=0")).toEqual({ type: "plat" });
+  });
+
   it("n'écrit la distance que si elle diffère de la valeur par défaut", () => {
     expect(formatUrlOptions("prairie", 12, 96, 96)).toBe("#monde=prairie&graine=12");
     expect(formatUrlOptions("prairie", 12, 48, 96)).toBe("#monde=prairie&graine=12&distance=48");

@@ -274,6 +274,16 @@ export class HomeScreen {
     night.value = settings.night;
     form.appendChild(night);
 
+    section("Créatures");
+    const creaturesLabel = document.createElement("label");
+    creaturesLabel.className = "check";
+    const creatures = document.createElement("input");
+    creatures.type = "checkbox";
+    creatures.checked = settings.creatures;
+    creatures.setAttribute("aria-label", "Grignotes actives");
+    creaturesLabel.append(creatures, " Grignotes actives (la nuit, elles chipent un bloc ; une lampe les éloigne)");
+    form.appendChild(creaturesLabel);
+
     const status = this.div("parent-status");
 
     if (!first) {
@@ -336,7 +346,7 @@ export class HomeScreen {
         avatar: p.avatar,
       }));
       const r = this.store.saveProfiles(next);
-      const s: Settings = { night: night.value as NightLength };
+      const s: Settings = { night: night.value as NightLength, creatures: creatures.checked };
       this.store.saveSettings(s);
       this.cb.settingsChanged(s);
       this.profiles = next;

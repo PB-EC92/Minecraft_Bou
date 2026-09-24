@@ -204,3 +204,20 @@ export const VIEW_FIRST: ChildText = {
   debutant: `Tu vois par tes yeux.`,
   autonome: `Tu vois de nouveau par tes yeux.`,
 };
+
+/* ---------- Nuit, créatures, compagnon (J5) ---------- */
+
+export const NIGHT_COMING: ChildText = {
+  debutant: `La nuit arrive${NBSP}!`,
+  autonome: `La nuit arrive${NBSP}: les Grignotes vont sortir. Une lampe les éloigne.`,
+};
+
+export const LAMP_SCARES: ChildText = {
+  debutant: `Elles fuient la lampe${NBSP}!`,
+  autonome: `Regarde${NBSP}: les Grignotes ont peur de la lumière de la lampe.`,
+};
+
+export const BUBBLES_FLY: ChildText = {
+  debutant: `Des bulles${NBSP}!`,
+  autonome: `Des bulles${NBSP}! Les Grignotes détestent ça.`,
+};

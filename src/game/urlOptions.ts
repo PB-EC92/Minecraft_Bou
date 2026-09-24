@@ -11,6 +11,10 @@ export interface UrlOptions {
   seed?: number;
   hour?: number;
   distance?: number;
+  /** Mode adresse : Grignotes (J5) seulement si demandées (#creatures=1), pour ne pas perturber les tests. */
+  creatures?: boolean;
+  /** Mode adresse : compagnon et mission seulement si demandés (#mission=1). */
+  mission?: boolean;
 }
 
 export const MAX_SEED = 999_999;
@@ -32,6 +36,8 @@ export function parseUrlOptions(hash: string): UrlOptions {
   if (params.has("heure") && Number.isFinite(hour) && hour >= 0 && hour < 24) out.hour = hour;
   const distance = parseDistance(params.get("distance"));
   if (distance !== undefined) out.distance = distance;
+  if (params.get("creatures") === "1") out.creatures = true;
+  if (params.get("mission") === "1") out.mission = true;
   return out;
 }
 

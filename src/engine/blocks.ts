@@ -19,6 +19,10 @@ export enum BlockId {
   FlowerYellow = 10,
   Snow = 11,
   Cactus = 12,
+  // J5
+  Lamp = 13,
+  Fence = 14,
+  GlowStone = 15,
 }
 
 /**
@@ -42,6 +46,10 @@ export enum Tile {
   Snow = 12,
   CactusSide = 13,
   CactusTop = 14,
+  // J5
+  Lamp = 15,
+  Fence = 16,
+  GlowStone = 17,
 }
 
 /**
@@ -83,6 +91,10 @@ const defs: BlockDef[] = [
   { id: BlockId.FlowerYellow, name: "fleur jaune", solid: false, targetable: true, shape: "cross", tiles: same(Tile.FlowerYellow), breakMs: 150 },
   { id: BlockId.Snow, name: "neige", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Snow), breakMs: 300 },
   { id: BlockId.Cactus, name: "cactus", solid: true, targetable: true, shape: "cube", tiles: { top: Tile.CactusTop, side: Tile.CactusSide, bottom: Tile.CactusTop }, breakMs: 450 },
+  // J5 : la lampe éloigne les créatures ; elles ne franchissent pas la clôture ; la pierre brillante donne une lampe.
+  { id: BlockId.Lamp, name: "lampe", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Lamp), breakMs: 250 },
+  { id: BlockId.Fence, name: "clôture", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Fence), breakMs: 400 },
+  { id: BlockId.GlowStone, name: "pierre brillante", solid: true, targetable: true, shape: "cube", tiles: same(Tile.GlowStone), breakMs: 500 },
 ];
 
 export const BLOCKS: readonly BlockDef[] = defs;
@@ -122,12 +134,24 @@ export function isTargetableId(id: number): boolean {
   return TARGETABLE[id] === 1;
 }
 
+/**
+ * Ce que rapporte un bloc cassé (J5) : son propre type en général ; la pierre
+ * brillante donne une lampe ; un tronc donne aussi une clôture (en plus, sans
+ * message). Air et identifiants inconnus : rien.
+ */
+export function dropsOf(id: number): { main: BlockId | null; extra: BlockId | null } {
+  if (!defs[id] || id === BlockId.Air || id === BlockId.Water) return { main: null, extra: null };
+  if (id === BlockId.GlowStone) return { main: BlockId.Lamp, extra: null };
+  if (id === BlockId.Log) return { main: BlockId.Log, extra: BlockId.Fence };
+  return { main: id as BlockId, extra: null };
+}
+
 /** Plante (fleur) : remplacée quand on pose un bloc dessus, cueillie si son support disparaît. */
 export function isPlantId(id: number): boolean {
   return blockDef(id).shape === "cross";
 }
 
-/** Kit de test (bouton « Compléter le sac » du panneau) : au J2, la barre montre le sac, plus cette liste. */
+/** Kit de test (bouton « Compléter le sac » du panneau) : 9 cases ; au J5, lampe et clôture remplacent neige et cactus. */
 export const HOTBAR_BLOCKS: readonly BlockId[] = [
   BlockId.Grass,
   BlockId.Dirt,
@@ -136,6 +160,6 @@ export const HOTBAR_BLOCKS: readonly BlockId[] = [
   BlockId.Sand,
   BlockId.Log,
   BlockId.Leaves,
-  BlockId.Snow,
-  BlockId.Cactus,
+  BlockId.Lamp,
+  BlockId.Fence,
 ];

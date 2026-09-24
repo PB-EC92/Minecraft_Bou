@@ -41,9 +41,11 @@ export const NIGHT_LENGTHS: readonly { id: NightLength; name: string }[] = [
 
 export interface Settings {
   night: NightLength;
+  /** Grignotes actives (J5). */
+  creatures: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { night: "normale" };
+export const DEFAULT_SETTINGS: Settings = { night: "normale", creatures: true };
 
 export interface WorldSave {
   version: number;
@@ -59,6 +61,8 @@ export interface WorldSave {
   phase: number;
   /** Date de la sauvegarde (ms depuis 1970). */
   savedAt: number;
+  /** Progression de la mission (J5), relue et vérifiée par MissionRunner ; absente avant le J5. */
+  mission?: unknown;
 }
 
 export interface ExportFile {
@@ -114,7 +118,8 @@ export function parseProfiles(raw: unknown, avatarCount: number): Profile[] | nu
 export function parseSettings(raw: unknown): Settings {
   if (!isObj(raw)) return { ...DEFAULT_SETTINGS };
   const night = NIGHT_LENGTHS.some((n) => n.id === raw.night) ? (raw.night as NightLength) : DEFAULT_SETTINGS.night;
-  return { night };
+  const creatures = typeof raw.creatures === "boolean" ? raw.creatures : DEFAULT_SETTINGS.creatures;
+  return { night, creatures };
 }
 
 /** Monde lu, ou null si la donnée est inutilisable. */
@@ -140,6 +145,7 @@ export function parseWorldSave(raw: unknown): WorldSave | null {
     },
     phase: num(raw.phase) ? ((raw.phase % 1) + 1) % 1 : 0,
     savedAt: num(raw.savedAt) ? raw.savedAt : 0,
+    ...(isObj(raw.mission) ? { mission: raw.mission } : {}),
   };
 }
 

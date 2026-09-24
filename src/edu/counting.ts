@@ -34,6 +34,9 @@ const NOUNS: ReadonlyMap<BlockId, CountNoun> = new Map<BlockId, CountNoun>([
   [BlockId.FlowerYellow, { one: "fleur jaune", many: "fleurs jaunes", feminine: true }],
   [BlockId.Snow, { one: "bloc de neige", many: "blocs de neige", feminine: false }],
   [BlockId.Cactus, { one: "cactus", many: "cactus", feminine: false }],
+  [BlockId.Lamp, { one: "lampe", many: "lampes", feminine: true }],
+  [BlockId.Fence, { one: "clôture", many: "clôtures", feminine: true }],
+  [BlockId.GlowStone, { one: "pierre brillante", many: "pierres brillantes", feminine: true }],
 ]);
 
 const GENERIC: CountNoun = { one: "bloc", many: "blocs", feminine: false };
@@ -195,5 +198,22 @@ export function maxStackText(id: BlockId, max: number): ChildText {
   return {
     debutant: `${String(max)}, c'est le maximum${NBSP}!`,
     autonome: `Tu as déjà ${quantity(id, max)}${NBSP}: c'est le maximum.`,
+  };
+}
+
+/** Une Grignote a chipé un bloc (J5). « te la rende » / « te le rende » selon le genre du nom. */
+export function stolenText(id: BlockId): ChildText {
+  const noun = countNoun(id);
+  return {
+    debutant: `Une Grignote a pris ${quantity(id, 1)}${NBSP}!`,
+    autonome: `Une Grignote a chipé ${quantity(id, 1)}${NBSP}! Lance-lui des bulles pour qu'elle te ${noun.feminine ? "la" : "le"} rende.`,
+  };
+}
+
+/** Une Grignote touchée par une bulle rend le bloc chipé (J5). */
+export function returnedText(id: BlockId): ChildText {
+  return {
+    debutant: `Elle te rend ${quantity(id, 1)}${NBSP}!`,
+    autonome: `La Grignote te rend ${quantity(id, 1)}. Bravo${NBSP}!`,
   };
 }

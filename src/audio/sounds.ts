@@ -30,13 +30,13 @@
 import { BlockId } from "../engine/blocks";
 
 /** Noms des sons joués par le jeu. */
-export type SoundName = "breakTick" | "break" | "place" | "pickup" | "deny" | "select";
+export type SoundName = "breakTick" | "break" | "place" | "pickup" | "deny" | "select" | "giggle" | "bubbles" | "night";
 
 /** Famille de matière d'un bloc : change la couleur des sons de casse. */
 export type Material = "soft" | "stone" | "wood" | "plant" | "sand";
 
 /** Tous les noms de sons (panneau de tests, boucles de vérification). */
-export const SOUND_NAMES: readonly SoundName[] = ["breakTick", "break", "place", "pickup", "deny", "select"];
+export const SOUND_NAMES: readonly SoundName[] = ["breakTick", "break", "place", "pickup", "deny", "select", "giggle", "bubbles", "night"];
 
 /** Toutes les matières. */
 export const MATERIALS: readonly Material[] = ["soft", "stone", "wood", "plant", "sand"];
@@ -62,10 +62,13 @@ export function materialOf(id: BlockId): Material {
     case BlockId.Dirt:
       return "soft";
     case BlockId.Stone:
+    case BlockId.GlowStone:
       return "stone";
     case BlockId.Planks:
     case BlockId.Log:
     case BlockId.Cactus:
+    case BlockId.Lamp:
+    case BlockId.Fence:
       return "wood";
     case BlockId.Leaves:
     case BlockId.FlowerRed:
@@ -188,6 +191,27 @@ export function recipe(name: SoundName, material: Material = "soft"): Layer[] {
     case "select":
       // Clic très bref.
       return [{ kind: "tone", wave: "triangle", freq: 1200, freqEnd: 900, delay: 0, attack: 0.002, duration: 0.03, gain: 0.17 }];
+    case "giggle":
+      // J5 — rire de Grignote : trois petites notes aiguës qui sautillent (vol d'un bloc, fuite).
+      return [
+        { kind: "tone", wave: "sine", freq: 880, freqEnd: 1040, delay: 0, attack: 0.005, duration: 0.07, gain: 0.08 },
+        { kind: "tone", wave: "sine", freq: 990, freqEnd: 1170, delay: 0.09, attack: 0.005, duration: 0.07, gain: 0.08 },
+        { kind: "tone", wave: "sine", freq: 1110, freqEnd: 1320, delay: 0.18, attack: 0.005, duration: 0.09, gain: 0.08 },
+      ];
+    case "bubbles":
+      // J5 — lance-bulles : petits « bloup » montants.
+      return [
+        { kind: "tone", wave: "sine", freq: 300, freqEnd: 700, delay: 0, attack: 0.01, duration: 0.1, gain: 0.12 },
+        { kind: "tone", wave: "sine", freq: 380, freqEnd: 820, delay: 0.1, attack: 0.01, duration: 0.1, gain: 0.1 },
+        { kind: "tone", wave: "sine", freq: 460, freqEnd: 940, delay: 0.2, attack: 0.01, duration: 0.12, gain: 0.08 },
+      ];
+    case "night":
+      // J5 — la nuit arrive : trois notes douces descendantes, comme un carillon.
+      return [
+        { kind: "tone", wave: "sine", freq: 784, delay: 0, attack: 0.01, duration: 0.14, gain: 0.1 },
+        { kind: "tone", wave: "sine", freq: 659, delay: 0.12, attack: 0.01, duration: 0.14, gain: 0.1 },
+        { kind: "tone", wave: "sine", freq: 523, delay: 0.24, attack: 0.01, duration: 0.16, gain: 0.1 },
+      ];
     default:
       return [];
   }

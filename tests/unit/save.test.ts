@@ -100,11 +100,29 @@ describe("empreinte du terrain (sauvegardes)", () => {
     // Si ce test échoue après une modification du générateur : les mondes sauvegardés ne se
     // régénèrent plus à l'identique. Incrémenter GENERATOR_VERSION, garder l'ancien générateur
     // pour les anciennes sauvegardes (ou les convertir), puis mettre à jour les empreintes.
-    expect(GENERATOR_VERSION).toBe(1);
-    const prints = Object.fromEntries(
-      (["prairie", "ile", "montagne", "desert"] as const).map((t) => [t, fnv(generateWorld(t, 1234).world.data)]),
-    );
-    expect(prints).toEqual({ prairie: 4017609397, ile: 1218948170, montagne: 34442716, desert: 3537223237 });
+    expect(GENERATOR_VERSION).toBe(2);
+    const prints = (v: number) =>
+      Object.fromEntries((["prairie", "ile", "montagne", "desert"] as const).map((t) => [t, fnv(generateWorld(t, 1234, v).world.data)]));
+    // Version 1 (J1 à J4) : doit rester identique pour toujours (mondes enregistrés).
+    expect(prints(1)).toEqual({ prairie: 4017609397, ile: 1218948170, montagne: 34442716, desert: 3537223237 });
+    expect(prints(2)).toEqual(prints(GENERATOR_VERSION));
+    expect(prints(2)).toEqual({ prairie: 1543607028, ile: 2014596441, montagne: 3244624905, desert: 2224779137 });
+  });
+
+  it("version 2 : des pierres brillantes en surface ; version 1 : aucune", () => {
+    for (const t of ["prairie", "ile", "montagne", "desert"] as const) {
+      const g2 = generateWorld(t, 77, 2);
+      const g1 = generateWorld(t, 77, 1);
+      expect(g2.stats.glowStones, t).toBeGreaterThanOrEqual(5);
+      expect(g1.stats.glowStones, t).toBe(0);
+      expect(g1.world.data.includes(15)).toBe(false);
+      // Une pierre brillante a toujours de l'air au-dessus (visible, atteignable).
+      const w = g2.world;
+      for (let i = 0; i < w.data.length; i++) {
+        if (w.data[i] !== 15) continue;
+        expect(w.data[i + w.sizeX * w.sizeZ] ?? 0).toBe(0);
+      }
+    }
   });
 });
 
@@ -131,9 +149,9 @@ describe("profils, réglages, mondes enregistrés", () => {
   });
 
   it("réglages : nuit normale par défaut", () => {
-    expect(parseSettings(null)).toEqual({ night: "normale" });
-    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte" });
-    expect(parseSettings({ night: "jamais" })).toEqual({ night: "normale" });
+    expect(parseSettings(null)).toEqual({ night: "normale", creatures: true });
+    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte", creatures: true });
+    expect(parseSettings({ night: "jamais", creatures: false })).toEqual({ night: "normale", creatures: false });
   });
 
   const world = {

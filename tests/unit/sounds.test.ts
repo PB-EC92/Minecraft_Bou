@@ -285,6 +285,9 @@ describe("materialOf", () => {
     [BlockId.FlowerYellow]: "plant",
     [BlockId.Snow]: "sand",
     [BlockId.Cactus]: "wood",
+    [BlockId.Lamp]: "wood",
+    [BlockId.Fence]: "wood",
+    [BlockId.GlowStone]: "stone",
   };
 
   it("couvre tous les blocs du registre avec la bonne matière", () => {
@@ -308,8 +311,8 @@ describe("recettes de sons", () => {
     for (const material of [...MATERIALS, undefined]) combos.push({ name, material });
   }
 
-  it("liste les six sons et les cinq matières", () => {
-    expect([...SOUND_NAMES].sort()).toEqual(["break", "breakTick", "deny", "pickup", "place", "select"]);
+  it("liste les neuf sons et les cinq matières", () => {
+    expect([...SOUND_NAMES].sort()).toEqual(["break", "breakTick", "bubbles", "deny", "giggle", "night", "pickup", "place", "select"]);
     expect([...MATERIALS].sort()).toEqual(["plant", "sand", "soft", "stone", "wood"]);
   });
 
