@@ -109,3 +109,10 @@ J0.1, une session courte, avant tes tests : constats 1 à 4 et 6-7, test de fum�
 | 13 | Corrigé | Facteurs d'ombrage convertis en couleur linéaire ; occlusion ambiante par sommet | Test unitaire (valeurs converties) ; captures d'écran |
 | 14 | Corrigé | Retrait des UV ramené à 1/50 de texel ; atlas en grille 8 × 4 | Test unitaire |
 | 15 | Corrigé | Bloc feuilles dédié (arbres générés et arbre du monde plat) | Test unitaire, captures |
+
+## Suivi des corrections (J2, 24 septembre 2026)
+
+| # | État | Ce qui a été fait | Vérification |
+|---|---|---|---|
+| 8 | Complété | « Pas de place » passe par le narrateur (deux variantes, son de refus doux) ; d'autres refus sont annoncés de la même façon : case vide, sac plein, maximum 99, fleur sans sol, couche du bas, bord du monde | Tests de fumée « case vide », « sac plein » ; test unitaire des textes |
+| 12 | Corrigé | Casser demande un appui maintenu (souris capturée, mode repli, doigt), avec un anneau de progression autour du viseur ; un appui bref ne casse rien et affiche « Appuie longtemps ! » ; pour un geste ambigu (doigt à droite, souris non capturée), la casse ne démarre qu'après 150 ms d'immobilité | Tests unitaires (`breaking`, `breakPress`) ; tests de fumée souris capturée, clic bref, mode repli, doigt |
