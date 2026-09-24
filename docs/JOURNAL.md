@@ -136,8 +136,22 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 
 **Constats J1 (tablette).** Tout ce qui a été testé passe : apparition au sol dans la prairie, les quatre types de monde, marches, eau et sortie sur la berge, nuit et temps accéléré, casser / poser / cueillir, retour après 30 s dans une autre appli, stockage local. 60 images/s (moy. 16,7 ms, pire 17 ms) à l'arrêt comme en marchant, à 48 et 96 blocs ; calcul par image 1,3 ms (distance par défaut), 2,2 ms à 48 blocs, 2,3 ms à 96 (l'écart entre 1,3 et 2,2 n'est pas expliqué ; mesures faites à des moments différents, probablement). Temps d'ouverture non noté.
 
-**Constats J2 (capture).** Même tablette probablement, à 128 blocs sur une île : calcul moyen 2,8 ms, pire 8,0 ms, soit une large marge sous les 16,7 ms d'une image à 60 i/s, sur une puce graphique d'entrée de gamme (Intel HD Graphics 400). Écran portrait 1080 × 1802, interface tactile affichée, voix Microsoft Hortense locale, sons actifs, sac utilisé (18 blocs). La ligne d'images par seconde n'était pas visible sur la capture.
+**Constats J2 (capture).** Même appareil, à 128 blocs sur une île : calcul moyen 2,8 ms, pire 8,0 ms, soit une large marge sous les 16,7 ms d'une image à 60 i/s. (Correction : « Intel HD Graphics 400, or similar » n'est pas la vraie puce ; Firefox, depuis sa version 91, remplace le nom exact par une famille approchante.) Écran portrait 1080 × 1802, interface tactile affichée, voix Microsoft Hortense locale, sons actifs, sac utilisé (18 blocs). La ligne d'images par seconde n'était pas visible sur la capture.
 
 **Point à éclaircir.** Le diagnostic décrit une tablette **Windows 10 avec Firefox**, alors que la colonne s'intitule « Tablette Android ». Si la tablette des enfants est bien celle-ci, la décision « distance de rendu tablette » peut être prise : 128 blocs tient largement (au lieu de 48 par défaut). Si une tablette Android existe aussi, elle reste à tester. « Captures 4 » sur un appareil tactile : clavier ou pavé tactile branché, ou bouton « Capturer la souris » ? À confirmer (un toucher ne devrait pas déclencher la capture).
 
 **Attendu de Pierre.** Confirmer l'appareil ; remplir le protocole J2 ; séance enfants « Construis une cabane » ; avis sur les huit choix du J2.
+
+**Précisions de Pierre (même jour).** La « tablette » est un **ordinateur convertible Windows 10, Acer Nitro 5 Spin NP515-51**, utilisé replié en mode tablette, avec **Firefox** (J1 et J2). Caractéristiques du modèle d'après les fiches revendeur (non vérifiées sur l'appareil) : Core i5-8250U ou i7-8550U, Intel UHD 620 intégrée + NVIDIA GTX 1050 4 Go, écran tactile 15,6" Full HD, charnière à 360°. **Il n'y a pas de tablette Android** : le convertible la remplace dans le projet (brief, plan, README et protocoles à mettre à jour). Les performances ne sont plus un risque sur cet appareil.
+
+## 2026-09-24 — Retours J2 (PC et convertible) et première séance des enfants
+
+**Reçu de Pierre.** Protocole J2 rempli (colonnes « PC (Chrome) » et « Tablette », c'est-à-dire le convertible sous Firefox), reporté dans `RETOURS.md` (le fichier envoyé datait d'avant les réponses J1 : fusion faite à la main).
+
+**Constats.** Passent sur les deux appareils : clic bref sans casse et « Appuie longtemps ! », anneau puis casse, compteurs dans la barre, compte affiché et lu sans bégayer, poser et case vidée, « Ta case est vide », un seul bloc sous les pieds par appui, sons, lignes du diagnostic. Molette et touches 1 à 9 : oui sur PC. Doigt maintenu, glisser pour regarder, viser puis tenir : oui, **mais « parfois on se déplace alors qu'on veut casser un bloc »** sur le convertible. Hypothèse non vérifiée : tout toucher dans la moitié gauche de l'écran commande le déplacement ; un enfant qui touche le bloc là où il le voit (et non la croix du milieu) avance au lieu de casser, d'autant plus en portrait.
+
+**Non testé.** Fleur, escalade hors d'un trou, choix d'une case au doigt, lecture « autonome ».
+
+**Séance enfants.** « Ils arrivent à prendre en main, déconstruisent plus que construisent pour l'instant, intéressés. » Pas encore de détails sur l'appui maintenu, la voix, la durée de jeu.
+
+**Suite.** Audit de compatibilité « convertible Windows + Firefox » en cours ; mise à jour des documents (Android → convertible) ensuite ; le déplacement involontaire au doigt entre au J3.

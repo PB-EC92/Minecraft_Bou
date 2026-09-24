@@ -8,26 +8,27 @@ Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 »
 
 | Vérification | PC (Chrome) | Tablette Android |
 |---|---|---|
-| Un clic bref (ou un tapotement) sur un bloc ne le casse pas ; le message « Appuie longtemps ! » s'affiche | | |
-| Garder l'appui : un anneau jaune se remplit autour du viseur, puis le bloc se casse (noter si la durée paraît trop longue ou trop courte) | | |
-| Le bloc cassé apparaît dans la barre du bas avec son nombre ; le nombre augmente à chaque bloc du même type | | |
-| Le compte s'affiche (« 3 pierres ! ») et est lu à voix haute, sans bégayer quand on casse vite | | |
-| Poser (clic droit / mode Poser + tapoter) retire un bloc du compte ; à zéro, la case se vide et le jeu le dit | | |
-| Poser avec une case vide : message « Ta case est vide. » | | |
+| Un clic bref (ou un tapotement) sur un bloc ne le casse pas ; le message « Appuie longtemps ! » s'affiche |Oui |Oui |
+| Garder l'appui : un anneau jaune se remplit autour du viseur, puis le bloc se casse (noter si la durée paraît trop longue ou trop courte) |Oui |Oui |
+| Le bloc cassé apparaît dans la barre du bas avec son nombre ; le nombre augmente à chaque bloc du même type |Oui |Oui |
+| Le compte s'affiche (« 3 pierres ! ») et est lu à voix haute, sans bégayer quand on casse vite |Oui |Oui |
+| Poser (clic droit / mode Poser + tapoter) retire un bloc du compte ; à zéro, la case se vide et le jeu le dit |Oui | Oui|
+| Poser avec une case vide : message « Ta case est vide. » |Oui | Oui|
 | Cueillir une fleur : un appui court suffit (plus court que pour un bloc), un clic bref ou un tapotement ne la cueille pas ; un bloc sous une fleur emporte la fleur dans le sac | | |
-| En gardant l'appui vers le sol : un seul bloc est creusé plus bas que les pieds ; relâcher puis rappuyer en creuse un autre | | |
+| En gardant l'appui vers le sol : un seul bloc est creusé plus bas que les pieds ; relâcher puis rappuyer en creuse un autre | Oui|Oui |
 | Dans un trou de deux ou trois blocs : garder Espace (Sauter) en avançant contre la paroi fait grimper et sortir | | |
-| Touches 1 à 9, molette (PC), toucher une case (tablette) : la case choisie change, son nom s'affiche au-dessus | | |
-| Sons : casse (petits « tic » puis un bruit), pose (« toc »), ramassage (« pop »), refus (deux notes douces). Volume correct ? Rien d'agaçant ? | | |
+| Touches 1 à 9, molette (PC), toucher une case (tablette) : la case choisie change, son nom s'affiche au-dessus |Oui | |
+| Sons : casse (petits « tic » puis un bruit), pose (« toc »), ramassage (« pop »), refus (deux notes douces). Volume correct ? Rien d'agaçant ? |Oui | Oui|
 | Panneau → Jeu → Lecture « autonome » : phrases complètes (« Tu as ramassé… »), voix coupée ; la case « Lire les messages » la rallume | | |
-| Diagnostic : lignes « Sons : actif » (après un premier clic), « Lecture », « Sac » | | |
-| Tablette : garder le doigt immobile casse le bloc sous la croix du milieu ; glisser le doigt regarde sans casser ; viser en glissant puis s'arrêter sans lever le doigt casse aussi | — | |
+| Diagnostic : lignes « Sons : actif » (après un premier clic), « Lecture », « Sac » | Oui|Oui |
+| Tablette : garder le doigt immobile casse le bloc sous la croix du milieu ; glisser le doigt regarde sans casser ; viser en glissant puis s'arrêter sans lever le doigt casse aussi | — |Oui, mais parfois on se déplace alors qu'on veut casser un bloc |
 
 ### Séance enfants J2 (première séance, consigne libre)
 
 Consigne donnée à l'oral : « Construis une cabane. » Pas d'aide au départ ; noter ce qui bloque avant d'aider. Suggestion : monde prairie, sac vide (ils doivent casser pour ramasser) ; au bout de 10 minutes, si ça coince, « Compléter le sac ».
 
 À observer : comprennent-ils seuls qu'il faut rester appuyé ? La durée de casse les agace-t-elle ? Regardent-ils le nombre dans les cases, le lisent-ils, le répètent-ils ? La voix les aide-t-elle, les gêne-t-elle (6 ans / 8 ans) ? Que construisent-ils ? Combien de temps jouent-ils avant de décrocher ?
+Ils arrivent à prendre en main, deconstruisent plus que construisent pour l'instant, intéressés
 
 ## Séance du 24/09/2026 — J2 (diagnostic seul, protocole J2 non encore rempli)
 
