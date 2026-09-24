@@ -4,6 +4,40 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole J5 (Pixel, mission, Grignotes, lampe, clôture, bulles)
+
+Sur le convertible replié, Firefox ; ligne d'infos terminée par « J5 ». Créer un **nouveau monde** (les mondes du J4 n'ont pas de pierres brillantes).
+
+| Vérification | Convertible |
+|---|---|
+| Pixel (renard) apparaît devant, un peu à gauche, et suit quand on marche ; il dit « Je suis Pixel… » puis la consigne | |
+| Le bandeau en haut montre la consigne et « 0 / 6 » ; le bouton haut-parleur la relit | |
+| Casser un tronc : « Un tronc ! » et une clôture arrive aussi dans le sac | |
+| Trouver une pierre brillante (cristaux bleus au sol) ; la casser donne une lampe | |
+| La mission avance : troncs → pierres → cabane (10 blocs posés) → lampe trouvée → lampe posée → « Bravo ! » | |
+| Panneau Tests → Soir, Temps ×20 : carillon et « La nuit arrive ! » ; des Grignotes (boules colorées aux grands yeux) approchent | |
+| Une Grignote qui touche l'enfant chipe un bloc (message), puis s'enfuit en riant ; pas plus d'un vol toutes les 25 s | |
+| Bouton Bulles vers la voleuse : elle fuit et rend le bloc | |
+| Lampe posée : halo jaune la nuit ; les Grignotes restent à distance | |
+| Enclos de clôtures : les Grignotes n'entrent pas | |
+| Mode parent → décocher « Grignotes actives » : plus aucune | |
+| Quitter (maison) au milieu de la mission puis reprendre : Pixel rappelle l'étape en cours | |
+
+### Séance enfants J5
+
+Comprennent-ils seuls la consigne de Pixel (6 ans : à l'oreille ; 8 ans : en lisant) ? Les Grignotes les amusent-elles ou les agacent-elles (vol d'un bloc) ? Pensent-ils aux bulles, à la lampe, à la clôture ? Trouvent-ils les pierres brillantes ?
+
+## Séance du … — J5
+
+Appareil : convertible, Firefox
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Idées des enfants :
+
 ## Protocole J4 (accueil, profils, sauvegarde, mode parent, troisième personne)
 
 Sur le convertible replié, Firefox. Vérifier que la ligne d'infos (en jeu) se termine par « J4 ». Ouvrir `cubes.html` **sans rien après le nom dans l'adresse**.

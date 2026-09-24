@@ -136,6 +136,8 @@ Appareil cible : le convertible Windows (Acer Nitro 5 Spin NP515-51) replié en 
 
 Compagnon qui suit le joueur, bulle de dialogue, lecture vocale, bouton « répète ». Moteur de missions déclaratif avec variantes par profil. Créatures rigolotes et leurs comportements ; bloc lampe et bloc clôture fonctionnels ; lance-bulles (outil rigolo, jamais une arme : les bulles font fuir les créatures) ; signal d'arrivée de la nuit (son, ciel).
 
+État : livré le 24/09/2026 (voir `JOURNAL.md`). Choix de Pierre : compagnon renard « Pixel » ; créatures « Grignotes » qui chipent un bloc au contact ; lampe et clôture trouvées dans la nature (pierre brillante → lampe, tronc → clôture en plus). Mission 1 en première version (sans tutoriel ni abri vérifié) ; la finir est l'objet du J6.
+
 ### J6 — Tutoriel, mission 1, finitions
 
 Mission 0 (tutoriel, trois étapes : se déplacer, casser, poser) puis mission 1 « Construis un abri avant la nuit » telle que décrite dans le brief, écran de félicitations, récompense visuelle. Textes en deux variantes. Test complet avec les deux enfants, corrections.

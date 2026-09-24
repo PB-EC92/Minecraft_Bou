@@ -28,21 +28,24 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur dé
 src/engine/   World (tableau plat + versions par section de 16³, bords = murs), blocks (propriétés, durée de casse,
               tables rapides), terrain (types de monde, graine, apparition), noise (bruit à graine), dayNight (cycle),
               raycast (DDA), physics (AABB), random, inventory (sac de 9 cases, une par type, 99 max, format de
-              sauvegarde), breaking (casse par appui maintenu : progression, verrou, écart de répétition)
+              sauvegarde), breaking (casse par appui maintenu : progression, verrou, écart de répétition),
+              creatures (Grignotes : jour, nuit, vol, lampe, clôture, bulles)
 src/render/   SceneView (Three.js, brouillard, mer au-delà des bords, perte de contexte), ChunkRenderer (sections,
               file par distance, budget par image, distance de rendu), mesher (pur : faces visibles, occlusion
               ambiante, eau, fleurs en croix), atlas (disposition pure), textures (dessin), Sky (soleil, lune, étoiles),
-              fov (champ de vision élargi en portrait, pur), Avatar (personnage en blocs)
+              fov (champ de vision élargi en portrait, pur), Avatar (personnage en blocs), boxModel, Fox (Pixel),
+              Critters (Grignotes), Bubbles, LampGlow (halo des lampes la nuit)
 src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/appui), mouseFilter (fonctions pures), TouchControls
               (joystick fixe, reprise par un nouveau doigt, bouton plein écran), touchZones (zone du joystick, pur),
               breakPress (appui « casser » commun souris/tactile, pur)
 src/audio/    sounds (sons synthétisés Web Audio, recettes pures, contexte créé au premier geste)
 src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`, session, sauvegarde auto, vue 3e personne), Player (marches,
               eau, escalade de secours), urlOptions (#monde=…), avatars (dessins, pur), thirdPerson (caméra, pur),
+              companion (déplacement de Pixel, pur),
               renderDistance (distance au démarrage : adresse, puis `cubes:distance`, puis 96)
 src/edu/      Speech (synthèse vocale, voix locales préférées), texts (messages en deux variantes, niveaux de lecture),
               counting (noms comptables, nombres en lettres accordés, phrases de ramassage), Narrator (affiche la
-              variante du niveau, lit à voix haute, anti-répétition) ; à venir : profils, missions, compagnon
+              variante du niveau, lit à voix haute, anti-répétition), missions (moteur déclaratif, mission 1)
 src/ui/       Hud (DOM natif, pas de framework), HomeScreen (accueil, profils, trois mondes, mode parent), avatarIcon,
               nearestSlot (case la plus proche d'un toucher, pur), fatal (écran d'erreur lisible)
 src/save/     worldDiff (écart avec le monde régénéré depuis la graine, base64, pur), saveFormat (formats, lecture robuste,
@@ -62,7 +65,7 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Aucun échec bloquant, y compris physique : toute nouvelle façon de se coincer (trou, piège de blocs) doit garder une sortie à la portée d'un enfant de 6 ans (aujourd'hui : l'escalade de secours, `Player`).
 - Tests de fumée : Playwright n'a ici que Chromium ; tout comportement propre à Firefox (appareil des enfants) se vérifie à la main par Pierre, à noter dans le protocole de `RETOURS.md`. Profils : `pc`, `tablette` (le convertible en portrait, 1080 × 1802) et `tablette-paysage` (1920 × 1080, seulement les cas dont le titre contient `@tactile`). L'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 - Sauvegardes (J4) : un monde = type + graine + écart ; toute modification du générateur qui change le terrain d'une graine doit incrémenter `GENERATOR_VERSION` (`terrain.ts`) et garder la lecture des anciens mondes (test « empreinte du terrain »).
-- Tests de fumée : sans rien dans l'adresse, l'accueil s'affiche (voir les cas J4) ; `#monde=…&graine=…` le saute et n'enregistre rien. Ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons compris), oriente le regard, téléporte, remplit ou vide le sac, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
+- Tests de fumée : sans rien dans l'adresse, l'accueil s'affiche (voir les cas J4) ; `#monde=…&graine=…` le saute et n'enregistre rien. En mode adresse, Grignotes et compagnon/mission sont coupés sauf `&creatures=1` / `&mission=1` (ils perturberaient les autres scénarios). Ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons compris), oriente le regard, téléporte, remplit ou vide le sac, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
 - Casser demande un appui maintenu (J2) : dans un test, `mouse.down`, attendre que le bloc soit devenu de l'air, puis `mouse.up` ; un `click` ne casse rien.
 - Sons et voix : le navigateur les bloque tant qu'il n'y a pas eu de geste (clic, touche, toucher) ; ne jamais lire ni jouer au démarrage.
 - Rendu : pas de lumière Three.js. Les couleurs de sommets sont en linéaire (convertir depuis la luminosité perçue, voir `mesher.ts`) ; le jour/nuit passe par la couleur des matériaux (`SceneView.setSky`).

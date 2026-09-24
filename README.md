@@ -1,10 +1,10 @@
 # Cubes (nom provisoire)
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J4** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases, on pose ce qu'on a ramassé ; sons et compte lu à voix haute ; commandes tactiles pour le convertible replié ; **écran d'accueil avec deux profils, trois mondes enregistrés par enfant, mode parent, personnage visible à la troisième personne** (voir `docs/PLAN.md` et `docs/JOURNAL.md`).
+Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J5** : monde généré (quatre types), jour et nuit, eau ; casse par appui maintenu, sac de 9 cases, compte lu à voix haute ; commandes tactiles pour le convertible replié ; accueil avec deux profils, trois mondes enregistrés par enfant, mode parent, personnage visible à la troisième personne ; **compagnon Pixel qui lit la mission, Grignotes la nuit, lampe, clôture et lance-bulles** (voir `docs/PLAN.md` et `docs/JOURNAL.md`).
 
 ## Jouer
 
-Ouvrir `dist/cubes.html` par double-clic (Chrome, Edge ou Firefox). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J4 ») : si ce n'est pas le cas, c'est une ancienne copie.
+Ouvrir `dist/cubes.html` par double-clic (Chrome, Edge ou Firefox). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J5 ») : si ce n'est pas le cas, c'est une ancienne copie.
 
 Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche maintenu** pour casser (un anneau se remplit autour du viseur ; une fleur se cueille avec un appui plus court, mais un clic bref ne suffit pas), **clic droit** pour poser le bloc de la case choisie, **1 à 9** ou la **molette** pour choisir une case, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Tombé dans un trou ? Garder **Espace** en avançant contre la paroi : au bout d'un instant, on grimpe (un mur de deux blocs arrête toujours si l'on marche sans sauter). En gardant le clic, on casse les blocs à la suite, mais un seul plus bas que ses pieds par appui. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, bouton gauche maintenu sans bouger pour casser (on peut aussi viser en glissant puis s'arrêter sans lâcher), clic droit sans bouger pour poser.
 
@@ -15,6 +15,12 @@ Sur tablette (le convertible replié, en portrait ou en paysage) : le **rond** e
 Au premier lancement, l'adulte tape les deux prénoms et choisit le niveau de lecture de chacun (débutant : messages courts lus à voix haute ; autonome : phrases complètes). Ensuite, à chaque ouverture : « Qui joue ? » → l'enfant touche son prénom → la première fois, il choisit son personnage → il choisit un de ses **trois mondes** (ou « + Nouveau », puis prairie, île, montagne ou désert). Le jeu enregistre tout seul toutes les 30 secondes, quand on passe à une autre appli et quand on revient à l'accueil (bouton **maison** en haut à droite). Le bouton **œil** (ou la touche **V**) montre le personnage : vue à la troisième personne, la caméra ne traverse pas les murs ; un second appui revient à la vue par les yeux.
 
 **Mode parent** : sur l'écran « Qui joue ? », garder le doigt (ou le clic) **3 secondes** sur l'engrenage en bas à gauche. On y change les prénoms, niveaux et voix, la durée de la nuit (normale, courte, pas de nuit), on efface un monde, on **exporte** tout dans un fichier (`cubes-sauvegarde-AAAA-MM-JJ.json`, dans les téléchargements) et on l'**importe** (sur ce convertible ou un autre appareil). Exporter avant chaque nouvelle version du jeu. Ouvrir le jeu avec `#monde=…&graine=…` dans l'adresse saute l'accueil et n'enregistre rien (tests).
+
+### Pixel, les Grignotes et la nuit (J5)
+
+**Pixel**, le renard, trottine devant l'enfant et lit la mission en cours dans le bandeau en haut de l'écran (bouton **haut-parleur** pour la réentendre) ; l'avancement s'affiche (« 3 / 6 »). Mission 1 (première version) : ramasser 6 troncs, 4 pierres, poser 10 blocs pour une cabane, trouver une **pierre brillante** (cristaux bleus, en surface) qui donne une **lampe**, poser la lampe. Casser un tronc donne aussi une **clôture**.
+
+Les **Grignotes** sont de petites boules à poils colorées. Le jour, elles restent loin. Vers 17 h 30 (en jeu), un carillon annonce la nuit : elles s'approchent et, au contact, en chipent un bloc du sac, puis s'enfuient en riant (jamais de dégâts). Elles fuient la lumière d'une **lampe** (à 6 blocs) et ne passent pas une **clôture**. Le bouton **Bulles** (touche **B** sur PC) les fait fuir ; touchée par une bulle, une Grignote rend le bloc qu'elle avait chipé. Le mode parent peut les désactiver.
 
 ### Le sac
 
