@@ -4,6 +4,44 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole J6 (tutoriel, mission 1 complète, félicitations)
+
+Sur le convertible replié, Firefox ; ligne d'infos terminée par « J6 ». **Exporter les sauvegardes avant** de remplacer le fichier (mode parent → Exporter). Les protocoles J3 à J5 restent à faire s'ils ne l'ont pas été.
+
+| Vérification | Convertible |
+|---|---|
+| Nouveau monde d'un enfant qui n'a jamais joué au J6 : Pixel se présente et lance le **tutoriel** ; au doigt, la consigne parle du rond (au clavier, de la touche Z) | |
+| Tutoriel : marcher → casser un bloc → le poser (bouton Casser → Poser, puis taper) ; « Bravo, tu sais jouer ! » ; le bouton redevient **Casser** tout seul | |
+| La mission 1 suit : 6 troncs (« 0 / 6 »), puis 4 pierres | |
+| Étape abri : le petit dessin de maison du bandeau s'allume quand on est entre des murs (un mur par côté fermé) et sous un toit ; debout dans un abri incomplet, Pixel dit ce qui manque (« Il manque le toit ! ») | |
+| Construire un vrai abri (murs de 3 blocs, toit posé depuis l'intérieur), entrer dedans : l'étape est validée (« Bravo ! » et un petit air de 4 notes) | |
+| Pierre brillante → lampe, poser la lampe près de l'abri | |
+| Dernière étape : « Reste près de ta lampe » ; le soleil se couche en quelques secondes ; la nuit, les Grignotes approchent et s'enfuient devant la lampe ; Pixel : « Elles fuient la lampe ! » | |
+| Écran de félicitations : « Bravo (prénom) ! », 6 troncs, 4 pierres, un abri, une lampe, cadeau de 5 blocs arc-en-ciel, confettis, voix (lecteur débutant) ; le bouton « Continuer » ne répond qu'après un instant, puis ferme l'écran | |
+| Les blocs arc-en-ciel sont dans le sac et se posent ; sac plein à la fin : « Vide une case du sac ! », le cadeau arrive dès qu'une case se libère | |
+| Accueil : le monde réussi porte une étoile ; un nouveau monde du même enfant commence directement à la mission 1 (pas de tutoriel) | |
+| Mode parent : section « Progression » (tutoriel fait ou non, étape de chaque monde) | |
+| Mode parent → nuit « pas de nuit » : la dernière étape se valide quand même (écran de félicitations) | |
+| La nuit, près d'une lampe : le halo couvre toute la zone que les Grignotes évitent (6 blocs) sans gêner la vue | |
+| Un monde du J5 déjà en cours reprend à son étape (un monde où la mission était finie au J5 reprend à la dernière étape : attendre la nuit près de la lampe) | |
+
+### Séance enfants J6 (test complet de la V1)
+
+Consigne donnée à l'oral : aucune, Pixel s'en charge. Profil 6 ans d'abord, seul, sur un **nouveau monde** ; noter chaque moment où il faut l'aider, et combien de temps prend chaque étape. À observer : le tutoriel suffit-il pour marcher, casser, poser ? Comprend-il ce qu'est un abri et comment faire le toit ? Le dessin de maison l'aide-t-il ? La nuit qui tombe vite le surprend-elle, l'amuse-t-elle ? Comprend-il que la lampe éloigne les Grignotes ? Le cadeau lui plaît-il ? Puis le profil 8 ans (en lisant). Critères du brief : joue 15 minutes seul, termine la mission 1 sans aide d'un adulte.
+
+## Séance du … — J6
+
+Appareil : convertible, Firefox
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Temps par étape (tutoriel, troncs, pierres, abri, lampe, nuit) :
+
+Idées des enfants :
+
 ## Protocole J5 (Pixel, mission, Grignotes, lampe, clôture, bulles)
 
 Sur le convertible replié, Firefox ; ligne d'infos terminée par « J5 ». Créer un **nouveau monde** (les mondes du J4 n'ont pas de pierres brillantes).

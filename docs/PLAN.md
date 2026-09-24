@@ -142,6 +142,8 @@ Compagnon qui suit le joueur, bulle de dialogue, lecture vocale, bouton « rép�
 
 Mission 0 (tutoriel, trois étapes : se déplacer, casser, poser) puis mission 1 « Construis un abri avant la nuit » telle que décrite dans le brief, écran de félicitations, récompense visuelle. Textes en deux variantes. Test complet avec les deux enfants, corrections.
 
+État : livré le 24/09/2026 (voir `JOURNAL.md`), sans attendre les retours des J3 à J5 (décision de Pierre : ils seront intégrés ensuite) ; le test complet avec les deux enfants reste à faire. Choix faits sans consigne, à confirmer : tutoriel une fois par enfant ; abri = toit + 3 murs sur 4 + au moins un bloc de l'enfant (un terrier creusé compte) ; dernière étape « rester près de la lampe » avec le temps qui file (×30) jusqu'à la nuit, validée quand une Grignote fuit la lampe ; cadeau de 5 blocs arc-en-ciel (nouveau bloc), étoile sur le monde à l'accueil, progression dans le mode parent.
+
 ### J7 — Recette V1
 
 Vérification des quatre critères de réussite du brief avec les enfants, corrections, version 1.0, mise à jour de la documentation, tri du backlog V2.

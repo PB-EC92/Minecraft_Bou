@@ -262,7 +262,7 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   // Le monde se construit derrière l'accueil.
   await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").innerText()).toMatch(/J5$/);
+  expect(await page.locator(".info").innerText()).toMatch(/J6$/);
   // Sans #monde=… dans l'adresse : un rechargement doit ramener à l'accueil.
   expect(page.url()).not.toContain("#");
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
@@ -315,7 +315,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : J5");
+  await expect(diag).toContainText("Version : J6");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
