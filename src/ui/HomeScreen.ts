@@ -4,6 +4,7 @@ import { WORLD_TYPES, worldTypeName, type WorldTypeId } from "../engine/terrain"
 import { AVATARS, avatarDef } from "../game/avatars";
 import { CHOOSE_AVATAR, CHOOSE_SLOT, CHOOSE_WORLD_TYPE, READING_LEVELS, WHO_PLAYS, pick, type ChildText, type ReadingLevel } from "../edu/texts";
 import { avatarIcon } from "./avatarIcon";
+import { campaignDone, progressLabel } from "../edu/missions";
 
 /** Durée de l'appui long qui ouvre le mode parent (plan : trois secondes). */
 export const PARENT_HOLD_MS = 3000;
@@ -142,6 +143,13 @@ export class HomeScreen {
         const d = this.div("card-date");
         d.textContent = savedLabel(w.savedAt, Date.now());
         card.appendChild(d);
+        // Mission réussie dans ce monde (J6) : une étoile, sans mot à lire.
+        if (campaignDone(w.mission)) {
+          const star = this.div("card-star");
+          star.textContent = "★";
+          star.setAttribute("aria-label", "mission réussie");
+          card.appendChild(star);
+        }
       } else {
         card.classList.add("empty");
         const plus = this.div("card-plus");
@@ -287,6 +295,23 @@ export class HomeScreen {
     const status = this.div("parent-status");
 
     if (!first) {
+      // Progression de chacun (J6) : tutoriel, puis étape de la mission dans chaque monde.
+      section("Progression");
+      for (const p of profiles) {
+        const h = this.div("parent-who");
+        h.textContent = `${p.name} : tutoriel ${p.tutorialDone ? "fait" : "pas encore fait"}`;
+        form.appendChild(h);
+        const list = document.createElement("ul");
+        list.className = "parent-progress";
+        this.store.worlds(p.id).forEach((w, slot) => {
+          if (!w) return;
+          const li = document.createElement("li");
+          li.textContent = `Monde ${slot + 1} (${worldTypeName(w.type)}) : ${progressLabel(w.mission)}`;
+          list.appendChild(li);
+        });
+        if (list.childElementCount > 0) form.appendChild(list);
+      }
+
       section("Mondes enregistrés");
       for (const p of profiles) {
         const r = this.div("parent-row");
@@ -344,6 +369,7 @@ export class HomeScreen {
         level: level.value as ReadingLevel,
         voice: voice.checked,
         avatar: p.avatar,
+        tutorialDone: p.tutorialDone,
       }));
       const r = this.store.saveProfiles(next);
       const s: Settings = { night: night.value as NightLength, creatures: creatures.checked };
@@ -465,8 +491,8 @@ function capitalize(s: string): string {
 /** Profils de départ du premier réglage (lecteur débutant avec voix, lecteur autonome sans). */
 function defaultEditable(): Profile[] {
   return [
-    { id: "p1", name: "", level: "debutant", voice: true, avatar: null },
-    { id: "p2", name: "", level: "autonome", voice: false, avatar: null },
+    { id: "p1", name: "", level: "debutant", voice: true, avatar: null, tutorialDone: false },
+    { id: "p2", name: "", level: "autonome", voice: false, avatar: null, tutorialDone: false },
   ];
 }
 

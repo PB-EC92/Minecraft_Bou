@@ -221,3 +221,41 @@ export const BUBBLES_FLY: ChildText = {
   debutant: `Des bulles${NBSP}!`,
   autonome: `Des bulles${NBSP}! Les Grignotes détestent ça.`,
 };
+
+/* ---------- Tutoriel, abri, fin de la mission 1 (J6) ---------- */
+
+/** Abri presque fini : il manque le toit (Pixel le dit quand l'enfant se tient dans un abri incomplet). */
+export const SHELTER_NO_ROOF: ChildText = {
+  debutant: `Il manque le toit${NBSP}!`,
+  autonome: `Il manque un toit au-dessus de ta tête. Astuce${NBSP}: avec des murs de trois blocs de haut, on pose le toit depuis l'intérieur.`,
+};
+
+export const SHELTER_NO_WALLS: ChildText = {
+  debutant: `Il manque un mur${NBSP}!`,
+  autonome: `Il manque des murs autour de toi${NBSP}: il en faut au moins trois.`,
+};
+
+/** Abri naturel (sous-bois) : il doit le construire lui-même. */
+export const SHELTER_NOT_OWN: ChildText = {
+  debutant: `Construis-le avec tes blocs${NBSP}!`,
+  autonome: `Cet abri s'est fait tout seul${NBSP}: construis le tien avec les blocs de ton sac.`,
+};
+
+/** Dernière étape de la mission 1 : l'enfant est resté loin de sa lampe à la nuit tombée. */
+export const BACK_TO_LAMP: ChildText = {
+  debutant: `Reviens près de ta lampe${NBSP}!`,
+  autonome: `Reviens près de ta lampe pour voir ce que font les Grignotes.`,
+};
+
+/** Cadeau de fin de mission qui attend une case libre (sac plein). */
+export const REWARD_WAITING: ChildText = {
+  debutant: `Vide une case du sac${NBSP}!`,
+  autonome: `Ton cadeau t'attend${NBSP}: pose tous les blocs d'une case pour lui faire de la place.`,
+};
+
+/** Titre de l'écran de félicitations (prénom de l'enfant, ou rien en mode adresse). */
+export function bravoTitle(name: string | null): ChildText {
+  const who = name ? ` ${name}` : "";
+  return { debutant: `Bravo${who}${NBSP}!`, autonome: `Bravo${who}, mission réussie${NBSP}!` };
+}
+

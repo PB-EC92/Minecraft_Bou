@@ -50,6 +50,12 @@ interface DebugState {
   creatures: { id: number; x: number; y: number; z: number; mode: string; carried: number | null }[];
   companion: { x: number; y: number; z: number } | null;
   mission: { step: number; done: boolean } | null;
+  missionId: string | null;
+  shelter: { roof: boolean; walls: number; own: boolean; ok: boolean } | null;
+  celebration: boolean;
+  rewardPending: { block: number; count: number } | null;
+  timeBoost: boolean;
+  tutorialDone: boolean | null;
   companionText: string | null;
   lamps: number;
   bubbles: number;
@@ -76,6 +82,7 @@ declare global {
       selectSlot(i: number): void;
       setBlock(x: number, y: number, z: number, id: number): boolean;
       breakBlock(x: number, y: number, z: number): void;
+      placeBlock(): void;
       saveNow(): boolean;
       bubbles(): void;
       spawnCreature(dx: number, dz: number): number | null;
@@ -1359,21 +1366,28 @@ test("compagnon Pixel et mission 1 : il suit, lit la consigne, la mission avance
   expect(errors).toEqual([]);
 });
 
-test("partie d'un enfant : la mission est enregistrée avec le monde et reprend où elle en était", async ({ page }, testInfo) => {
+test("partie d'un enfant : le tutoriel est enregistré avec le monde et reprend où il en était", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   const errors = await openGame(page, "");
   await firstLaunch(page, testInfo);
-  expect((await state(page)).mission).toEqual({ step: 0, done: false });
-  await page.evaluate(() => window.cubesDebug.give(6, 6));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(1);
+  let s = await state(page);
+  expect(s.missionId).toBe("tuto");
+  expect(s.mission).toEqual({ step: 0, done: false });
+  expect(s.tutorialDone).toBe(false);
+  // Marcher (touche Z = KeyW en AZERTY) : l'étape « marcher » est validée.
+  await page.keyboard.down("KeyW");
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 15_000 }).toBe(1);
+  await page.keyboard.up("KeyW");
   expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
   await page.reload();
   await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
   await page.locator('.profile-card[data-profile="p1"]').click();
   await page.locator('.slot-card[data-slot="0"]').click();
   await page.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
-  expect((await state(page)).mission).toEqual({ step: 1, done: false });
-  await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("pierres");
+  s = await state(page);
+  expect(s.missionId).toBe("tuto");
+  expect(s.mission).toEqual({ step: 1, done: false });
+  await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("Casse un bloc");
   expect(errors).toEqual([]);
 });
 
@@ -1421,5 +1435,219 @@ test("au doigt : garder le doigt sur le bandeau de Pixel ne casse rien et ne tou
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   expect(await blockAt(page, aimed)).toBe(aimed.id);
   expect((await readInfo(page)).yaw).toBe(before.yaw);
+  expect(errors).toEqual([]);
+});
+
+// ---------- J6 : tutoriel, mission 1 complète, félicitations ----------
+
+const B6 = { rainbow: 16 } as const;
+
+test("tutoriel : marcher, casser, poser, puis la mission 1 commence (au doigt : retour au mode Casser) @tactile", async ({ page }, testInfo) => {
+  const touch = isTouch(testInfo);
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=0");
+  await expect.poll(async () => (await state(page)).missionId).toBe("tuto");
+  // Consigne propre à l'appareil.
+  await expect.poll(async () => (await state(page)).companionText).toContain(touch ? "rond" : "Z");
+  await expect(page.locator(".companion-progress")).toHaveText("");
+  // 1. Marcher.
+  await page.keyboard.down("KeyW");
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 15_000 }).toBe(1);
+  await page.keyboard.up("KeyW");
+  await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain(touch ? "garde le doigt" : "garde le clic");
+  // 2. Casser (règles du jeu : le bloc est ramassé et passe dans la main vide).
+  await page.evaluate(() => window.cubesDebug.breakBlock(3, 3, 3));
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
+  expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: 1 });
+  // 3. Poser.
+  if (touch) {
+    await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain("Touche Casser");
+    await page.evaluate(() => window.cubesDebug.look(0, -60));
+    await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+    await page.getByRole("button", { name: "Casser" }).tap();
+    await expect(page.locator(".touch-btn").first()).toHaveText("Poser");
+    const vp = page.viewportSize()!;
+    await quickTap(page, vp.width * 0.7, vp.height * 0.4);
+  } else {
+    await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain("clic droit");
+    await lockAndLookDown(page);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.up({ button: "right" });
+  }
+  await expect.poll(async () => (await state(page)).mission?.done).toBe(true);
+  await expect(page.locator(".message")).toContainText("tu sais jouer");
+  if (touch) await expect(page.locator(".touch-btn").first()).toHaveText("Casser");
+  // La mission 1 suit, Pixel la présente.
+  await expect.poll(async () => (await state(page)).missionId, { timeout: 10_000 }).toBe("abri");
+  await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("troncs");
+  expect((await state(page)).spoken.some((t) => t.includes("abri avant la nuit"))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+/** Cabane de 3 × 3 autour de (cx, cz) dans le monde plat (sol à y = 4) : murs de 3 blocs, porte au sud ; toit si roof. */
+async function buildHut(page: Page, cx: number, cz: number, roof: boolean): Promise<void> {
+  await page.evaluate(
+    ([x0, z0, withRoof]) => {
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
+          const edge = Math.abs(dx) === 2 || Math.abs(dz) === 2;
+          for (let y = 4; y < 7; y++) if (edge && !(dx === 0 && dz === 2 && y < 6)) window.cubesDebug.setBlock(x0 + dx, y, z0 + dz, 4);
+          if (withRoof) window.cubesDebug.setBlock(x0 + dx, 7, z0 + dz, 4);
+        }
+      }
+    },
+    [cx, cz, roof] as const,
+  );
+}
+
+test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fuient, félicitations et cadeau", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(150_000);
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1&creatures=1&heure=16");
+  const s0 = await state(page);
+  const cx = Math.floor(s0.player.x);
+  const cz = Math.floor(s0.player.z);
+  await page.evaluate(() => window.cubesDebug.give(6, 6));
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(1);
+  await page.evaluate(() => window.cubesDebug.give(3, 4));
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
+  // Abri : pictogramme dans le bandeau, rien d'allumé dehors.
+  await expect(page.locator(".companion .shelter-icon")).toBeVisible();
+  await expect(page.locator(".companion .shelter-icon .part.on")).toHaveCount(0);
+  await expect(page.locator(".companion-progress")).toHaveText("");
+  // Des murs sans toit : les murs s'allument, Pixel dit qu'il manque le toit.
+  await buildHut(page, cx, cz, false);
+  await expect.poll(async () => (await state(page)).shelter).toEqual({ roof: false, walls: 3, own: true, ok: false });
+  await expect(page.locator(".companion .shelter-icon .wall.on")).toHaveCount(3);
+  await expect(page.locator(".message")).toContainText("Il manque le toit", { timeout: 20_000 });
+  expect((await state(page)).mission?.step).toBe(2);
+  // Le toit : abri complet, étape validée.
+  await buildHut(page, cx, cz, true);
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(3);
+  // Lampe trouvée puis posée dans l'abri.
+  await page.evaluate(() => window.cubesDebug.give(13, 1));
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(4);
+  await page.evaluate(() => {
+    const inv = window.cubesDebug.state().inventory;
+    window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 13));
+    window.cubesDebug.look(0, -60);
+  });
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  await page.evaluate(() => window.cubesDebug.placeBlock());
+  await expect.poll(async () => (await state(page)).lamps).toBe(1);
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(5);
+  // Sac plein (9 sortes) : le cadeau devra attendre une case libre.
+  await page.evaluate(() => {
+    for (const id of [1, 2, 4, 5, 8, 11, 12]) window.cubesDebug.give(id, 1);
+  });
+  // Dernière étape : consigne lue, le temps file jusqu'à la nuit ; une Grignote fuit la lampe.
+  await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("Reste près de ta lampe");
+  await expect.poll(async () => (await state(page)).timeBoost, { timeout: 5_000 }).toBe(true);
+  await expect.poll(async () => (await state(page)).night, { timeout: 60_000 }).toBe(true);
+  expect((await state(page)).timeBoost).toBe(false);
+  await page.evaluate(() => window.cubesDebug.spawnCreature(0, -12));
+  await expect.poll(async () => (await state(page)).mission?.done, { timeout: 45_000 }).toBe(true);
+  expect((await state(page)).spoken).toContain("Elles fuient la lampe\u00a0!");
+  // Écran de félicitations : titre, récapitulatif (6 troncs, 4 pierres, un abri, une lampe), cadeau.
+  await expect(page.locator(".celebration")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".celebration h1")).toHaveText("Bravo\u00a0!");
+  await expect(page.locator(".celebration-recap li")).toHaveText(["6 troncs", "4 pierres", "Un abri", "Une lampe", "Cadeau\u00a0: 5 blocs arc-en-ciel\u00a0!"]);
+  let s = await state(page);
+  expect(s.paused).toBe(true);
+  expect(s.rewardPending).toEqual({ block: B6.rainbow, count: 5 });
+  await page.screenshot({ path: testInfo.outputPath("felicitations.png") });
+  const button = page.getByRole("button", { name: "Continuer" });
+  await expect(button).toBeEnabled({ timeout: 5_000 });
+  await button.click();
+  await expect(page.locator(".celebration")).toBeHidden();
+  expect((await state(page)).paused).toBe(false);
+  await expect(page.locator(".message")).toContainText("Vide une case du sac");
+  // Une case libérée : le cadeau entre dans le sac et le jeu le dit.
+  await page.evaluate(() => {
+    const inv = window.cubesDebug.state().inventory;
+    const i = inv.findIndex((c) => c?.id === 12);
+    window.cubesDebug.selectSlot(i);
+  });
+  await page.evaluate(() => window.cubesDebug.clearInventory());
+  await expect.poll(async () => invCount(await state(page), B6.rainbow)).toBe(5);
+  s = await state(page);
+  expect(s.rewardPending).toBeNull();
+  await expect(page.locator(".message")).toContainText("5 blocs arc-en-ciel");
+  expect(errors).toEqual([]);
+});
+
+test("sans Grignotes : la dernière étape se valide peu après la tombée de la nuit (rien ne bloque)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(90_000);
+  // Mode adresse sans Grignotes : la nuit tombe (temps accéléré), l'étape se valide peu après.
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1&heure=17");
+  const s0 = await state(page);
+  await buildHut(page, Math.floor(s0.player.x), Math.floor(s0.player.z), true);
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 6);
+    window.cubesDebug.give(3, 4);
+  });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 10_000 }).toBe(3);
+  await page.evaluate(() => window.cubesDebug.give(13, 1));
+  await expect.poll(async () => (await state(page)).mission?.step).toBe(4);
+  await page.evaluate(() => {
+    const inv = window.cubesDebug.state().inventory;
+    window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 13));
+    window.cubesDebug.look(0, -60);
+  });
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  await page.evaluate(() => window.cubesDebug.placeBlock());
+  await expect.poll(async () => (await state(page)).mission?.done, { timeout: 60_000 }).toBe(true);
+  await expect(page.locator(".celebration")).toBeVisible({ timeout: 10_000 });
+  // Le cadeau est entré tout de suite (sac pas plein).
+  expect(invCount(await state(page), B6.rainbow)).toBe(5);
+  expect(errors).toEqual([]);
+});
+
+test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour un enfant qui l'a fait, progression affichée", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 2, type: "prairie", seed: 1234, edits: "",
+      player: { x: 64.5, y: 30, z: 64.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(),
+      mission: { id: "abri", step: 6, counts: {} },
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toBeVisible();
+  await expect(page.locator('.slot-card[data-slot="1"] .card-star')).toHaveCount(0);
+  // Nouveau monde : Léa a déjà fait le tutoriel, la mission 1 commence.
+  await page.locator('.slot-card[data-slot="1"]').click();
+  await page.locator('.type-card[data-type="desert"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  let s = await state(page);
+  expect(s.missionId).toBe("abri");
+  expect(s.mission).toEqual({ step: 0, done: false });
+  // Mode parent : progression de chacun.
+  await page.locator(".home-btn").click();
+  const gear = page.locator(".parent-gear");
+  const box = (await gear.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+  await page.mouse.up();
+  await expect(page.locator(".parent-who")).toHaveText(["Léa : tutoriel fait", "Tom : tutoriel pas encore fait"]);
+  await expect(page.locator(".parent-progress li")).toHaveText([
+    "Monde 1 (prairie) : mission 1 (l'abri) réussie",
+    "Monde 2 (désert) : mission 1 (l'abri) : étape 1 sur 6 (ramasser 6 troncs)",
+  ]);
+  // Enregistrer et fermer garde le tutoriel fait.
+  await page.getByRole("button", { name: "Enregistrer et fermer" }).click();
+  const profiles = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:profils") ?? "null"));
+  expect(profiles.profiles[0].tutorialDone).toBe(true);
+  s = await state(page);
+  expect(s.home).toBe(true);
   expect(errors).toEqual([]);
 });

@@ -30,6 +30,8 @@ export interface Profile {
   voice: boolean;
   /** Avatar choisi (index dans AVATARS), null tant que l'enfant n'a pas choisi. */
   avatar: number | null;
+  /** Tutoriel (mission 0) fini dans un de ses mondes : les mondes suivants commencent à la mission 1 (J6). */
+  tutorialDone: boolean;
 }
 
 export type { NightLength };
@@ -63,6 +65,8 @@ export interface WorldSave {
   savedAt: number;
   /** Progression de la mission (J5), relue et vérifiée par MissionRunner ; absente avant le J5. */
   mission?: unknown;
+  /** Cadeau de fin de mission pas encore entré dans le sac (sac plein) : nombre de blocs à donner (J6). */
+  reward?: { block: number; count: number };
 }
 
 export interface ExportFile {
@@ -87,8 +91,8 @@ export function cleanName(v: unknown, fallback: string): string {
 
 export function defaultProfiles(): Profile[] {
   return [
-    { id: "p1", name: "Joueur 1", level: "debutant", voice: true, avatar: null },
-    { id: "p2", name: "Joueur 2", level: "autonome", voice: false, avatar: null },
+    { id: "p1", name: "Joueur 1", level: "debutant", voice: true, avatar: null, tutorialDone: false },
+    { id: "p2", name: "Joueur 2", level: "autonome", voice: false, avatar: null, tutorialDone: false },
   ];
 }
 
@@ -110,6 +114,7 @@ export function parseProfiles(raw: unknown, avatarCount: number): Profile[] | nu
       level,
       voice: typeof p.voice === "boolean" ? p.voice : level === "debutant",
       avatar,
+      tutorialDone: p.tutorialDone === true,
     });
   }
   return out;
@@ -146,6 +151,9 @@ export function parseWorldSave(raw: unknown): WorldSave | null {
     phase: num(raw.phase) ? ((raw.phase % 1) + 1) % 1 : 0,
     savedAt: num(raw.savedAt) ? raw.savedAt : 0,
     ...(isObj(raw.mission) ? { mission: raw.mission } : {}),
+    ...(isObj(raw.reward) && isInventoryBlockId(raw.reward.block) && Number.isInteger(raw.reward.count) && (raw.reward.count as number) > 0
+      ? { reward: { block: raw.reward.block, count: Math.min(raw.reward.count as number, 99) } }
+      : {}),
   };
 }
 

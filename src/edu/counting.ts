@@ -37,6 +37,7 @@ const NOUNS: ReadonlyMap<BlockId, CountNoun> = new Map<BlockId, CountNoun>([
   [BlockId.Lamp, { one: "lampe", many: "lampes", feminine: true }],
   [BlockId.Fence, { one: "clôture", many: "clôtures", feminine: true }],
   [BlockId.GlowStone, { one: "pierre brillante", many: "pierres brillantes", feminine: true }],
+  [BlockId.Rainbow, { one: "bloc arc-en-ciel", many: "blocs arc-en-ciel", feminine: false }],
 ]);
 
 const GENERIC: CountNoun = { one: "bloc", many: "blocs", feminine: false };
@@ -215,5 +216,19 @@ export function returnedText(id: BlockId): ChildText {
   return {
     debutant: `Elle te rend ${quantity(id, 1)}${NBSP}!`,
     autonome: `La Grignote te rend ${quantity(id, 1)}. Bravo${NBSP}!`,
+  };
+}
+
+/** Cadeau de fin de mission (J6) : « Cadeau : 5 blocs arc-en-ciel ! » ; forme dite en lettres (« cinq blocs arc-en-ciel »). */
+export function rewardText(id: BlockId, n: number): { text: ChildText; spoken: ChildText } {
+  return {
+    text: {
+      debutant: `Cadeau${NBSP}: ${quantity(id, n)}${NBSP}!`,
+      autonome: `Cadeau${NBSP}: tu as gagné ${quantity(id, n)} pour décorer ton abri${NBSP}!`,
+    },
+    spoken: {
+      debutant: `Cadeau${NBSP}: ${spokenQuantity(id, n)}${NBSP}!`,
+      autonome: `Cadeau${NBSP}: tu as gagné ${spokenQuantity(id, n)} pour décorer ton abri${NBSP}!`,
+    },
   };
 }

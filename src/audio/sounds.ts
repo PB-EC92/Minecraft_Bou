@@ -30,13 +30,13 @@
 import { BlockId } from "../engine/blocks";
 
 /** Noms des sons joués par le jeu. */
-export type SoundName = "breakTick" | "break" | "place" | "pickup" | "deny" | "select" | "giggle" | "bubbles" | "night";
+export type SoundName = "breakTick" | "break" | "place" | "pickup" | "deny" | "select" | "giggle" | "bubbles" | "night" | "bravo";
 
 /** Famille de matière d'un bloc : change la couleur des sons de casse. */
 export type Material = "soft" | "stone" | "wood" | "plant" | "sand";
 
 /** Tous les noms de sons (panneau de tests, boucles de vérification). */
-export const SOUND_NAMES: readonly SoundName[] = ["breakTick", "break", "place", "pickup", "deny", "select", "giggle", "bubbles", "night"];
+export const SOUND_NAMES: readonly SoundName[] = ["breakTick", "break", "place", "pickup", "deny", "select", "giggle", "bubbles", "night", "bravo"];
 
 /** Toutes les matières. */
 export const MATERIALS: readonly Material[] = ["soft", "stone", "wood", "plant", "sand"];
@@ -52,8 +52,8 @@ export const MAX_VOICES = 8;
 export const UNLOCK_EVENTS: readonly string[] = ["pointerdown", "keydown", "touchstart", "pointerup", "touchend"];
 
 /**
- * Matière d'un bloc : herbe et terre → soft ; pierre → stone ; planches,
- * tronc, cactus → wood ; feuilles et fleurs → plant ; sable et neige → sand ;
+ * Matière d'un bloc : herbe et terre → soft ; pierre, pierre brillante et arc-en-ciel → stone ; planches,
+ * tronc, cactus → wood ; pierre brillante, arc-en-ciel → stone ; feuilles et fleurs → plant ; sable et neige → sand ;
  * tout autre identifiant (air, eau, inconnu) → soft.
  */
 export function materialOf(id: BlockId): Material {
@@ -63,6 +63,7 @@ export function materialOf(id: BlockId): Material {
       return "soft";
     case BlockId.Stone:
     case BlockId.GlowStone:
+    case BlockId.Rainbow:
       return "stone";
     case BlockId.Planks:
     case BlockId.Log:
@@ -211,6 +212,14 @@ export function recipe(name: SoundName, material: Material = "soft"): Layer[] {
         { kind: "tone", wave: "sine", freq: 784, delay: 0, attack: 0.01, duration: 0.14, gain: 0.1 },
         { kind: "tone", wave: "sine", freq: 659, delay: 0.12, attack: 0.01, duration: 0.14, gain: 0.1 },
         { kind: "tone", wave: "sine", freq: 523, delay: 0.24, attack: 0.01, duration: 0.16, gain: 0.1 },
+      ];
+    case "bravo":
+      // J6 — étape réussie, félicitations : quatre notes montantes (do, mi, sol, do aigu), la dernière tenue.
+      return [
+        { kind: "tone", wave: "triangle", freq: 523, delay: 0, attack: 0.006, duration: 0.09, gain: 0.14 },
+        { kind: "tone", wave: "triangle", freq: 659, delay: 0.08, attack: 0.006, duration: 0.09, gain: 0.14 },
+        { kind: "tone", wave: "triangle", freq: 784, delay: 0.16, attack: 0.006, duration: 0.09, gain: 0.13 },
+        { kind: "tone", wave: "sine", freq: 1047, delay: 0.24, attack: 0.008, duration: 0.16, gain: 0.12 },
       ];
     default:
       return [];

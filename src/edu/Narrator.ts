@@ -97,6 +97,16 @@ export class Narrator {
     else this.speakNow(say);
   }
 
+  /**
+   * Lit sans afficher (J6 : l'écran de félicitations montre déjà le texte). Même règles que tell :
+   * voix coupée → rien ; consigne importante en cours → pas de coupure, sauf si celle-ci l'est aussi.
+   */
+  say(text: ChildText, opts: { important?: boolean; dedupe?: boolean } = {}): void {
+    if (!this.voice) return;
+    this.cancelPending();
+    this.speakNow({ text: pick(text, this.level), dedupe: opts.dedupe === true, important: opts.important === true });
+  }
+
   /** Vrai si une lecture différée attend. */
   get hasPending(): boolean {
     return this.pending !== null;

@@ -138,8 +138,13 @@ describe("profils, réglages, mondes enregistrés", () => {
       { profiles: [{ name: "  Léa  ", level: "debutant", avatar: 2 }, { name: "", level: "xx", voice: true, avatar: 99 }] },
       AVATARS.length,
     )!;
-    expect(p[0]).toEqual({ id: "p1", name: "Léa", level: "debutant", voice: true, avatar: 2 });
-    expect(p[1]).toEqual({ id: "p2", name: "Joueur 2", level: "autonome", voice: true, avatar: null });
+    expect(p[0]).toEqual({ id: "p1", name: "Léa", level: "debutant", voice: true, avatar: 2, tutorialDone: false });
+    expect(p[1]).toEqual({ id: "p2", name: "Joueur 2", level: "autonome", voice: true, avatar: null, tutorialDone: false });
+  });
+
+  it("tutoriel fait (J6) : seul true compte, absent avant le J6", () => {
+    const p = parseProfiles({ profiles: [{ name: "Léa", tutorialDone: true }, { name: "Tom", tutorialDone: "oui" }] }, AVATARS.length)!;
+    expect(p.map((x) => x.tutorialDone)).toEqual([true, false]);
   });
 
   it("prénom borné et nettoyé", () => {
@@ -171,6 +176,15 @@ describe("profils, réglages, mondes enregistrés", () => {
     expect(w.type).toBe("ile");
     expect(w.inventory.slots).toEqual([[3, 5], null, null]);
     expect(w.phase).toBeCloseTo(0.25);
+  });
+
+  it("cadeau en attente (J6) : gardé s'il est valide, ignoré sinon", () => {
+    expect(parseWorldSave({ ...world, reward: { block: 16, count: 5 } })!.reward).toEqual({ block: 16, count: 5 });
+    expect(parseWorldSave({ ...world, reward: { block: 16, count: 500 } })!.reward).toEqual({ block: 16, count: 99 });
+    for (const bad of [{ block: 0, count: 5 }, { block: 16, count: 0 }, { block: 999, count: 1 }, { block: 16, count: 1.5 }, "x", null]) {
+      expect(parseWorldSave({ ...world, reward: bad })!.reward).toBeUndefined();
+    }
+    expect(parseWorldSave(world)!.reward).toBeUndefined();
   });
 
   it("monde inutilisable : null", () => {

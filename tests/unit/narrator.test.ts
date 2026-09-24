@@ -170,4 +170,19 @@ describe("consignes importantes (J5)", () => {
     h.n.tell(T, { important: true });
     expect(h.spoken).toEqual([PIXEL.debutant, T.debutant]);
   });
+
+  it("say (J6) : lit sans afficher, suit le niveau et la voix, ne coupe pas une consigne importante sauf si elle l'est aussi", () => {
+    const h = harness();
+    h.n.say({ debutant: "Bravo !", autonome: "Bravo, mission réussie !" });
+    expect(h.shown).toEqual([]);
+    expect(h.spoken).toEqual(["Bravo !"]);
+    h.n.tell({ debutant: "Consigne importante.", autonome: "x" }, { important: true });
+    h.n.say({ debutant: "Pas maintenant.", autonome: "y" });
+    expect(h.spoken).toEqual(["Bravo !", "Consigne importante."]);
+    h.n.say({ debutant: "Félicitations.", autonome: "z" }, { important: true });
+    expect(h.spoken.at(-1)).toBe("Félicitations.");
+    h.n.setLevel("autonome"); // voix coupée par défaut
+    h.n.say({ debutant: "a", autonome: "b" }, { important: true });
+    expect(h.spoken.at(-1)).toBe("Félicitations.");
+  });
 });

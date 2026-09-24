@@ -25,8 +25,10 @@ describe("options de l'adresse", () => {
     expect(parseUrlOptions(formatUrlOptions("ile", 5, 128, 96))).toEqual({ type: "ile", seed: 5, distance: 128 });
   });
 
-  it("options du J5 : créatures et mission, seulement à 1", () => {
-    expect(parseUrlOptions("#monde=plat&creatures=1&mission=1")).toEqual({ type: "plat", creatures: true, mission: true });
+  it("options du J5 : créatures (à 1) et mission (J6 : 0 = tutoriel, 1 = mission 1)", () => {
+    expect(parseUrlOptions("#monde=plat&creatures=1&mission=1")).toEqual({ type: "plat", creatures: true, mission: 1 });
+    expect(parseUrlOptions("#monde=plat&mission=0")).toEqual({ type: "plat", mission: 0 });
+    expect(parseUrlOptions("#monde=plat&mission=2")).toEqual({ type: "plat" });
     expect(parseUrlOptions("#monde=plat&creatures=0")).toEqual({ type: "plat" });
   });
 

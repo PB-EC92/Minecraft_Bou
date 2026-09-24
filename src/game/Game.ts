@@ -1,5 +1,5 @@
 import { Sounds } from "../audio/sounds";
-import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
+import { BlockId, blockDef, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { Inventory, MAX_STACK, type AddResult } from "../engine/inventory";
@@ -7,9 +7,10 @@ import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, maxStackText, pickupSpeech, pickupText, returnedText, shouldSpeakPickup, stolenText } from "../edu/counting";
-import { BRAVO, MISSION_1, MissionRunner } from "../edu/missions";
-import { CreatureSim } from "../engine/creatures";
+import { emptiedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
+import { BRAVO, MISSION_1, MissionRunner, nextMission, resumeMission, stepText, TUTORIAL, type MissionDef, type MissionView } from "../edu/missions";
+import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
+import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
 import { Narrator, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
@@ -29,7 +30,13 @@ import {
   LAMP_SCARES,
   NIGHT_COMING,
   pick,
+  BACK_TO_LAMP,
+  bravoTitle,
+  REWARD_WAITING,
   SAVED,
+  SHELTER_NO_ROOF,
+  SHELTER_NO_WALLS,
+  SHELTER_NOT_OWN,
   VIEW_FIRST,
   VIEW_THIRD,
   WELCOME,
@@ -51,6 +58,9 @@ import { SaveStore } from "../save/SaveStore";
 import { DEFAULT_SETTINGS, KEYS, SAVE_VERSION, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
 import { applyDiff, diffBlocks, fromBase64, toBase64 } from "../save/worldDiff";
 import { HomeScreen } from "../ui/HomeScreen";
+import { Celebration, type CelebrationLine } from "../ui/Celebration";
+import { setShelterParts, shelterIcon } from "../ui/shelterIcon";
+import { tileIcon } from "../render/textures";
 import { isInventoryBlockId } from "../engine/inventory";
 import { avatarDef } from "./avatars";
 import { thirdPersonCamera } from "./thirdPerson";
@@ -62,7 +72,7 @@ import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } 
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J5";
+export const VERSION = "J6";
 /** Sauvegarde automatique pendant une partie (ms). */
 const AUTOSAVE_MS = 30_000;
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
@@ -82,6 +92,17 @@ const TEST_KIT_COUNT = 20;
 /** Molette : défilement cumulé (px) pour passer d'une case à la suivante, et délai minimal entre deux cases dans le même sens (ms). */
 const WHEEL_STEP_PX = 60;
 const WHEEL_MIN_INTERVAL_MS = 90;
+/** Dernière étape de la mission 1 : le temps file jusqu'à la nuit (un enfant de 6 ans n'attendrait pas 7 minutes). */
+const WATCH_TIME_BOOST = 30;
+/** Dernière étape, la nuit : sans Grignotes (réglage), l'étape se valide après ce délai ; avec, au plus tard après le second (ms). */
+const WATCH_NO_CREATURES_MS = 4000;
+const WATCH_FALLBACK_MS = 60_000;
+/** Conseils de Pixel pendant la construction de l'abri et la dernière étape : pas plus souvent que (ms). */
+const SHELTER_HINT_EVERY_MS = 12_000;
+const LAMP_HINT_EVERY_MS = 12_000;
+/** Délai entre la fin d'une mission et la suite (mission suivante, écran de félicitations) (ms). */
+const NEXT_MISSION_DELAY_MS = 3200;
+const CELEBRATION_DELAY_MS = 4000;
 
 interface PixelRequest {
   fx: number;
@@ -91,6 +112,8 @@ interface PixelRequest {
 
 /**
  * Assemble tout : monde, rendu, joueur, entrées, HUD, boucle de jeu.
+ * J6 : tutoriel (une fois par enfant), mission 1 complète (abri vérifié, lampe,
+ * nuit), écran de félicitations et cadeau.
  * J1 : monde généré par type et graine, jour/nuit, eau.
  * J2 : casse par appui maintenu, blocs ramassés dans un sac de 9 cases
  * (poser consomme), sons synthétisés, compte lu à voix haute.
@@ -201,6 +224,29 @@ export class Game {
   private readonly companionProgress: HTMLSpanElement;
   private readonly bubbleButton: HTMLButtonElement;
 
+  // ---------- J6 : tutoriel, abri, nuit de la mission 1, félicitations ----------
+  private readonly companionShelter: SVGSVGElement;
+  private readonly celebration: Celebration;
+  /** Abri autour de l'enfant (calculé à chaque image pendant l'étape « abri »). */
+  private shelterNow: ShelterCheck | null = null;
+  private stepStartedAt = 0;
+  private lastShelterHintAt = -Infinity;
+  /** Dernière étape de la mission 1 : consigne lue (le temps file), début de la nuit. */
+  private watchAnnounced = false;
+  private watchNightSince: number | null = null;
+  /** Une Grignote a vraiment fui la lampe pendant la dernière étape (la découverte sera dite). */
+  private watchSawScare = false;
+  private lastLampHintAt = -Infinity;
+  /** Mission suivante à lancer (après le tutoriel) et écran de félicitations à montrer, avec leur date. */
+  private nextMissionAt: { at: number; def: MissionDef } | null = null;
+  private celebrationAt: number | null = null;
+  /** Cadeau pas encore entré dans le sac (sac plein) ; enregistré avec le monde. */
+  private rewardPending: { block: BlockId; count: number } | null = null;
+  private rewardSeenInventory = -1;
+  /** Position de l'image précédente (pas du tutoriel). */
+  private prevX = 0;
+  private prevZ = 0;
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
@@ -208,7 +254,7 @@ export class Game {
     const opts = parseUrlOptions(location.hash);
     this.urlMode = opts.type !== undefined || opts.seed !== undefined;
     this.urlCreatures = opts.creatures === true;
-    this.urlMission = opts.mission === true;
+    this.urlMission = opts.mission !== undefined;
     // Mode adresse (tests, vérifications de l'adulte) : réglages par défaut, pas ceux du mode parent.
     this.settings = this.urlMode ? { ...DEFAULT_SETTINGS } : this.store.loadSettings();
     this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
@@ -249,7 +295,9 @@ export class Game {
     this.view.scene.add(this.avatar.group);
     this.sim = new CreatureSim(this.world, this.gen.seed);
     this.view.scene.add(this.critters.group, this.fox.group, this.bubbles.group, this.lampGlow.group);
-    ({ panel: this.companionPanel, text: this.companionText, progress: this.companionProgress } = this.buildCompanionPanel());
+    ({ panel: this.companionPanel, text: this.companionText, progress: this.companionProgress, shelter: this.companionShelter } =
+      this.buildCompanionPanel());
+    this.celebration = new Celebration(root);
     this.bubbleButton = this.topButton("bubble-btn", "Bulles", '<circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.2"/><circle cx="18.5" cy="17" r="2"/>');
     // Au doigt, le même bouton rejoint la colonne des boutons tactiles (sous le pouce droit).
     const touchCol = this.touch.root.querySelector(".touch-buttons");
@@ -284,7 +332,7 @@ export class Game {
     this.watchSaves();
     if (this.urlMode) {
       this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
-      if (this.urlMission) this.startMission(undefined, true);
+      if (opts.mission !== undefined) this.startMission(undefined, opts.mission === 0 ? TUTORIAL : MISSION_1);
     } else {
       // Accueil : qui joue, quel monde. Le jeu attend derrière, en pause.
       this.paused = true;
@@ -347,6 +395,7 @@ export class Game {
     // Nouveau monde, nouveau départ : le sac est vidé (la sauvegarde arrive au J4).
     this.inventory.clear();
     this.collectedTypes.clear();
+    this.rewardPending = null;
     this.narrator.cancelPending();
     this.afterWorldChange();
     this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
@@ -400,6 +449,8 @@ export class Game {
     this.collectedTypes.clear();
     for (const st of this.inventory.slots()) if (st) this.collectedTypes.add(st.id);
     this.phase = save.phase;
+    this.rewardPending = save.reward && isInventoryBlockId(save.reward.block) ? { block: save.reward.block, count: save.reward.count } : null;
+    this.rewardSeenInventory = -1;
     this.narrator.cancelPending();
     this.afterWorldChange();
   }
@@ -418,6 +469,7 @@ export class Game {
       phase: this.phase,
       savedAt: Date.now(),
       ...(this.mission ? { mission: this.mission.toJSON() } : {}),
+      ...(this.rewardPending ? { reward: { ...this.rewardPending } } : {}),
     };
   }
 
@@ -463,40 +515,83 @@ export class Game {
     this.paused = false;
     this.lastAutosaveAt = performance.now();
     this.welcomeSpoken = true;
-    this.startMission(save?.mission, !save);
+    this.startMission(save?.mission);
   }
 
-  /** Mission 1 et compagnon : intro pour un nouveau monde, sinon rappel de l'étape en cours. */
-  private startMission(saved: unknown, fresh: boolean): void {
-    this.mission = new MissionRunner(MISSION_1, saved);
+  /**
+   * Mission et compagnon (J6) : la mission enregistrée dans le monde, sinon le tutoriel (ou la mission 1
+   * si cet enfant a déjà fait le tutoriel). def : mission imposée (mode adresse, suite de la campagne).
+   * Mission nouvelle : Pixel se présente puis lit la consigne ; sinon il rappelle l'étape en cours.
+   */
+  private startMission(saved: unknown, def?: MissionDef): void {
+    const r = def ? { def, saved: undefined, fresh: true } : resumeMission(saved, this.session?.profile.tutorialDone ?? false);
+    this.mission = new MissionRunner(r.def, r.saved);
     this.missionDoneAt = 0;
-    if (fresh) {
-      this.tell(MISSION_1.intro, { ms: 4500, important: true });
+    this.nextMissionAt = null;
+    this.celebrationAt = null;
+    this.onStepStart(performance.now());
+    if (r.fresh) {
+      this.tell(r.def.intro, { ms: 4500, important: true });
       this.announceStepAt = performance.now() + 4500;
     } else this.announceStepAt = performance.now() + 1200;
     this.refreshCompanionPanel();
   }
 
-  /** Le compagnon lit la consigne de l'étape en cours (bouton « répète » compris). */
+  /** Début d'une étape : remise à zéro des conseils et de la dernière étape. */
+  private onStepStart(now: number): void {
+    this.stepStartedAt = now;
+    this.lastShelterHintAt = -Infinity;
+    this.watchAnnounced = false;
+    this.watchNightSince = null;
+    this.watchSawScare = false;
+    this.lastLampHintAt = -Infinity;
+    this.shelterNow = null;
+  }
+
+  /** Le compagnon lit la consigne de l'étape en cours (bouton « répète » compris), selon l'appareil. */
   private announceStep(): void {
     const step = this.mission?.current();
     if (!step) return;
-    this.tell(step.text, { spoken: step.spoken ?? step.text, ms: 4000, important: true });
+    const t = stepText(step, this.touchUi);
+    this.tell(t.text, { spoken: t.spoken, ms: 4000, important: true });
+    if (step.goal.kind === "watch") this.watchAnnounced = true;
     this.refreshCompanionPanel();
   }
 
   private refreshCompanionPanel(): void {
     const m = this.mission;
-    const on = m !== null && this.companionOn() && !this.paused && !(m.done && performance.now() - this.missionDoneAt > 12_000);
-    this.companionPanel.hidden = !on;
+    const on =
+      m !== null && this.companionOn() && !this.paused && !(m.done && performance.now() - this.missionDoneAt > 12_000);
+    if (this.companionPanel.hidden === on) {
+      this.companionPanel.hidden = !on;
+      this.placeMessageBelowCompanion();
+    }
     if (!m || !on) return;
     const step = m.current();
-    const text = pick(step ? step.text : MISSION_1.outro, this.narrator.level);
-    const p = m.progress(this.inventory);
+    const text = pick(step ? stepText(step, this.touchUi).text : m.def.outro, this.narrator.level);
+    const goal = step?.goal;
+    const counted = goal && (goal.kind === "collect" || goal.kind === "place" || goal.kind === "break");
+    const p = counted ? m.progress(this.inventory) : null;
     const prog = p ? `${p.have} / ${p.need}` : "";
     // Écrire seulement ce qui change (le panneau est rafraîchi à chaque image).
-    if (this.companionText.textContent !== text) this.companionText.textContent = text;
+    if (this.companionText.textContent !== text) {
+      this.companionText.textContent = text;
+      this.placeMessageBelowCompanion();
+    }
     if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
+    const sh = goal?.kind === "shelter";
+    const display = sh ? "" : "none";
+    if (this.companionShelter.style.display !== display) this.companionShelter.style.display = display;
+    if (sh) {
+      const c = this.shelterNow;
+      setShelterParts(this.companionShelter, c?.roof ?? false, c?.walls ?? 0, c?.ok ?? false);
+    }
+  }
+
+  /** Le message central passe sous le bandeau de Pixel (petit écran : le bandeau descend et pourrait le cacher). */
+  private placeMessageBelowCompanion(): void {
+    const bottom = this.companionPanel.hidden ? 0 : Math.ceil(this.companionPanel.getBoundingClientRect().bottom);
+    this.hud.root.style.setProperty("--companion-bottom", `${bottom}px`);
   }
 
   private companionOn(): boolean {
@@ -533,20 +628,21 @@ export class Game {
   }
 
   /**
-   * Case où une Grignote chipe un bloc : jamais une lampe ni le bloc de l'étape de mission en cours ;
+   * Case où une Grignote chipe un bloc : jamais une lampe, ni un cadeau (arc-en-ciel), ni le bloc de l'étape de mission en cours ;
    * de préférence dans une grosse pile (tirage proportionnel au nombre). null : rien à prendre.
    */
   private pickStealSlot(): number | null {
     const goal = this.mission?.current()?.goal;
-    const protectedId = goal && goal.block !== "any" ? goal.block : null;
+    const protectedId = goal && "block" in goal && goal.block !== "any" ? goal.block : null;
     const slots = this.inventory.slots();
     let total = 0;
-    for (const st of slots) if (st && st.id !== BlockId.Lamp && st.id !== protectedId) total += st.count;
+    const safe = (id: BlockId) => id !== BlockId.Lamp && id !== BlockId.Rainbow && id !== protectedId;
+    for (const st of slots) if (st && safe(st.id)) total += st.count;
     if (total === 0) return null;
     let r = Math.random() * total;
     for (let i = 0; i < slots.length; i++) {
       const st = slots[i];
-      if (!st || st.id === BlockId.Lamp || st.id === protectedId) continue;
+      if (!st || !safe(st.id)) continue;
       r -= st.count;
       if (r < 0) return i;
     }
@@ -571,7 +667,7 @@ export class Game {
   }
 
   /** Panneau du compagnon (haut de l'écran) : portrait de Pixel, consigne, avancement, bouton « répète ». */
-  private buildCompanionPanel(): { panel: HTMLDivElement; text: HTMLSpanElement; progress: HTMLSpanElement } {
+  private buildCompanionPanel(): { panel: HTMLDivElement; text: HTMLSpanElement; progress: HTMLSpanElement; shelter: SVGSVGElement } {
     const panel = document.createElement("div");
     panel.className = "companion";
     panel.hidden = true;
@@ -596,6 +692,8 @@ export class Game {
     text.className = "companion-text";
     const progress = document.createElement("span");
     progress.className = "companion-progress";
+    const shelter = shelterIcon(46);
+    shelter.style.display = "none";
     const repeat = document.createElement("button");
     repeat.type = "button";
     repeat.className = "companion-repeat";
@@ -605,12 +703,13 @@ export class Game {
     for (const ev of ["mousedown", "touchstart"]) repeat.addEventListener(ev, (e) => e.stopPropagation());
     repeat.addEventListener("click", () => {
       const m = this.mission;
-      if (m?.done) this.tell(MISSION_1.outro, { ms: 4000, important: true });
+      if (m?.done) this.tell(m.def.outro, { ms: 4000, important: true });
       else this.announceStep();
     });
-    panel.append(face, text, progress, repeat);
+    panel.append(face, text, progress, shelter, repeat);
     this.hud.root.appendChild(panel);
-    return { panel, text, progress };
+    window.addEventListener("resize", () => this.placeMessageBelowCompanion());
+    return { panel, text, progress, shelter };
   }
 
   /** Retour à l'accueil : la partie est enregistrée (sauf save = faux), le jeu attend en pause. */
@@ -625,7 +724,11 @@ export class Game {
     this.homeButton.hidden = true;
     this.session = null;
     this.mission = null;
+    this.nextMissionAt = null;
+    this.celebrationAt = null;
+    this.celebration.hide();
     this.companionPanel.hidden = true;
+    this.placeMessageBelowCompanion();
     this.home.show();
     if (saved) this.hud.showMessage(pick(SAVED, this.narrator.level), 1500);
   }
@@ -694,28 +797,45 @@ export class Game {
           }
         } else if (e.kind === "despawn" && e.carried !== null) {
           this.inventory.add(e.carried); // partie trop loin ou créatures coupées : rien n'est perdu
-        } else if (e.kind === "flee-lamp" && now - this.lampScareToldAt > 60_000 && this.companionOn()) {
-          this.lampScareToldAt = now;
-          this.tell(LAMP_SCARES, { ms: 3000, dedupe: true });
+        } else if (e.kind === "flee-lamp" && this.companionOn()) {
+          if (this.mission?.current()?.goal.kind === "watch") {
+            // Dernière étape de la mission 1 : la découverte, la nuit, une fois la consigne lue (Pixel la dira en fin de mission).
+            if (this.watchAnnounced && this.sky.night) {
+              this.watchSawScare = true;
+              this.mission.noteSignal("lamp-scare");
+            }
+          } else if (now - this.lampScareToldAt > 60_000) {
+            this.lampScareToldAt = now;
+            this.tell(LAMP_SCARES, { ms: 3000, dedupe: true });
+          }
         }
       }
       // Mission.
       const m = this.mission;
       if (m && this.companionOn()) {
-        const ev = m.update(this.inventory);
+        const goal = m.current()?.goal;
+        this.shelterNow = goal?.kind === "shelter" ? checkShelter(this.world, this.player.x, this.player.y, this.player.z, this.changedAt) : null;
+        if (goal?.kind === "shelter") this.shelterHint(now);
+        if (goal?.kind === "watch") this.updateWatch(now);
+        const ev = m.update(this.missionView);
         if (ev?.kind === "step") {
+          this.sounds.play("bravo");
           this.tell(BRAVO, { ms: 1500, important: true });
+          this.onStepStart(now);
           this.announceStepAt = now + 1600;
-        } else if (ev?.kind === "done") {
-          this.missionDoneAt = now;
-          this.tell(MISSION_1.outro, { ms: 5000, important: true });
           this.saveNow();
-        }
+        } else if (ev?.kind === "done") this.onMissionDone(m.def, now);
         if (this.announceStepAt !== null && now >= this.announceStepAt) {
           this.announceStepAt = null;
           this.announceStep();
         }
+        if (this.nextMissionAt && now >= this.nextMissionAt.at) this.startMission(undefined, this.nextMissionAt.def);
+        if (this.celebrationAt !== null && now >= this.celebrationAt) {
+          this.celebrationAt = null;
+          this.showCelebration(m.def);
+        }
       }
+      this.deliverReward(true);
     }
     this.critters.sync(this.sim.creatures, dt, bright);
     // Compagnon.
@@ -731,6 +851,173 @@ export class Game {
     }
     this.fox.group.visible = showFox;
     this.refreshCompanionPanel();
+  }
+
+  /** Bloc changé par l'enfant depuis la génération du monde (posé ou creusé) : un abri doit être le sien. */
+  private readonly changedAt = (x: number, y: number, z: number): boolean => {
+    const w = this.world;
+    if (!w.inBounds(x, y, z)) return false;
+    const i = w.index(x, y, z);
+    return w.data[i] !== this.baseData[i];
+  };
+
+  private readonly missionView: MissionView = {
+    count: (id) => this.inventory.count(id),
+    shelter: () => this.shelterNow,
+  };
+
+  /**
+   * Étape « abri » : quand l'enfant se tient, presque immobile, dans un abri commencé, Pixel dit ce qui
+   * manque (le toit, un mur) ; dans un abri naturel (sous-bois), qu'il faut construire le sien.
+   */
+  private shelterHint(now: number): void {
+    const c = this.shelterNow;
+    if (!c || c.ok) return;
+    if (now - this.stepStartedAt < 6000 || now - this.lastShelterHintAt < SHELTER_HINT_EVERY_MS) return;
+    if (Math.hypot(this.player.vx, this.player.vz) > 0.5) return;
+    const started = c.own && (c.roof || c.walls >= 2);
+    const natural = !c.own && c.roof && c.walls >= SHELTER_WALLS_NEEDED;
+    if (!started && !natural) return;
+    this.lastShelterHintAt = now;
+    const hint = !c.roof ? SHELTER_NO_ROOF : c.walls < SHELTER_WALLS_NEEDED ? SHELTER_NO_WALLS : SHELTER_NOT_OWN;
+    this.tell(hint, { ms: 3500, dedupe: true });
+  }
+
+  /**
+   * Dernière étape de la mission 1 : une fois la consigne lue, le temps file jusqu'à la nuit (voir frame) ;
+   * la nuit, une Grignote qui fuit la lampe valide l'étape (voir updateLiving). Jamais bloquant :
+   * sans nuit (mode parent), l'étape est validée tout de suite ; sans Grignotes, peu après la tombée de la
+   * nuit ; sinon, au plus tard après WATCH_FALLBACK_MS de nuit. Loin de toute lampe, Pixel rappelle d'y revenir.
+   */
+  private updateWatch(now: number): void {
+    const m = this.mission;
+    if (!m) return;
+    if (this.settings.night === "aucune") {
+      m.noteSignal("lamp-scare");
+      return;
+    }
+    if (!this.watchAnnounced) return;
+    if (!this.sky.night) {
+      this.watchNightSince = null;
+      return;
+    }
+    this.watchNightSince ??= now;
+    const t = now - this.watchNightSince;
+    if (t >= (this.creaturesOn() ? WATCH_FALLBACK_MS : WATCH_NO_CREATURES_MS)) {
+      m.noteSignal("lamp-scare");
+      return;
+    }
+    if (!this.creaturesOn() || t < 6000 || now - this.lastLampHintAt < LAMP_HINT_EVERY_MS) return;
+    let nearest = Infinity;
+    for (const l of this.lamps) nearest = Math.min(nearest, Math.hypot(l.x - this.player.x, l.z - this.player.z));
+    if (nearest > LAMP_RADIUS + 1) {
+      this.lastLampHintAt = now;
+      this.tell(BACK_TO_LAMP, { ms: 3000, dedupe: true });
+    }
+  }
+
+  /** Le temps file pendant la dernière étape de la mission 1, jusqu'à la nuit. */
+  private watchBoost(): boolean {
+    return !this.paused && this.watchAnnounced && !this.sky.night && this.mission?.current()?.goal.kind === "watch" && this.companionOn();
+  }
+
+  /**
+   * Fin d'une mission : Pixel félicite ; le tutoriel est retenu pour l'enfant et la mission 1 suit ;
+   * la mission 1 donne son cadeau et ouvre l'écran de félicitations.
+   */
+  private onMissionDone(def: MissionDef, now: number): void {
+    this.missionDoneAt = now;
+    this.sounds.play("bravo");
+    if (def === TUTORIAL) {
+      this.markTutorialDone();
+      // Retour au mode Casser : resté en mode Poser, l'enfant poserait au lieu de casser des troncs.
+      if (this.touch.mode === "place") this.touch.setMode("break");
+    }
+    if (def.reward) {
+      this.rewardPending = { ...def.reward };
+      this.rewardSeenInventory = -1;
+      this.deliverReward(false);
+    }
+    if (def.recap) {
+      // La découverte (logique) : dite par Pixel quand l'enfant a vu les Grignotes fuir la lampe.
+      if (this.watchSawScare) this.tell(LAMP_SCARES, { ms: 3500, important: true });
+      else this.tell(BRAVO, { ms: 1500, important: true });
+      this.celebrationAt = now + (this.watchSawScare ? CELEBRATION_DELAY_MS : 1600);
+    } else this.tell(def.outro, { ms: 3000, important: true });
+    this.watchSawScare = false;
+    const next = nextMission(def);
+    if (next) this.nextMissionAt = { at: now + NEXT_MISSION_DELAY_MS, def: next };
+    this.saveNow();
+  }
+
+  /** Tutoriel fini : retenu dans le profil de l'enfant (ses mondes suivants commencent à la mission 1). */
+  private markTutorialDone(): void {
+    const s = this.session;
+    if (!s || s.profile.tutorialDone) return;
+    s.profile.tutorialDone = true;
+    const list = this.store.loadProfiles();
+    if (!list) return;
+    for (const p of list) if (p.id === s.profile.id) p.tutorialDone = true;
+    this.store.saveProfiles(list);
+  }
+
+  /**
+   * Cadeau en attente : il entre dans le sac dès qu'il y a de la place (sac plein à la fin de la
+   * mission). On ne réessaie que quand le sac a changé. announce : le jeu le dit (pas pendant
+   * l'écran de félicitations, qui le montre déjà).
+   */
+  private deliverReward(announce: boolean): void {
+    const r = this.rewardPending;
+    if (!r || this.paused || this.rewardSeenInventory === this.inventory.version) return;
+    const res = this.inventory.add(r.block, r.count);
+    this.rewardSeenInventory = this.inventory.version;
+    if (!res.ok) return;
+    this.rewardPending = res.added < r.count ? { block: r.block, count: r.count - res.added } : null;
+    this.hud.pulseSlot(res.slot);
+    this.refreshInventory();
+    if (!announce) return;
+    this.sounds.play("pickup", r.block);
+    const t = rewardText(r.block, res.added);
+    this.tell(t.text, { spoken: t.spoken, ms: 3500 });
+  }
+
+  /** Écran de félicitations (fin de la mission 1) : le jeu attend derrière, en pause, jusqu'à « Continuer ». */
+  private showCelebration(def: MissionDef): void {
+    const level = this.narrator.level;
+    const title = bravoTitle(this.session?.profile.name ?? null);
+    const icon = (id: BlockId) => tileIcon(this.view.atlasCanvas, blockDef(id).tiles.side);
+    const recap: CelebrationLine[] = (def.recap ?? []).map((item) => {
+      if ("block" in item) return { icon: icon(item.block), text: capitalize(quantity(item.block, item.count)) };
+      const house = shelterIcon(40);
+      setShelterParts(house, true, 3, true);
+      return { icon: house, text: "Un abri" };
+    });
+    const reward = def.reward ? rewardText(def.reward.block, def.reward.count) : null;
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.breaker.reset();
+    this.touch.reset();
+    this.hud.setBreakProgress(null);
+    this.hud.message.classList.remove("visible"); // pas de message qui dépasse derrière la carte
+    this.paused = true;
+    this.celebration.show(
+      {
+        title: pick(title, level),
+        subtitle: pick(def.outro, level),
+        recap,
+        reward: reward && def.reward ? { icon: icon(def.reward.block), text: pick(reward.text, level) } : null,
+        button: level === "autonome" ? "Continuer à jouer" : "Continuer",
+      },
+      () => {
+        this.paused = false;
+        if (this.rewardPending) this.tell(REWARD_WAITING, { ms: 4500 });
+        this.updateHint();
+      },
+    );
+    this.sounds.play("bravo");
+    window.setTimeout(() => this.sounds.play("bravo"), 500);
+    // Lu d'une traite (lecteur débutant, voix active) : le titre, la phrase de Pixel, le cadeau.
+    const joined = (l: "debutant" | "autonome") => [pick(title, l), pick(def.outro, l), reward ? pick(reward.spoken, l) : ""].join(" ").trim();
+    this.narrator.say({ debutant: joined("debutant"), autonome: joined("autonome") }, { important: true });
   }
 
   /** Petit bouton rond en haut à droite, à côté de « Tests » (icône SVG en traits). */
@@ -1083,6 +1370,7 @@ export class Game {
     if (!w.set(x, y, z, BlockId.Air)) return;
     if (id === BlockId.Lamp) this.lampsDirty = true;
     this.lastBreakAt = performance.now();
+    this.mission?.noteBroken(id);
     this.sounds.play("break", id);
     // Le bloc cassé d'abord (il passe en main si elle est vide, et c'est lui qu'on annonce),
     // puis la fleur posée dessus, qui tombe avec lui et rejoint le sac sans message.
@@ -1260,6 +1548,12 @@ export class Game {
         creatures: this.sim.creatures.map((c) => ({ id: c.id, x: c.x, y: c.y, z: c.z, mode: c.mode, carried: c.carried })),
         companion: this.fox.group.visible && this.companion ? { x: this.companion.x, y: this.companion.y, z: this.companion.z } : null,
         mission: this.mission ? { step: this.mission.stepIndex, done: this.mission.done } : null,
+        missionId: this.mission?.def.id ?? null,
+        shelter: this.shelterNow ? { ...this.shelterNow } : null,
+        celebration: this.celebration.visible,
+        rewardPending: this.rewardPending ? { ...this.rewardPending } : null,
+        timeBoost: this.watchBoost(),
+        tutorialDone: this.session?.profile.tutorialDone ?? null,
         companionText: this.companionPanel.hidden ? null : this.companionText.textContent,
         lamps: this.lamps.length,
         bubbles: this.bubbles.count,
@@ -1286,6 +1580,8 @@ export class Game {
       },
       /** Casse un bloc comme au terme d'un appui maintenu (règles du jeu comprises : ramassage, fleur au-dessus…). */
       breakBlock: (x: number, y: number, z: number) => this.breakBlock({ x, y, z }),
+      /** Pose le bloc de la case choisie là où vise la croix, comme un clic droit (règles du jeu comprises). */
+      placeBlock: () => this.placeBlock(),
       fillInventory: () => this.fillTestKit(),
       selectSlot: (i: number) => this.setSlot(i),
       setHour: (h: number) => this.setHour(h),
@@ -1327,7 +1623,12 @@ export class Game {
         jump: this.keyboard.isDown("Space") || this.touch.jumpPressed,
         down: this.keyboard.isDown("ShiftLeft") || this.keyboard.isDown("ShiftRight"),
       });
+      // Pas du tutoriel (J6) : un déplacement d'un bloc ou plus en une image est une téléportation, pas un pas.
+      const moved = Math.hypot(this.player.x - this.prevX, this.player.z - this.prevZ);
+      if (moved < 1) this.mission?.noteWalked(moved);
     }
+    this.prevX = this.player.x;
+    this.prevZ = this.player.z;
 
     // Caméra : dans les yeux, ou derrière le personnage (troisième personne, jamais à travers un mur)
     const eye = this.player.eye();
@@ -1349,11 +1650,15 @@ export class Game {
     }
 
     // Jour et nuit, eau
-    if (!this.paused) this.phase = advancePhase(this.phase, dt * 1000, this.timeScale, this.settings.night);
+    const boost = this.watchBoost() ? WATCH_TIME_BOOST : 1;
+    if (!this.paused) this.phase = advancePhase(this.phase, dt * 1000, this.timeScale * boost, this.settings.night);
     this.sky = skyState(solarTime(this.phase));
     this.view.setSky(this.sky);
-    this.view.setUnderwater(this.player.headInWater);
-    this.hud.setUnderwater(this.player.headInWater);
+    // Voile sous l'eau : là où est la caméra (en troisième personne, elle peut être hors de l'eau quand la tête y est).
+    const c = this.view.camera.position;
+    const camInWater = this.thirdPerson ? this.world.get(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z)) === BlockId.Water : this.player.headInWater;
+    this.view.setUnderwater(camInWater);
+    this.hud.setUnderwater(camInWater);
 
     // Visée, casse par appui maintenu, sac
     this.target = raycast(this.world, eye, this.player.lookDir(), REACH);
@@ -1466,4 +1771,8 @@ function writeStorage(key: string, value: string): void {
   } catch {
     // Stockage indisponible : le choix vaut pour cette séance seulement.
   }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

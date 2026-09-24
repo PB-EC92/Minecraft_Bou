@@ -190,6 +190,15 @@ export class TouchControls {
     this.jumpPressed = false;
   }
 
+  /** Change le mode Casser / Poser depuis le jeu (J6 : retour à Casser à la fin du tutoriel). */
+  setMode(mode: TouchMode): void {
+    if (this.mode === mode) return;
+    this.mode = mode;
+    this.breakPress = null;
+    this.updateModeButton();
+    for (const h of this.modeHandlers) h(this.mode);
+  }
+
   private updateModeButton(): void {
     this.modeButton.textContent = this.mode === "break" ? "Casser" : "Poser";
     this.modeButton.classList.toggle("on", this.mode === "place");

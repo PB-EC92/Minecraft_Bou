@@ -23,6 +23,8 @@ export enum BlockId {
   Lamp = 13,
   Fence = 14,
   GlowStone = 15,
+  // J6
+  Rainbow = 16,
 }
 
 /**
@@ -50,6 +52,8 @@ export enum Tile {
   Lamp = 15,
   Fence = 16,
   GlowStone = 17,
+  // J6
+  Rainbow = 18,
 }
 
 /**
@@ -95,6 +99,8 @@ const defs: BlockDef[] = [
   { id: BlockId.Lamp, name: "lampe", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Lamp), breakMs: 250 },
   { id: BlockId.Fence, name: "clôture", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Fence), breakMs: 400 },
   { id: BlockId.GlowStone, name: "pierre brillante", solid: true, targetable: true, shape: "cube", tiles: same(Tile.GlowStone), breakMs: 500 },
+  // J6 : récompense de la mission 1 (on ne le trouve pas dans la nature).
+  { id: BlockId.Rainbow, name: "arc-en-ciel", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Rainbow), breakMs: 300 },
 ];
 
 export const BLOCKS: readonly BlockDef[] = defs;

@@ -196,6 +196,24 @@ export function drawAtlas(): HTMLCanvasElement {
     px(Tile.GlowStone, cx, cy - 1, [160, 245, 255]);
   }
 
+  // J6 — Arc-en-ciel : six bandes de couleur, bord clair, quelques paillettes
+  const bands: Rgb[] = [
+    [232, 72, 72],
+    [244, 150, 56],
+    [246, 214, 70],
+    [92, 190, 92],
+    [72, 140, 226],
+    [150, 96, 206],
+  ];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const band = bands[Math.min(bands.length - 1, Math.floor(((y - 1) / (S - 2)) * bands.length))] ?? bands[0]!;
+      const edge = x === 0 || y === 0 || x === S - 1 || y === S - 1;
+      px(Tile.Rainbow, x, y, edge ? [250, 246, 236] : mix(band, [255, 255, 255], rng() * 0.18));
+    }
+  }
+  for (let i = 0; i < 5; i++) px(Tile.Rainbow, 2 + Math.floor(rng() * (S - 4)), 2 + Math.floor(rng() * (S - 4)), [255, 255, 255]);
+
   return canvas;
 }
 

@@ -43,6 +43,7 @@ describe("breakDurationMs", () => {
       [BlockId.Lamp]: 250,
       [BlockId.Fence]: 400,
       [BlockId.GlowStone]: 500,
+      [BlockId.Rainbow]: 300,
     };
     for (const d of BLOCKS) {
       expect(breakDurationMs(d.id), d.name).toBe(expected[d.id]);
@@ -437,6 +438,7 @@ describe("ce que rapporte un bloc cassé (J5)", () => {
     expect(dropsOf(BlockId.GlowStone)).toEqual({ main: BlockId.Lamp, extra: null });
     expect(dropsOf(BlockId.Log)).toEqual({ main: BlockId.Log, extra: BlockId.Fence });
     expect(dropsOf(BlockId.Lamp)).toEqual({ main: BlockId.Lamp, extra: null });
+    expect(dropsOf(BlockId.Rainbow)).toEqual({ main: BlockId.Rainbow, extra: null });
     expect(dropsOf(BlockId.Air)).toEqual({ main: null, extra: null });
     expect(dropsOf(BlockId.Water)).toEqual({ main: null, extra: null });
     expect(dropsOf(200)).toEqual({ main: null, extra: null });

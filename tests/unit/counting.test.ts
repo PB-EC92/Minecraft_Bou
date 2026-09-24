@@ -10,6 +10,7 @@ import {
   PICKUP_VOICE_STEP,
   quantity,
   returnedText,
+  rewardText,
   shouldSpeakPickup,
   stolenText,
   spokenQuantity,
@@ -85,6 +86,7 @@ describe("messages fixes (texts.ts)", () => {
     const names = CONSTANTS.map(([name]) => name).sort();
     expect(names).toEqual(
       [
+        "BACK_TO_LAMP",
         "BOTTOM_LAYER",
         "BUBBLES_FLY",
         "CHOOSE_AVATAR",
@@ -102,7 +104,11 @@ describe("messages fixes (texts.ts)", () => {
         "MOUSE_RESUME",
         "NIGHT_COMING",
         "NO_SPACE",
+        "REWARD_WAITING",
         "SAVED",
+        "SHELTER_NOT_OWN",
+        "SHELTER_NO_ROOF",
+        "SHELTER_NO_WALLS",
         "VIEW_FIRST",
         "VIEW_THIRD",
         "WELCOME",
@@ -178,6 +184,19 @@ describe("noms comptables", () => {
     expect(countNoun(BlockId.FlowerYellow)).toEqual({ one: "fleur jaune", many: "fleurs jaunes", feminine: true });
     expect(countNoun(BlockId.Snow)).toEqual({ one: "bloc de neige", many: "blocs de neige", feminine: false });
     expect(countNoun(BlockId.Cactus)).toEqual({ one: "cactus", many: "cactus", feminine: false });
+    expect(countNoun(BlockId.Rainbow)).toEqual({ one: "bloc arc-en-ciel", many: "blocs arc-en-ciel", feminine: false });
+  });
+
+  it("cadeau de fin de mission (J6) : chiffres à l'écran, lettres à la voix", () => {
+    const r = rewardText(BlockId.Rainbow, 5);
+    expect(plainText(r.text)).toEqual({
+      debutant: "Cadeau : 5 blocs arc-en-ciel !",
+      autonome: "Cadeau : tu as gagné 5 blocs arc-en-ciel pour décorer ton abri !",
+    });
+    expect(plain(r.spoken.debutant)).toBe("Cadeau : cinq blocs arc-en-ciel !");
+    expect(r.spoken.autonome).not.toMatch(/\d/);
+    expect(texts.bravoTitle("Léa").debutant).toBe(`Bravo Léa${NBSP}!`);
+    expect(texts.bravoTitle(null).autonome).toBe(`Bravo, mission réussie${NBSP}!`);
   });
 
   it("donnent « bloc » pour l'air et les identifiants inconnus", () => {

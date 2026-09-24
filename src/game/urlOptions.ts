@@ -13,8 +13,8 @@ export interface UrlOptions {
   distance?: number;
   /** Mode adresse : Grignotes (J5) seulement si demandées (#creatures=1), pour ne pas perturber les tests. */
   creatures?: boolean;
-  /** Mode adresse : compagnon et mission seulement si demandés (#mission=1). */
-  mission?: boolean;
+  /** Mode adresse : compagnon et mission seulement si demandés : #mission=0 (tutoriel, J6) ou #mission=1 (mission 1). */
+  mission?: 0 | 1;
 }
 
 export const MAX_SEED = 999_999;
@@ -37,7 +37,8 @@ export function parseUrlOptions(hash: string): UrlOptions {
   const distance = parseDistance(params.get("distance"));
   if (distance !== undefined) out.distance = distance;
   if (params.get("creatures") === "1") out.creatures = true;
-  if (params.get("mission") === "1") out.mission = true;
+  const mission = params.get("mission");
+  if (mission === "0" || mission === "1") out.mission = mission === "0" ? 0 : 1;
   return out;
 }
 
