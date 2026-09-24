@@ -7,7 +7,9 @@ import {
   numberWords,
   pickupSpeech,
   pickupText,
+  PICKUP_VOICE_STEP,
   quantity,
+  shouldSpeakPickup,
   spokenQuantity,
   withDe,
 } from "../../src/edu/counting";
@@ -392,6 +394,27 @@ describe("texte de ramassage", () => {
     for (const d of BLOCKS) {
       for (const total of [1, 2, 21, 99]) expectChildText(pickupText(d.id, total));
     }
+  });
+});
+
+describe("lecture du compte à voix haute (paliers)", () => {
+  it("lit le premier bloc d'un type et chaque palier de 5", () => {
+    expect(PICKUP_VOICE_STEP).toBe(5);
+    const spoken = Array.from({ length: 21 }, (_, i) => i + 1).filter((n) => shouldSpeakPickup(n));
+    expect(spoken).toEqual([1, 5, 10, 15, 20]);
+    expect(shouldSpeakPickup(95)).toBe(true);
+    expect(shouldSpeakPickup(99)).toBe(false);
+  });
+
+  it("met à jour une lecture du même type encore en attente, même hors palier", () => {
+    expect(shouldSpeakPickup(7, true)).toBe(true);
+    expect(shouldSpeakPickup(7, false)).toBe(false);
+  });
+
+  it("un total absurde compte comme un premier bloc (lu)", () => {
+    for (const t of [0, -4, Number.NaN, Number.POSITIVE_INFINITY]) expect(shouldSpeakPickup(t)).toBe(true);
+    expect(shouldSpeakPickup(5.9)).toBe(true);
+    expect(shouldSpeakPickup(6.2)).toBe(false);
   });
 });
 

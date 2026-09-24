@@ -133,6 +133,22 @@ export function pickupText(id: BlockId, total: number, first = pickupTotal(total
   };
 }
 
+/** Palier de lecture à voix haute du compte : tous les PICKUP_VOICE_STEP blocs d'un même type. */
+export const PICKUP_VOICE_STEP = 5;
+
+/**
+ * Le compte d'un ramassage doit-il être lu à voix haute ? (retour de la première séance J2 :
+ * relu à chaque bloc, il devenait répétitif). Oui pour le premier bloc d'un type (ou le retour
+ * d'un type dont la case s'était vidée : total 1) et à chaque palier (5, 10, 15…) ; sinon le
+ * « pop » et le nombre à l'écran suffisent. voicePending : une lecture de ce même type attend
+ * encore (appui maintenu, voir Narrator.snooze) ; on la remplace alors par le compte à jour,
+ * pour que la voix ne dise pas « cinq » quand l'écran montre déjà 7.
+ */
+export function shouldSpeakPickup(total: number, voicePending = false): boolean {
+  const n = pickupTotal(total);
+  return voicePending || n === 1 || n % PICKUP_VOICE_STEP === 0;
+}
+
 /** Même contenu, pour la voix : nombres en lettres accordés (« Trois pierres ! », « … Tu en as trois. »). */
 export function pickupSpeech(id: BlockId, total: number, first = pickupTotal(total) === 1): ChildText {
   const n = pickupTotal(total);

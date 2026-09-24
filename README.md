@@ -1,6 +1,6 @@
 # Cubes (nom provisoire)
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J2** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases avec leur nombre, on pose ce qu'on a ramassé ; sons et compte lu à voix haute (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro, sac vide (la sauvegarde arrive au J4).
+Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J2.1** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases avec leur nombre, on pose ce qu'on a ramassé ; sons et compte lu à voix haute (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro, sac vide (la sauvegarde arrive au J4).
 
 ## Jouer
 
@@ -12,7 +12,7 @@ Sur tablette : doigt gauche = joystick, doigt droit = regarder ; on vise avec la
 
 ### Le sac
 
-Chaque bloc cassé est ramassé : il rejoint la case de son type dans la barre du bas (9 cases, 99 blocs au plus par case), et son nombre s'affiche. Poser un bloc en retire un. Le jeu annonce le compte (« 3 pierres ! ») à l'écran et, pour le lecteur débutant, à voix haute. Les planches ne se trouvent pas dans la nature pour l'instant : le bouton **Compléter le sac** du panneau « Tests » complète jusqu'à 20 blocs de chaque sorte, dans la limite des 9 cases (ce qui a été ramassé reste ; « Vider le sac » d'abord pour avoir tout le kit). Le panneau règle aussi le niveau de lecture (débutant : messages courts lus à voix haute ; autonome : phrases complètes, voix coupée), la voix et les sons.
+Chaque bloc cassé est ramassé : il rejoint la case de son type dans la barre du bas (9 cases, 99 blocs au plus par case), et son nombre s'affiche. Poser un bloc en retire un. Le jeu annonce le compte (« 3 pierres ! ») à l'écran ; pour le lecteur débutant, la voix le lit au premier bloc de chaque sorte puis tous les 5 blocs (5, 10, 15…), pour ne pas se répéter. Les planches ne se trouvent pas dans la nature pour l'instant : le bouton **Compléter le sac** du panneau « Tests » complète jusqu'à 20 blocs de chaque sorte, dans la limite des 9 cases (ce qui a été ramassé reste ; « Vider le sac » d'abord pour avoir tout le kit). Le panneau règle aussi le niveau de lecture (débutant : messages courts lus à voix haute ; autonome : phrases complètes, voix coupée), la voix et les sons.
 
 ### Choisir le monde
 

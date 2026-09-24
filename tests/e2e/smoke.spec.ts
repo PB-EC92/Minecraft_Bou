@@ -31,6 +31,8 @@ interface DebugState {
   breakProgress: number;
   level: string;
   voice: boolean;
+  /** Phrases demandées à la voix, les plus récentes à la fin (20 au plus). */
+  spoken: string[];
   sound: string;
 }
 
@@ -226,7 +228,7 @@ test("le jeu démarre en file:// sans erreur, sur une prairie générée", async
   expect(s.type).toBe("prairie");
   expect(info.faces).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").innerText()).toMatch(/J2$/);
+  expect(await page.locator(".info").innerText()).toMatch(/J2\.1$/);
   expect(page.url()).toMatch(/#monde=prairie&graine=\d+$/);
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
 });
@@ -267,7 +269,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : J2");
+  await expect(diag).toContainText("Version : J2.1");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
@@ -573,6 +575,34 @@ test("fleurs : cassée avec son bloc, elle est ramassée aussi ; remplacée par 
   await expect.poll(() => blockAt(page, { ...aimed, y: aimed.y + 1 })).toBe(B.stone);
   expect(await inv()).toEqual([{ id: B.stone, count: 2 }, { id: B.flowerRed, count: 1 }]);
   await expect(page.locator(".message")).toContainText("Une fleur rouge");
+  expect(errors).toEqual([]);
+});
+
+test("voix : le compte est lu au premier bloc et aux paliers de 5, pas à chaque ramassage", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const spoken = async () => (await state(page)).spoken.map((s) => s.replaceAll("\u00a0", " "));
+  const breakStone = (x: number) =>
+    page.evaluate((x) => {
+      window.cubesDebug.setBlock(x, 3, 5, 3);
+      window.cubesDebug.breakBlock(x, 3, 5);
+    }, x);
+  await breakStone(4);
+  await expect.poll(spoken).toContain("Une pierre !");
+  // 2 à 4 : écran seul (le compte s'affiche, la voix se tait).
+  for (const x of [5, 6, 7]) {
+    await breakStone(x);
+    await expect(page.locator(".message")).toContainText(`${x - 3} pierres`);
+    await page.waitForTimeout(700);
+  }
+  expect(await spoken()).toEqual(["Une pierre !"]);
+  await breakStone(8);
+  await expect.poll(spoken).toEqual(["Une pierre !", "Cinq pierres !"]);
+  // Palier suivi d'un ramassage avant la lecture (appui maintenu) : la voix dit le compte à jour.
+  await page.evaluate(() => window.cubesDebug.give(3, 4)); // 9 pierres
+  await breakStone(9);
+  await breakStone(10);
+  await expect.poll(spoken).toEqual(["Une pierre !", "Cinq pierres !", "Onze pierres !"]);
   expect(errors).toEqual([]);
 });
 

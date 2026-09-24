@@ -7,7 +7,7 @@ import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, maxStackText, pickupSpeech, pickupText } from "../edu/counting";
+import { emptiedText, maxStackText, pickupSpeech, pickupText, shouldSpeakPickup } from "../edu/counting";
 import { Narrator, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
@@ -41,7 +41,7 @@ import { Player } from "./Player";
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J2";
+export const VERSION = "J2.1";
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
 const LOADING_RADIUS = 40;
 /** Budget de maillage par image (ms) : large pendant le chargement, réduit ensuite. */
@@ -114,6 +114,9 @@ export class Game {
   private shownInventory = -1;
   /** Types déjà ramassés dans ce monde : « ton premier tronc » n'est dit qu'une fois. */
   private readonly collectedTypes = new Set<BlockId>();
+  private readonly spokenLog: string[] = [];
+  /** Type du dernier ramassage envoyé à la voix (sa lecture peut encore attendre, voir collect). */
+  private voicedPickupId: BlockId | null = null;
   /** Appui pendant lequel « Ça ne se casse pas » a déjà été dit (couche du bas). */
   private bottomToldFor: BreakPress | null = null;
   private wheelAccum = 0;
@@ -148,7 +151,12 @@ export class Game {
     this.hud = new Hud(root, this.view.atlasCanvas, VERSION);
     this.narrator = new Narrator({
       show: (text, ms) => this.hud.showMessage(text, ms),
-      speak: (text) => this.speakWhenAllowed(text),
+      speak: (text) => {
+        // Journal des phrases demandées à la voix (tests de fumée : le cloud n'a pas de voix à écouter).
+        this.spokenLog.push(text);
+        if (this.spokenLog.length > 20) this.spokenLog.shift();
+        this.speakWhenAllowed(text);
+      },
       now: () => performance.now(),
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (id) => window.clearTimeout(id),
@@ -546,9 +554,13 @@ export class Game {
     if (announce && !this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
     this.refreshInventory();
     if (announce) {
+      // Voix au premier bloc d'un type et aux paliers (5, 10…) ; entre les deux, l'écran seul.
+      const voice = shouldSpeakPickup(r.count, this.narrator.hasPending && this.voicedPickupId === id);
+      if (voice) this.voicedPickupId = id;
       this.tell(pickupText(id, r.count, first), {
         spoken: pickupSpeech(id, r.count, first),
         voiceDelayMs: PICKUP_VOICE_DELAY_MS,
+        voice,
         ms: 1800,
       });
     }
@@ -673,6 +685,7 @@ export class Game {
         touchMode: this.touch.mode,
         level: this.narrator.level,
         voice: this.narrator.voice,
+        spoken: [...this.spokenLog],
         sound: this.sounds.state,
       }),
       /** Donne des blocs (tests) : renvoie le résultat de l'ajout. */

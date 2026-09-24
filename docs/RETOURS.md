@@ -2,6 +2,17 @@
 
 Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, ce qui a coincé, et les idées. Les enfants ont toujours raison sur ce qui est amusant ou frustrant.
 
+## Protocole J2.1 (voix par paliers)
+
+Vérifier que la ligne d'infos se termine par « J2.1 ». Niveau de lecture débutant, voix active.
+
+| Vérification | PC | Convertible (mode tablette, Firefox) |
+|---|---|---|
+| Premier bloc d'une sorte : la voix dit « Une pierre ! » | | |
+| 2ᵉ, 3ᵉ, 4ᵉ bloc : le nombre s'affiche, « pop », pas de voix | | |
+| 5ᵉ, 10ᵉ bloc : la voix dit « Cinq pierres ! », « Dix pierres ! » | | |
+| Avec les enfants : la voix est-elle encore trop présente, ou trop rare ? | | |
+
 ## Protocole J2 (à faire par Pierre, puis séance avec les enfants)
 
 Vérifier d'abord que la ligne d'infos en haut à gauche se termine par « J2 ». Le protocole J1 ci-dessous reste valable (tablette en priorité) : le dérouler avec ce fichier J2. Au départ, **le sac est vide** : on ne pose que ce qu'on a ramassé. Le panneau **Tests** contient une nouvelle section **Jeu** : niveau de lecture, voix, sons, « Compléter le sac » (jusqu'à 20 blocs de chaque sorte, dans la limite des 9 cases ; « Vider le sac » d'abord pour avoir tout le kit), « Vider le sac ». « — » = sans objet.

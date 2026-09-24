@@ -155,3 +155,13 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Séance enfants.** « Ils arrivent à prendre en main, déconstruisent plus que construisent pour l'instant, intéressés. » Ils ont vite pris les choses en main (appui maintenu compris). **La voix est jugée répétitive** : chaque ramassage relit le compte (« trois pierres », « quatre pierres »…). Durée de jeu non notée.
 
 **Suite.** Audit de compatibilité « convertible Windows + Firefox » en cours ; mise à jour des documents (Android → convertible) ensuite ; le déplacement involontaire au doigt entre au J3.
+
+## 2026-09-24 — J2.1 : la voix lit le compte par paliers
+
+**Décision de Pierre.** Après le retour « la voix est répétitive » : lire le compte à voix haute au premier bloc d'une sorte et aux paliers de 5 (5, 10, 15, 20…) ; entre les deux, le « pop » et le nombre à l'écran (option recommandée parmi quatre : paliers, phrases variées, premier bloc seulement, paliers + phrases variées).
+
+**Fait.** `shouldSpeakPickup` (`src/edu/counting.ts`, pur, testé) décide si un ramassage est lu : total 1 (premier bloc d'une sorte, ou retour d'une sorte dont la case s'était vidée) ou multiple de `PICKUP_VOICE_STEP` = 5. Si la lecture d'un palier attend encore (appui maintenu, lecture repoussée au relâchement) et qu'un autre bloc du même type arrive, la voix dit le compte à jour (« onze » et non « dix » quand l'écran montre 11). Le niveau autonome n'est pas touché (voix coupée par défaut). `window.cubesDebug.state().spoken` : les 20 dernières phrases demandées à la voix (pour les tests de fumée, le cloud n'ayant pas de voix). Ligne d'infos terminée par « J2.1 ».
+
+**Tests.** 389 tests unitaires (3 nouveaux) ; tests de fumée : 43 exécutions vertes (un nouveau cas : « Une pierre », rien à 2, 3 et 4, « Cinq pierres », puis compte à jour quand un palier attend).
+
+**À vérifier par Pierre.** Avec les enfants : la voix est-elle encore trop présente, ou trop rare ? Le palier de 5 se change en une ligne (`PICKUP_VOICE_STEP`).
