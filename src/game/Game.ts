@@ -38,10 +38,11 @@ import { SceneView } from "../render/SceneView";
 import { showFatalError } from "../ui/fatal";
 import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
+import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "./renderDistance";
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 
 const REACH = 6;
-export const VERSION = "J2.1";
+export const VERSION = "J3";
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
 const LOADING_RADIUS = 40;
 /** Budget de maillage par image (ms) : large pendant le chargement, réduit ensuite. */
@@ -147,7 +148,7 @@ export class Game {
     root.appendChild(canvas);
 
     this.view = new SceneView(canvas, this.world, this.coarsePointer);
-    this.view.setRenderDistance(opts.distance ?? (this.coarsePointer ? 48 : 96));
+    this.view.setRenderDistance(initialRenderDistance(opts.distance, readStorage(DISTANCE_STORAGE_KEY)));
     this.hud = new Hud(root, this.view.atlasCanvas, VERSION);
     this.narrator = new Narrator({
       show: (text, ms) => this.hud.showMessage(text, ms),
@@ -201,13 +202,18 @@ export class Game {
   private afterWorldChange(): void {
     this.hud.setWorldControls(this.gen.type, this.gen.seed);
     try {
-      history.replaceState(null, "", formatUrlOptions(this.gen.type, this.gen.seed));
+      history.replaceState(null, "", this.urlOptions());
     } catch {
       // Adresse non modifiable (certains navigateurs en file://) : sans conséquence.
     }
     this.nearSections = Math.max(1, this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS));
     // Vrai chargement (nouveau monde) : levé une fois le voisinage construit ; un bloc cassé ne le remet pas.
     this.loading = true;
+  }
+
+  /** Adresse du monde affiché (type, graine, distance si elle diffère de la valeur par défaut). */
+  private urlOptions(): string {
+    return formatUrlOptions(this.gen.type, this.gen.seed, this.view.renderDistance, DEFAULT_RENDER_DISTANCE);
   }
 
   newWorld(type: WorldTypeId, seed: number): void {
@@ -309,6 +315,14 @@ export class Game {
       else if (!fallback) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
     });
     this.touch.onAction(() => this.placeBlock());
+    this.touch.onFullscreenRequest(() => void this.toggleFullscreen());
+    // Pas de menu contextuel du navigateur sur le jeu (appui long au doigt, clic droit hors de la vue 3D) :
+    // « Actualiser » y ferait perdre la construction. Les champs du panneau le gardent (copier, coller).
+    document.addEventListener("contextmenu", (e) => {
+      const t = e.target;
+      if (t instanceof Element && t.closest(".panel") && t.matches("input, textarea, select")) return;
+      e.preventDefault();
+    });
     this.touch.onModeChange(() => this.updateHint());
     this.touch.onBreakRelease((p) => this.onBreakRelease(p));
 
@@ -358,7 +372,15 @@ export class Game {
     });
     hud.distanceSelect.addEventListener("change", () => {
       const d = Number(hud.distanceSelect.value);
-      if (Number.isFinite(d)) this.view.setRenderDistance(d);
+      if (!Number.isFinite(d)) return;
+      this.view.setRenderDistance(d);
+      // Choix de l'adulte retenu (J3) : au prochain démarrage, et dans l'adresse (un rechargement le garde).
+      writeStorage(DISTANCE_STORAGE_KEY, String(d));
+      try {
+        history.replaceState(null, "", this.urlOptions());
+      } catch {
+        // Adresse non modifiable : sans conséquence, le stockage local suffit.
+      }
     });
     hud.levelSelect.addEventListener("change", () => {
       const level = parseReadingLevel(hud.levelSelect.value);
@@ -425,9 +447,9 @@ export class Game {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
       } else {
+        // Pas de verrouillage d'orientation (J3) : le convertible se joue en portrait comme en paysage,
+        // et Firefox sur PC ne le permet pas ; la rotation se règle dans Windows.
         await document.documentElement.requestFullscreen();
-        const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-        if (orientation.lock) await orientation.lock("landscape").catch(() => undefined);
       }
     } catch (err) {
       this.hud.showMessage(`Plein écran impossible : ${String(err)}`);
@@ -677,6 +699,7 @@ export class Game {
         contextLost: this.view.contextLost,
         contextLosses: this.view.contextLosses,
         renderDistance: this.view.renderDistance,
+        fov: this.view.camera.fov,
         target: this.target ? { ...this.target } : null,
         slot: this.selectedSlot,
         inventory: this.inventory.slots(),
@@ -828,7 +851,7 @@ export class Game {
         `Heure : ${formatHour(this.sky.hour)} (${this.sky.night ? "nuit" : "jour"}), vitesse ×${this.timeScale}`,
         `Adresse : ${location.protocol}//${location.host || "(fichier local)"}`,
         `Navigateur : ${navigator.userAgent}`,
-        `Écran : ${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio}× (rendu ${g.pixelRatio}×)`,
+        `Fenêtre : ${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio}× (rendu ${g.pixelRatio}×), écran ${screen.width}×${screen.height}, champ de vision ${Math.round(this.view.camera.fov)}° vertical${document.fullscreenElement ? ', plein écran' : ''}`,
         `Tactile : pointeur principal ${this.coarsePointer ? "doigt" : "souris"}, interface tactile ${
           this.touchUi ? "affichée" : "masquée"
         } (${navigator.maxTouchPoints} points)`,
@@ -844,5 +867,22 @@ export class Game {
         `Sac : ${this.inventory.usedSlots()}/${this.inventory.size} cases, ${this.inventory.totalBlocks()} blocs`,
       ].join("\n"),
     );
+  }
+}
+
+/** Lecture du stockage local sans exception (stockage bloqué ou indisponible : null). */
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette séance seulement.
   }
 }

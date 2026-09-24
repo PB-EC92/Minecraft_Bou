@@ -1,10 +1,13 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const dist = resolve("dist/cubes.html");
 const url = pathToFileURL(dist).href;
+
+/** Profils tactiles : le convertible replié, en portrait (« tablette ») et en paysage (« tablette-paysage », cas @tactile seulement). */
+const isTouch = (info: TestInfo) => info.project.name.startsWith("tablette");
 
 /** Monde plat de test (celui du J0) : positions et blocs connus, pour des tests stables. */
 const FLAT = "#monde=plat&graine=1";
@@ -26,6 +29,9 @@ interface DebugState {
   contextLost: boolean;
   contextLosses: number;
   target: { x: number; y: number; z: number; nx: number; ny: number; nz: number } | null;
+  renderDistance: number;
+  /** Champ de vision vertical de la caméra (degrés). */
+  fov: number;
   slot: number;
   inventory: (Stack | null)[];
   breakProgress: number;
@@ -228,7 +234,7 @@ test("le jeu démarre en file:// sans erreur, sur une prairie générée", async
   expect(s.type).toBe("prairie");
   expect(info.faces).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").innerText()).toMatch(/J2\.1$/);
+  expect(await page.locator(".info").innerText()).toMatch(/J3$/);
   expect(page.url()).toMatch(/#monde=prairie&graine=\d+$/);
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
 });
@@ -269,7 +275,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : J2.1");
+  await expect(diag).toContainText("Version : J3");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
@@ -730,8 +736,8 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   expect(errors).toEqual([]);
 });
 
-test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mode Poser puis tapoter pose", async ({ page, context }, testInfo) => {
-  test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
+test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mode Poser puis tapoter pose @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page);
   const t = await touchDriver(context, page);
   await t.drag(900, 250, 450); // regarder vers le sol
@@ -752,8 +758,8 @@ test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mo
   expect(errors).toEqual([]);
 });
 
-test("au doigt : viser en glissant puis garder le doigt immobile casse le bloc visé", async ({ page, context }, testInfo) => {
-  test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
+test("au doigt : viser en glissant puis garder le doigt immobile casse le bloc visé @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page);
   const cdp = await context.newCDPSession(page);
   const touch = (type: "touchStart" | "touchMove" | "touchEnd", y = 0) =>
@@ -768,8 +774,8 @@ test("au doigt : viser en glissant puis garder le doigt immobile casse le bloc v
   expect(errors).toEqual([]);
 });
 
-test("au doigt : passer en mode Casser avec le doigt déjà posé commence la casse", async ({ page, context }, testInfo) => {
-  test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
+test("au doigt : passer en mode Casser avec le doigt déjà posé commence la casse @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page);
   const t = await touchDriver(context, page);
   await t.drag(900, 250, 450);
@@ -794,8 +800,8 @@ test("au doigt : passer en mode Casser avec le doigt déjà posé commence la ca
   expect(errors).toEqual([]);
 });
 
-test("au doigt : toucher une case de la barre la choisit", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
+test("au doigt : toucher une case de la barre la choisit @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   await openGame(page);
   await page.evaluate(() => window.cubesDebug.fillInventory());
   await page.locator(".slot").nth(4).tap();
@@ -804,16 +810,172 @@ test("au doigt : toucher une case de la barre la choisit", async ({ page }, test
   await expect(page.locator(".slot-name")).toHaveClass(/visible/);
 });
 
-test("l'interface tactile apparaît sur tablette, pas sur PC", async ({ page }, testInfo) => {
+test("l'interface tactile apparaît sur tablette, pas sur PC @tactile", async ({ page }, testInfo) => {
   await openGame(page);
   const touchUi = page.locator(".touch");
-  if (testInfo.project.name === "tablette") {
+  if (isTouch(testInfo)) {
     await expect(touchUi).toHaveClass(/enabled/);
     await expect(page.getByRole("button", { name: "Sauter" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("tablette.png") });
   } else {
     await expect(touchUi).not.toHaveClass(/enabled/);
   }
+});
+
+/** Centre et rayon du rond (joystick fixe) à l'écran. */
+async function joystickGeometry(page: Page): Promise<{ x: number; y: number; r: number }> {
+  return page.locator(".joystick").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 };
+  });
+}
+
+const horizontalMove = (a: DebugState, b: DebugState) => Math.hypot(b.player.x - a.player.x, b.player.z - a.player.z);
+
+test("au doigt : seul le rond fait marcher ; un toucher ailleurs, même au-dessus du rond, regarde (retour J2) @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", x = 0, y = 0) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const j = await joystickGeometry(page);
+  expect(j.r).toBeGreaterThan(50);
+  // Sur le rond, doigt vers le haut : on avance.
+  const start = await state(page);
+  await touch("touchStart", j.x, j.y);
+  await touch("touchMove", j.x, j.y - j.r);
+  await expect.poll(async () => horizontalMove(start, await state(page)), { timeout: 5_000 }).toBeGreaterThan(0.3);
+  await touch("touchEnd");
+  await page.waitForTimeout(300);
+  // Bien au-dessus du rond, dans ce qui était la « moitié gauche » avant le J3 : glisser regarde, sans marcher.
+  const before = await state(page);
+  const look0 = await readInfo(page);
+  const y = j.y - 4 * j.r;
+  await touch("touchStart", j.x, y);
+  for (let i = 1; i <= 10; i++) await touch("touchMove", j.x + 20 * i, y);
+  await touch("touchEnd");
+  const look1 = await readInfo(page);
+  expect(look1.yaw).not.toBe(look0.yaw);
+  expect(horizontalMove(before, await state(page))).toBeLessThan(0.05);
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : un nouveau doigt reprend le regard (doigt d'un autre enfant, paume posée) @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const cdp = await context.newCDPSession(page);
+  const vp = page.viewportSize()!;
+  const p1 = { x: Math.round(vp.width * 0.8), y: 300, id: 1 }; // contact immobile qui prend le regard
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [p1] });
+  await page.waitForTimeout(100);
+  const x2 = Math.round(vp.width * 0.6);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [p1, { x: x2, y: 500, id: 2 }] });
+  const look0 = await readInfo(page);
+  for (let i = 1; i <= 10; i++) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [p1, { x: x2 - 20 * i, y: 500, id: 2 }] });
+  }
+  const look1 = await readInfo(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  expect(look1.yaw).not.toBe(look0.yaw);
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : si le jeu perd le focus, le personnage s'arrête même sans doigt levé @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const cdp = await context.newCDPSession(page);
+  const j = await joystickGeometry(page);
+  const start = await state(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: j.x, y: j.y, id: 1 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: j.x, y: j.y - j.r, id: 1 }] });
+  await expect.poll(async () => horizontalMove(start, await state(page)), { timeout: 5_000 }).toBeGreaterThan(0.3);
+  // Geste de Windows depuis un bord, autre appli : le doigt levé pendant ce temps ne parviendrait jamais au jeu.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.waitForTimeout(300);
+  const a = await state(page);
+  await page.waitForTimeout(600);
+  expect(horizontalMove(a, await state(page))).toBeLessThan(0.05);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : toucher la marge ou l'espace entre deux cases choisit la case la plus proche @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const bar = (await page.locator(".hotbar").boundingBox())!;
+  const s2 = (await page.locator(".slot").nth(2).boundingBox())!;
+  const s4 = (await page.locator(".slot").nth(4).boundingBox())!;
+  const s5 = (await page.locator(".slot").nth(5).boundingBox())!;
+  await page.touchscreen.tap(bar.x + 3, bar.y + bar.height / 2); // marge de gauche
+  await expect(page.locator(".slot").nth(0)).toHaveClass(/selected/);
+  const gap = s4.x + s4.width + (s5.x - (s4.x + s4.width)) * 0.75; // entre 5 et 6, plus près de 6
+  await page.touchscreen.tap(gap, s4.y + s4.height / 2);
+  await expect(page.locator(".slot").nth(5)).toHaveClass(/selected/);
+  await page.touchscreen.tap(s2.x + s2.width / 2, bar.y + bar.height - 2); // marge du bas
+  await expect(page.locator(".slot").nth(2)).toHaveClass(/selected/);
+  expect(errors).toEqual([]);
+});
+
+test("plein écran à la portée de l'enfant : un bouton au doigt, masqué une fois en plein écran @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const btn = page.locator(".fullscreen-btn");
+  await expect(btn).toBeVisible();
+  await expect(btn).toHaveAttribute("aria-label", "Plein écran");
+  await btn.tap();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  await expect(btn).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("champ de vision élargi en portrait, inchangé en paysage ; distance de rendu 96 par défaut @tactile", async ({ page }) => {
+  const errors = await openGame(page);
+  const st = await state(page);
+  expect(st.renderDistance).toBe(96);
+  const vp = page.viewportSize()!;
+  const aspect = vp.width / vp.height;
+  const horizontal = (2 * Math.atan(Math.tan((st.fov * Math.PI) / 360) * aspect) * 180) / Math.PI;
+  if (aspect < 1) {
+    expect(st.fov).toBeGreaterThan(80);
+    expect(horizontal).toBeGreaterThan(59.9);
+  } else {
+    expect(st.fov).toBe(70);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("distance de rendu : le choix de l'adulte est retenu (adresse et stockage local)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  expect(page.url()).not.toContain("distance=");
+  await page.getByRole("button", { name: "Tests" }).click();
+  await page.getByLabel("Distance de rendu").selectOption("128");
+  expect((await state(page)).renderDistance).toBe(128);
+  await expect.poll(() => page.url()).toContain("distance=128");
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).renderDistance).toBe(128);
+  // Nouvelle ouverture, sans distance dans l'adresse : le choix vient du stockage local.
+  await page.goto("about:blank");
+  await openGame(page);
+  expect((await state(page)).renderDistance).toBe(128);
+  expect(errors).toEqual([]);
+});
+
+test("pas de menu contextuel du navigateur sur le jeu, sauf dans les champs du panneau", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const prevented = (sel: string) =>
+    page.evaluate((sel) => {
+      const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      document.querySelector(sel)!.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    }, sel);
+  expect(await prevented("canvas.game")).toBe(true);
+  expect(await prevented(".hotbar")).toBe(true);
+  expect(await prevented(".panel-toggle")).toBe(true);
+  expect(await prevented(".panel input")).toBe(false);
+  expect(errors).toEqual([]);
 });
 
 test("PC à écran tactile : interface tactile masquée jusqu'au premier toucher (constat 5)", async ({ page, context }, testInfo) => {

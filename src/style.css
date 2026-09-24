@@ -383,43 +383,51 @@ canvas.game {
   display: block;
 }
 
+/* Joystick fixe (J3) : toujours visible en bas à gauche ; seul un toucher sur lui (ou tout près) fait marcher.
+   Écarté des bords (28 px) : hors plein écran, la barre des tâches de Windows est juste dessous. */
 .joystick {
+  --stick: 150px;
   position: absolute;
-  width: 120px;
-  height: 120px;
+  left: calc(28px + env(safe-area-inset-left));
+  bottom: calc(28px + env(safe-area-inset-bottom));
+  width: var(--stick);
+  height: var(--stick);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  transform: translate(-50%, -50%);
-  display: none;
+  background: rgba(255, 255, 255, 0.16);
+  border: 3px solid rgba(255, 255, 255, 0.45);
 }
 .joystick .knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 56px;
-  height: 56px;
+  width: 66px;
+  height: 66px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.6);
   transform: translate(-50%, -50%);
 }
 .joystick.active {
-  display: block;
+  background: rgba(255, 255, 255, 0.26);
+  border-color: rgba(255, 210, 63, 0.85);
+}
+.joystick.active .knob {
+  background: rgba(255, 210, 63, 0.9);
 }
 
 .touch-buttons {
   position: absolute;
-  right: calc(14px + env(safe-area-inset-right));
-  bottom: calc(14px + env(safe-area-inset-bottom));
+  right: calc(28px + env(safe-area-inset-right));
+  bottom: calc(28px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 12px;
   align-items: flex-end;
 }
-/* Écran étroit (portrait, petite tablette) : les boutons remontent au-dessus de la barre pour ne pas couvrir de case. */
+/* Écran étroit (portrait, petite tablette) : boutons et joystick remontent au-dessus de la barre pour ne pas couvrir de case. */
 @media (max-width: 1000px) {
-  .touch-buttons {
-    bottom: calc(14px + var(--slot) + 36px + env(safe-area-inset-bottom));
+  .touch-buttons,
+  .joystick {
+    bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));
   }
 }
 .touch-btn {
@@ -438,6 +446,18 @@ canvas.game {
 .touch-btn.on {
   background: rgba(255, 210, 63, 0.85);
   color: #222;
+}
+/* Plein écran : plus petit, au-dessus des deux autres ; masqué une fois en plein écran. */
+.touch-btn.fullscreen-btn {
+  order: -1;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.touch-btn[hidden] {
+  display: none;
 }
 
 .hint {

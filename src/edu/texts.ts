@@ -143,15 +143,15 @@ export const HINTS: {
   readonly mouseFallback: ChildText;
 } = {
   touch: {
-    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · garde le doigt${NBSP}: casser · touche Casser${NBSP}: poser`,
+    debutant: `Rond${NBSP}: marcher · glisse${NBSP}: regarder · garde le doigt${NBSP}: casser · touche Casser${NBSP}: poser`,
     autonome:
-      `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix du milieu et garde le doigt immobile${NBSP}: casser · ` +
+      `Rond en bas à gauche${NBSP}: marcher · glisse ailleurs${NBSP}: regarder · vise avec la croix du milieu et garde le doigt immobile${NBSP}: casser · ` +
       `touche le bouton Casser, il devient Poser, puis tape${NBSP}: poser`,
   },
   touchPlace: {
-    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · tape${NBSP}: poser · touche Poser${NBSP}: casser`,
+    debutant: `Rond${NBSP}: marcher · glisse${NBSP}: regarder · tape${NBSP}: poser · touche Poser${NBSP}: casser`,
     autonome:
-      `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix du milieu et tape${NBSP}: poser · ` +
+      `Rond en bas à gauche${NBSP}: marcher · glisse ailleurs${NBSP}: regarder · vise avec la croix du milieu et tape${NBSP}: poser · ` +
       `touche le bouton Poser, il redevient Casser${NBSP}: casser`,
   },
   mouse: {

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { SkyState } from "../engine/dayNight";
 import type { World } from "../engine/World";
 import { ChunkRenderer } from "./ChunkRenderer";
+import { verticalFovFor } from "./fov";
 import { WATER_SURFACE } from "./mesher";
 import { Sky } from "./Sky";
 import { createAtlasTexture, drawAtlas } from "./textures";
@@ -219,6 +220,8 @@ export class SceneView {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // Portrait : champ vertical élargi pour garder au moins 60° en largeur (J3, voir fov.ts).
+    this.camera.fov = verticalFovFor(w / h);
     this.camera.updateProjectionMatrix();
   }
 

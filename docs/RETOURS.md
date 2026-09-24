@@ -4,6 +4,39 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole J3 (tactile et convertible)
+
+Sur le convertible replié, avec Firefox. Vérifier que la ligne d'infos se termine par « J3 ». Faire le tableau en portrait puis en paysage. Le protocole J2.1 (voix par paliers) ci-dessous peut se faire en même temps.
+
+| Vérification | Portrait | Paysage |
+|---|---|---|
+| Un rond est visible en bas à gauche ; doigt posé dessus et poussé : on marche ; doigt levé : on s'arrête | | |
+| Toucher un bloc ailleurs, même à gauche au-dessus du rond : on ne marche pas ; glisser regarde ; doigt immobile : le bloc sous la croix se casse | | |
+| Un doigt reste posé sur l'écran (main, doigt d'un autre enfant) : un nouveau doigt peut quand même regarder et casser | | |
+| Toucher entre deux cases ou sur le bord de la barre : la case la plus proche est choisie ; appui long sur la barre : pas de menu de Firefox | | |
+| Petit bouton carré au-dessus de « Casser » : passe en plein écran et disparaît ; panneau Tests → « Plein écran » : on en sort | | |
+| Diagnostic, ligne « Fenêtre » : champ de vision d'environ 88° en portrait, 70° en paysage ; en portrait, on voit plus large qu'avant | | |
+| Tourner l'appareil en pleine partie : l'image se réajuste, rien ne reste bloqué | | |
+| Distance de rendu : 96 blocs à l'ouverture ; choisir 128, fermer puis rouvrir le fichier : toujours 128 | | |
+| À 128 blocs, après 10 s sans bouger puis en marchant : noter « i/s », « moy. » et « pire » (ligne en haut à gauche) | | |
+| Doigt sur le rond, passer à une autre appli puis revenir : le personnage ne marche pas tout seul | | |
+| Balayer depuis les bords gauche, droit et haut pendant la partie (en plein écran et hors plein écran) : noter si l'on sort du jeu | | |
+
+### Séance enfants J3
+
+Même consigne : « Construis une cabane. » À observer : trouvent-ils seuls le rond pour marcher ? Se déplacent-ils encore sans le vouloir ? Portrait ou paysage, lequel choisissent-ils ? Utilisent-ils le bouton plein écran ? Sortent-ils du jeu par accident ? Combien de temps jouent-ils ?
+
+## Séance du … — J3
+
+Appareil : convertible, Firefox, portrait / paysage
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Idées des enfants :
+
 ## Protocole J2.1 (voix par paliers)
 
 Vérifier que la ligne d'infos se termine par « J2.1 ». Niveau de lecture débutant, voix active.

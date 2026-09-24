@@ -31,15 +31,18 @@ src/engine/   World (tableau plat + versions par section de 16³, bords = murs),
               sauvegarde), breaking (casse par appui maintenu : progression, verrou, écart de répétition)
 src/render/   SceneView (Three.js, brouillard, mer au-delà des bords, perte de contexte), ChunkRenderer (sections,
               file par distance, budget par image, distance de rendu), mesher (pur : faces visibles, occlusion
-              ambiante, eau, fleurs en croix), atlas (disposition pure), textures (dessin), Sky (soleil, lune, étoiles)
-src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/appui), mouseFilter (fonctions pures), TouchControls,
+              ambiante, eau, fleurs en croix), atlas (disposition pure), textures (dessin), Sky (soleil, lune, étoiles),
+              fov (champ de vision élargi en portrait, pur)
+src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/appui), mouseFilter (fonctions pures), TouchControls
+              (joystick fixe, reprise par un nouveau doigt, bouton plein écran), touchZones (zone du joystick, pur),
               breakPress (appui « casser » commun souris/tactile, pur)
 src/audio/    sounds (sons synthétisés Web Audio, recettes pures, contexte créé au premier geste)
-src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`), Player (marches, eau, escalade de secours), urlOptions (#monde=…)
+src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`), Player (marches, eau, escalade de secours), urlOptions (#monde=…),
+              renderDistance (distance au démarrage : adresse, puis `cubes:distance`, puis 96)
 src/edu/      Speech (synthèse vocale, voix locales préférées), texts (messages en deux variantes, niveaux de lecture),
               counting (noms comptables, nombres en lettres accordés, phrases de ramassage), Narrator (affiche la
               variante du niveau, lit à voix haute, anti-répétition) ; à venir : profils, missions, compagnon
-src/ui/       Hud (DOM natif, pas de framework), fatal (écran d'erreur lisible)
+src/ui/       Hud (DOM natif, pas de framework), nearestSlot (case la plus proche d'un toucher, pur), fatal (écran d'erreur lisible)
 src/save/     à venir (J4)
 tests/unit    Vitest — moteur
 tests/e2e     Playwright — fumée sur le fichier construit
@@ -54,7 +57,7 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, travailler dans le clone git hors OneDrive (voir `README.md`).
 - Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; une session Claude Code démarrée sur le dépôt GitHub `PB-EC92/Minecraft_Bou` commite et pousse sur sa branche (PR vers `main`). Messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
 - Aucun échec bloquant, y compris physique : toute nouvelle façon de se coincer (trou, piège de blocs) doit garder une sortie à la portée d'un enfant de 6 ans (aujourd'hui : l'escalade de secours, `Player`).
-- Tests de fumée : Playwright n'a ici que Chromium ; tout comportement propre à Firefox (appareil des enfants) se vérifie à la main par Pierre, à noter dans le protocole de `RETOURS.md`. L'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
+- Tests de fumée : Playwright n'a ici que Chromium ; tout comportement propre à Firefox (appareil des enfants) se vérifie à la main par Pierre, à noter dans le protocole de `RETOURS.md`. Profils : `pc`, `tablette` (le convertible en portrait, 1080 × 1802) et `tablette-paysage` (1920 × 1080, seulement les cas dont le titre contient `@tactile`). L'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 - Tests de fumée : ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons compris), oriente le regard, téléporte, remplit ou vide le sac, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
 - Casser demande un appui maintenu (J2) : dans un test, `mouse.down`, attendre que le bloc soit devenu de l'air, puis `mouse.up` ; un `click` ne casse rien.
 - Sons et voix : le navigateur les bloque tant qu'il n'y a pas eu de geste (clic, touche, toucher) ; ne jamais lire ni jouer au démarrage.

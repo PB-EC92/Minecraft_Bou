@@ -3,6 +3,7 @@ import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
 import { tileIcon } from "../render/textures";
+import { nearestSlot } from "./nearestSlot";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
 export const RENDER_DISTANCES = [32, 48, 64, 96, 128] as const;
@@ -100,17 +101,28 @@ export class Hud {
       count.className = "count";
       slot.appendChild(count);
       this.shown.push(null);
-      const select = (e: Event) => {
-        e.preventDefault();
-        e.stopPropagation();
-        for (const h of this.selectHandlers) h(i);
-      };
-      slot.addEventListener("mousedown", select);
-      slot.addEventListener("touchstart", select, { passive: false });
       slot.addEventListener("animationend", () => slot.classList.remove("pulse"));
       this.hotbar.appendChild(slot);
       this.slots.push(slot);
     }
+    // Toute la barre choisit une case, marges et espaces compris : la plus proche du doigt ou du clic (J3).
+    // Annuler l'événement empêche aussi le menu contextuel du navigateur sur un appui long.
+    const select = (e: MouseEvent | TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const x = "changedTouches" in e ? e.changedTouches[0]?.clientX : e.clientX;
+      if (x === undefined) return;
+      const i = nearestSlot(
+        x,
+        this.slots.map((s) => {
+          const r = s.getBoundingClientRect();
+          return r.left + r.width / 2;
+        }),
+      );
+      if (i >= 0) for (const h of this.selectHandlers) h(i);
+    };
+    this.hotbar.addEventListener("mousedown", select);
+    this.hotbar.addEventListener("touchstart", select, { passive: false });
     this.root.appendChild(this.hotbar);
 
     this.loading = this.div("loading");

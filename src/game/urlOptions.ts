@@ -30,11 +30,20 @@ export function parseUrlOptions(hash: string): UrlOptions {
   if (seed !== undefined) out.seed = seed;
   const hour = Number(params.get("heure"));
   if (params.has("heure") && Number.isFinite(hour) && hour >= 0 && hour < 24) out.hour = hour;
-  const distance = Number(params.get("distance"));
-  if (params.has("distance") && Number.isFinite(distance) && distance >= 16 && distance <= 256) out.distance = Math.round(distance);
+  const distance = parseDistance(params.get("distance"));
+  if (distance !== undefined) out.distance = distance;
   return out;
 }
 
-export function formatUrlOptions(type: WorldTypeId, seed: number): string {
-  return `#monde=${type}&graine=${seed}`;
+/** Distance valide pour l'adresse et le stockage : entière, de 16 à 256 blocs. */
+export function parseDistance(v: string | number | null | undefined): number | undefined {
+  if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return undefined;
+  const d = Number(v);
+  return Number.isFinite(d) && d >= 16 && d <= 256 ? Math.round(d) : undefined;
+}
+
+/** Adresse du monde affiché ; la distance n'y figure que si elle diffère de la valeur par défaut (J3 : elle n'est plus effacée au rechargement). */
+export function formatUrlOptions(type: WorldTypeId, seed: number, distance?: number, defaultDistance?: number): string {
+  const d = distance !== undefined && distance !== defaultDistance ? `&distance=${distance}` : "";
+  return `#monde=${type}&graine=${seed}${d}`;
 }

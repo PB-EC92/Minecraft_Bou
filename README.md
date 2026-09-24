@@ -1,14 +1,14 @@
 # Cubes (nom provisoire)
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J2.1** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases avec leur nombre, on pose ce qu'on a ramassé ; sons et compte lu à voix haute (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro, sac vide (la sauvegarde arrive au J4).
+Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J3** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases avec leur nombre, on pose ce qu'on a ramassé ; sons et compte lu à voix haute ; commandes tactiles revues pour le convertible replié, en portrait comme en paysage (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro, sac vide (la sauvegarde arrive au J4).
 
 ## Jouer
 
-Ouvrir `dist/cubes.html` par double-clic (Chrome, Edge ou Firefox). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J2.1 ») : si ce n'est pas le cas, c'est une ancienne copie.
+Ouvrir `dist/cubes.html` par double-clic (Chrome, Edge ou Firefox). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J3 ») : si ce n'est pas le cas, c'est une ancienne copie.
 
 Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche maintenu** pour casser (un anneau se remplit autour du viseur ; une fleur se cueille avec un appui plus court, mais un clic bref ne suffit pas), **clic droit** pour poser le bloc de la case choisie, **1 à 9** ou la **molette** pour choisir une case, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Tombé dans un trou ? Garder **Espace** en avançant contre la paroi : au bout d'un instant, on grimpe (un mur de deux blocs arrête toujours si l'on marche sans sauter). En gardant le clic, on casse les blocs à la suite, mais un seul plus bas que ses pieds par appui. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, bouton gauche maintenu sans bouger pour casser (on peut aussi viser en glissant puis s'arrêter sans lâcher), clic droit sans bouger pour poser.
 
-Sur tablette (le convertible replié) : doigt gauche = joystick, doigt droit = regarder ; on vise avec la croix du milieu ; en mode **Casser**, garder le doigt droit immobile casse le bloc visé (on peut viser en glissant puis s'arrêter sans lever le doigt) ; toucher le bouton **Casser** le fait devenir **Poser** : tapoter pose alors ; bouton **Sauter** (garder **Sauter** en poussant le joystick contre une paroi pour grimper hors d'un trou) ; toucher une case de la barre la choisit. Le bouton **Plein écran** est dans le panneau « Tests ».
+Sur tablette (le convertible replié, en portrait ou en paysage) : le **rond** en bas à gauche fait marcher (poser le doigt dessus et le pousser) ; partout ailleurs, glisser le doigt regarde. On vise avec la croix du milieu ; en mode **Casser**, garder le doigt immobile casse le bloc visé (on peut viser en glissant puis s'arrêter sans lever le doigt) ; un nouveau doigt reprend la main (un doigt resté posé ne bloque rien) ; toucher le bouton **Casser** le fait devenir **Poser** : tapoter pose alors ; bouton **Sauter** (garder **Sauter** en poussant le joystick contre une paroi pour grimper hors d'un trou) ; toucher la barre choisit la case la plus proche. Le petit bouton carré au-dessus de **Casser** passe en **plein écran** (conseillé : la barre des tâches de Windows et les onglets de Firefox ne sont plus sous les doigts).
 
 ### Le sac
 
@@ -16,7 +16,7 @@ Chaque bloc cassé est ramassé : il rejoint la case de son type dans la barre d
 
 ### Choisir le monde
 
-Au démarrage : une prairie, avec une graine au hasard. Le panneau **Tests** (en haut à droite) permet de choisir le type (prairie, île, montagne, désert), la graine (même type + même graine = le même monde), l'heure (matin, midi, soir, nuit, temps accéléré) et la distance de rendu. L'adresse retient le monde affiché (`cubes.html#monde=ile&graine=1234`) : recharger la page redonne le même monde, et l'on peut taper une adresse de ce type pour en ouvrir un précis. On peut aussi y ajouter `&heure=20` ou `&distance=48` (pris en compte à l'ouverture). Le choix du monde par les enfants, sur un écran d'accueil, arrive au J4.
+Au démarrage : une prairie, avec une graine au hasard. Le panneau **Tests** (en haut à droite) permet de choisir le type (prairie, île, montagne, désert), la graine (même type + même graine = le même monde), l'heure (matin, midi, soir, nuit, temps accéléré) et la distance de rendu. L'adresse retient le monde affiché (`cubes.html#monde=ile&graine=1234`) : recharger la page redonne le même monde, et l'on peut taper une adresse de ce type pour en ouvrir un précis. On peut aussi y ajouter `&heure=20` ou `&distance=48` (pris en compte à l'ouverture). La distance de rendu vaut 96 blocs par défaut ; le choix fait dans le panneau est retenu d'une ouverture à l'autre (stockage local) et reste dans l'adresse. Le choix du monde par les enfants, sur un écran d'accueil, arrive au J4.
 
 ### Mettre le fichier sur le convertible (appareil des enfants)
 
@@ -26,7 +26,7 @@ Copier `dist/cubes.html` dans un dossier fixe du convertible (par exemple `Docum
 
 À chaque nouvelle version, **remplacer le fichier au même endroit, sous le même nom** (`cubes.html`, pas `cubes(1).html`). Sous Firefox, le stockage local d'un fichier ouvert en local serait lié à son chemin exact (non vérifié) : à partir du J4, une copie ailleurs ou renommée ne retrouverait pas les mondes des enfants.
 
-Conseils pour le mode tablette : lancer le **Plein écran** (panneau « Tests ») pour que la barre des tâches et les onglets de Firefox ne soient pas sous les doigts ; si l'image tourne quand on penche l'appareil, activer le verrouillage de la rotation de Windows (Centre de notifications). `npm run preview` (servir `dist/` sur le wifi de la maison) reste possible mais n'a plus d'usage prévu.
+Conseils pour le mode tablette : lancer le **plein écran** (petit bouton carré à droite) pour que la barre des tâches et les onglets de Firefox ne soient pas sous les doigts ; si l'image tourne quand on penche l'appareil, activer le verrouillage de la rotation de Windows (Centre de notifications). `npm run preview` (servir `dist/` sur le wifi de la maison) reste possible mais n'a plus d'usage prévu.
 
 ## Développer
 
