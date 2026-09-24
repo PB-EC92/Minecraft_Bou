@@ -55,8 +55,8 @@ Hors V1 : multijoueur, craft complexe, survie/faim, monstres violents, armes et 
 ## Plateformes et contrôles
 
 PC Windows : clavier ZQSD + souris.
-Tablette Android (Chrome) : joystick virtuel à gauche, regard au doigt à droite, gros boutons.
-Un seul et même fichier de jeu pour les deux ; l'interface détecte le tactile.
+Tablette : ordinateur convertible Windows 10 (Acer Nitro 5 Spin NP515-51) replié en mode tablette, navigateur Firefox : joystick virtuel à gauche, regard au doigt à droite, gros boutons. Le même appareil peut être déplié (clavier et pavé tactile) : il devient alors un PC. Il n'y a pas de tablette Android (précisé par Pierre le 24/09/2026).
+Un seul et même fichier de jeu pour tous ; l'interface détecte le tactile.
 
 ## Contraintes techniques
 
@@ -68,11 +68,13 @@ Un seul et même fichier de jeu pour les deux ; l'interface détecte le tactile.
 
 1. L'enfant de 6 ans lance le jeu et joue 15 minutes seul.
 2. Il comprend et termine la mission 1 sans aide d'un adulte.
-3. Le jeu tourne de façon fluide sur la tablette.
+3. Le jeu tourne de façon fluide sur le convertible en mode tablette.
 4. Les deux profils retrouvent leur monde à la partie suivante.
 
 ## Points ouverts et éléments non vérifiés
 
-- Voix françaises de synthèse : vérifiées sur le PC (Chrome, 4 voix françaises dont Microsoft Hortense, fonctionne wifi coupé) ; tablette à tester (repli : sons et icônes).
+- Voix françaises de synthèse : vérifiées sur le PC (Chrome, 4 voix françaises dont Microsoft Hortense, fonctionne wifi coupé) et sur le convertible (Firefox, mêmes 4 voix locales).
 - Node.js sur le poste : v24.11.0, compatible avec Vite 8 et Vitest 5 (vérifié le 23/09/2026).
-- Capture souris (Pointer Lock) dans un fichier ouvert par double-clic : vérifiée sur le PC (Chrome) ; Edge non testé. Performances 3D de la tablette (modèle inconnu), ouverture du fichier et stockage local sur Android : à valider.
+- Capture souris (Pointer Lock) dans un fichier ouvert par double-clic : vérifiée sur le PC (Chrome) ; Edge non testé.
+- Convertible en mode tablette (Firefox, `file://`) : ouverture, stockage local, retour d'une autre appli et 60 images/s à 48 et 96 blocs vérifiés au J1 ; à 128 blocs, seul le temps de calcul a été relevé (2,8 ms en moyenne), pas les images par seconde.
+- Sauvegardes sous Firefox (non vérifié) : en `file://`, Firefox rattacherait le stockage local au chemin exact du fichier (Chrome et Edge le partagent entre tous les fichiers locaux). Une copie du jeu ailleurs, ou renommée « cubes(1).html », ne retrouverait pas les mondes. À vérifier avant le J4.

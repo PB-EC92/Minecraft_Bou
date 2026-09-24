@@ -165,3 +165,21 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Tests.** 389 tests unitaires (3 nouveaux) ; tests de fumée : 43 exécutions vertes (un nouveau cas : « Une pierre », rien à 2, 3 et 4, « Cinq pierres », puis compte à jour quand un palier attend).
 
 **À vérifier par Pierre.** Avec les enfants : la voix est-elle encore trop présente, ou trop rare ? Le palier de 5 se change en une ligne (`PICKUP_VOICE_STEP`).
+
+## 2026-09-24 — Audit « convertible Windows + Firefox » ; documents mis à jour
+
+**Méthode.** Quatre relecteurs en parallèle (passage plié ↔ déplié, particularités de Firefox sous Windows, écran et ergonomie, documents et tests), chacun contre-vérifié par un second agent chargé de réfuter chaque constat en relisant le code (et, quand c'était possible, en le reproduisant dans Chromium en 1080 × 1802). 46 constats : 18 confirmés dans le code, 27 plausibles (ils dépendent de Firefox ou de Windows, que le cloud ne peut pas faire tourner), 1 réfuté. Aucun n'est bloquant ; l'essentiel est ramené à « mineur » par les vérificateurs.
+
+**Principaux constats, à traiter au J3.**
+- Déplacement involontaire signalé par Pierre : confirmé dans le code, tout toucher dans la moitié gauche de l'écran commande le déplacement (`TouchControls`), et en portrait cette moitié ne fait que 540 px. Un contact déjà posé (paume, doigt d'un autre enfant) prend aussi la zone et bloque le vrai doigt ; à droite, en mode Casser, il casse le bloc visé sans bouger (reproduit).
+- Portrait : champ de vision de 46° en largeur (contre environ 100° en paysage) ; le verrouillage paysage prévu au J3 ne ferait rien dans Firefox sur PC (non vérifié sur l'appareil) : retiré du plan, rotation laissée à Windows.
+- Distance de rendu par défaut à 48 blocs quand le pointeur est tactile, jamais mémorisée, et `#distance=` effacé de l'adresse au démarrage. 96 blocs est mesuré à 60 images/s sur l'appareil ; 128 ne l'est pas encore (seul le temps de calcul l'est).
+- Hors plein écran, la barre des tâches de Windows est juste sous le bouton Sauter (14 px) : risque de sortir du jeu par accident. Plein écran seulement accessible depuis le panneau adulte.
+- Barre du bas : la marge intérieure (environ 22 % de sa surface) ne réagit pas au doigt ; un appui long hors des cases pourrait ouvrir le menu contextuel de Firefox (« Actualiser » ferait perdre la construction tant qu'il n'y a pas de sauvegarde).
+- Déplié : l'interface tactile, une fois affichée, ne se masque plus et les aides souris ne reviennent pas ; sous Firefox, la touche « 4 » (apostrophe en AZERTY) ouvre la recherche rapide et prend le clavier au jeu ; Alt seul affiche la barre de menus. Sans effet replié.
+- Stockage : sous Firefox, le `localStorage` d'un fichier local serait lié à son chemin exact (non vérifié, environ 80 % de confiance du relecteur) : contrainte de conception pour le J4.
+- Tests : Playwright ne dispose ici que de Chromium ; le profil « tablette » imite une tablette Android en paysage, pas le convertible. Pas de test d'un toucher suivi d'une souris.
+
+**Documents mis à jour.** `BRIEF.md` (plateformes, critère 3, points ouverts), `PLAN.md` (pile tactile, stockage, `file://`, J1, J3 réécrit « Tactile et convertible », risques, §7), `README.md` (installation sur le convertible avec Firefox, fichier toujours remplacé au même endroit), `CLAUDE.md` (appareil des enfants, règle 7, Firefox vérifié à la main), `RETOURS.md` (colonnes « Tablette Android » = convertible).
+
+**Questions ouvertes pour Pierre.** Les enfants jouent-ils en portrait ou en paysage ? Déplient-ils parfois l'appareil (clavier, pavé tactile) ? Lancement du J3 avec ce contenu ?

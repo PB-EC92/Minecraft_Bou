@@ -4,11 +4,11 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans u
 
 ## Jouer
 
-Ouvrir `dist/cubes.html` par double-clic (Chrome ou Edge). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J2 ») : si ce n'est pas le cas, c'est une ancienne copie.
+Ouvrir `dist/cubes.html` par double-clic (Chrome, Edge ou Firefox). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J2.1 ») : si ce n'est pas le cas, c'est une ancienne copie.
 
 Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche maintenu** pour casser (un anneau se remplit autour du viseur ; une fleur se cueille avec un appui plus court, mais un clic bref ne suffit pas), **clic droit** pour poser le bloc de la case choisie, **1 à 9** ou la **molette** pour choisir une case, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Tombé dans un trou ? Garder **Espace** en avançant contre la paroi : au bout d'un instant, on grimpe (un mur de deux blocs arrête toujours si l'on marche sans sauter). En gardant le clic, on casse les blocs à la suite, mais un seul plus bas que ses pieds par appui. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, bouton gauche maintenu sans bouger pour casser (on peut aussi viser en glissant puis s'arrêter sans lâcher), clic droit sans bouger pour poser.
 
-Sur tablette : doigt gauche = joystick, doigt droit = regarder ; on vise avec la croix du milieu ; en mode **Casser**, garder le doigt droit immobile casse le bloc visé (on peut viser en glissant puis s'arrêter sans lever le doigt) ; toucher le bouton **Casser** le fait devenir **Poser** : tapoter pose alors ; bouton **Sauter** (garder **Sauter** en poussant le joystick contre une paroi pour grimper hors d'un trou) ; toucher une case de la barre la choisit. Le bouton **Plein écran** est dans le panneau « Tests ».
+Sur tablette (le convertible replié) : doigt gauche = joystick, doigt droit = regarder ; on vise avec la croix du milieu ; en mode **Casser**, garder le doigt droit immobile casse le bloc visé (on peut viser en glissant puis s'arrêter sans lever le doigt) ; toucher le bouton **Casser** le fait devenir **Poser** : tapoter pose alors ; bouton **Sauter** (garder **Sauter** en poussant le joystick contre une paroi pour grimper hors d'un trou) ; toucher une case de la barre la choisit. Le bouton **Plein écran** est dans le panneau « Tests ».
 
 ### Le sac
 
@@ -18,11 +18,15 @@ Chaque bloc cassé est ramassé : il rejoint la case de son type dans la barre d
 
 Au démarrage : une prairie, avec une graine au hasard. Le panneau **Tests** (en haut à droite) permet de choisir le type (prairie, île, montagne, désert), la graine (même type + même graine = le même monde), l'heure (matin, midi, soir, nuit, temps accéléré) et la distance de rendu. L'adresse retient le monde affiché (`cubes.html#monde=ile&graine=1234`) : recharger la page redonne le même monde, et l'on peut taper une adresse de ce type pour en ouvrir un précis. On peut aussi y ajouter `&heure=20` ou `&distance=48` (pris en compte à l'ouverture). Le choix du monde par les enfants, sur un écran d'accueil, arrive au J4.
 
-### Mettre le fichier sur la tablette Android
+### Mettre le fichier sur le convertible (appareil des enfants)
 
-Copier `dist/cubes.html` sur la tablette par câble USB, carte mémoire ou un cloud **personnel** (pas l'OneDrive ECOME, qui mettrait un compte professionnel sur la tablette familiale). L'ouvrir ensuite depuis le gestionnaire de fichiers avec **Chrome** (« Ouvrir avec… »), pas avec une visionneuse intégrée.
+L'appareil « tablette » est un ordinateur convertible Windows 10 (Acer Nitro 5 Spin NP515-51), utilisé replié, avec **Firefox**. Il n'y a pas de tablette Android.
 
-Si Chrome refuse d'ouvrir un fichier local, ou si le diagnostic n'affiche pas « Stockage local : ok », plan B : sur le PC, dans le dossier du projet, lancer `npm run preview`, puis ouvrir sur la tablette l'adresse affichée (de la forme `http://192.168.x.x:4173/cubes.html`). Les deux appareils doivent être sur le même wifi. Les sauvegardes (à partir de J4) seront alors liées à cette adresse : réserver l'adresse du PC dans la box pour qu'elle ne change pas.
+Copier `dist/cubes.html` dans un dossier fixe du convertible (par exemple `Documents\Cubes`), par clé USB ou un cloud **personnel** (pas l'OneDrive ECOME, qui mettrait un compte professionnel sur l'appareil familial). L'ouvrir avec Firefox (clic droit → « Ouvrir avec » → Firefox) ; un raccourci sur le bureau vers ce fichier, ouvert par Firefox, évite que Windows le donne à Edge.
+
+À chaque nouvelle version, **remplacer le fichier au même endroit, sous le même nom** (`cubes.html`, pas `cubes(1).html`). Sous Firefox, le stockage local d'un fichier ouvert en local serait lié à son chemin exact (non vérifié) : à partir du J4, une copie ailleurs ou renommée ne retrouverait pas les mondes des enfants.
+
+Conseils pour le mode tablette : lancer le **Plein écran** (panneau « Tests ») pour que la barre des tâches et les onglets de Firefox ne soient pas sous les doigts ; si l'image tourne quand on penche l'appareil, activer le verrouillage de la rotation de Windows (Centre de notifications). `npm run preview` (servir `dist/` sur le wifi de la maison) reste possible mais n'a plus d'usage prévu.
 
 ## Développer
 

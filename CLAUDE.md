@@ -1,6 +1,6 @@
 # CLAUDE.md — projet « Cubes »
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur débutant, 8 ans lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
+Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur débutant, 8 ans lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Appareil des enfants : un convertible Windows 10 (Acer Nitro 5 Spin NP515-51) replié en mode tablette, sous **Firefox** (pas de tablette Android) ; il peut aussi être déplié (clavier, pavé tactile). Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
 
 ## Commandes
 
@@ -10,7 +10,7 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur dé
 - `npm run typecheck` — deux passes : `tsconfig.json` (code du jeu, sans types Node) et `tsconfig.node.json` (tests et configuration).
 - `npm test` — tests unitaires Vitest (`tests/unit`).
 - `npm run test:e2e` — tests de fumée Playwright sur `dist/cubes.html` ouvert en `file://` (lancer `npm run build` avant ; `npx playwright install chromium` une fois).
-- `npm run preview` — sert `dist/` sur le réseau local (plan B pour la tablette).
+- `npm run preview` — sert `dist/` sur le réseau local (plus d'usage prévu : la tablette est un convertible Windows qui ouvre le fichier directement).
 
 ## Règles non négociables
 
@@ -20,7 +20,7 @@ Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur dé
 4. **Clavier par position physique** : `KeyboardEvent.code` (KeyW/KeyA/KeyS/KeyD → ZQSD en AZERTY). Jamais `event.key` pour le déplacement.
 5. **Le moteur (`src/engine/`) ne dépend pas de Three.js** ni du DOM : il est testé en Node par Vitest. Le rendu (`src/render/`) consomme le moteur.
 6. **Identifiants de blocs stables** (`src/engine/blocks.ts`) : on ajoute à la fin, on ne renumérote jamais (sauvegardes).
-7. **Clés de stockage préfixées `cubes:`** (en `file://` le `localStorage` est partagé entre tous les fichiers locaux).
+7. **Clés de stockage préfixées `cubes:`** (en `file://`, Chrome et Edge partagent le `localStorage` entre tous les fichiers locaux ; Firefox le rattacherait au chemin exact du fichier, non vérifié : en tenir compte au J4).
 
 ## Architecture (voir `docs/PLAN.md` §2)
 
@@ -54,7 +54,7 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, travailler dans le clone git hors OneDrive (voir `README.md`).
 - Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; une session Claude Code démarrée sur le dépôt GitHub `PB-EC92/Minecraft_Bou` commite et pousse sur sa branche (PR vers `main`). Messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
 - Aucun échec bloquant, y compris physique : toute nouvelle façon de se coincer (trou, piège de blocs) doit garder une sortie à la portée d'un enfant de 6 ans (aujourd'hui : l'escalade de secours, `Player`).
-- Tests de fumée : l'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
+- Tests de fumée : Playwright n'a ici que Chromium ; tout comportement propre à Firefox (appareil des enfants) se vérifie à la main par Pierre, à noter dans le protocole de `RETOURS.md`. L'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 - Tests de fumée : ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons compris), oriente le regard, téléporte, remplit ou vide le sac, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
 - Casser demande un appui maintenu (J2) : dans un test, `mouse.down`, attendre que le bloc soit devenu de l'air, puis `mouse.up` ; un `click` ne casse rien.
 - Sons et voix : le navigateur les bloque tant qu'il n'y a pas eu de geste (clic, touche, toucher) ; ne jamais lire ni jouer au démarrage.

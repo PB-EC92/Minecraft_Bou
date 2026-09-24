@@ -52,7 +52,7 @@ Blocs V1 (une quinzaine) : herbe, terre, pierre, sable, tronc, planches, feuille
 
 Contrôles clavier : touches repérées par position physique (`KeyboardEvent.code`), ce qui donne ZQSD en AZERTY et WASD en QWERTY sans aucun réglage. Regard à la souris via Pointer Lock.
 
-Tactile : moitié gauche de l'écran = joystick virtuel ; moitié droite = glisser pour regarder ; boutons saut, bascule casser/poser, inventaire ; réticule au centre ; plein écran et orientation paysage.
+Tactile : moitié gauche de l'écran = joystick virtuel ; moitié droite = glisser pour regarder ; boutons saut, bascule casser/poser, inventaire ; réticule au centre ; plein écran. L'appareil tactile est un convertible Windows sous Firefox, utilisé replié : l'orientation est laissée à Windows (verrou de rotation), un verrouillage par le code n'y étant pas pris en charge (Firefox ne le permet que sur Android, non vérifié sur l'appareil).
 
 Audio : sons synthétisés par Web Audio (aucun fichier). Voix : `speechSynthesis` avec une voix fr-FR ; repli texte + icônes + sons si aucune voix française n'est disponible.
 
@@ -60,7 +60,7 @@ Jour/nuit : cycle de 12 minutes au J1 (9 de jour, 3 de nuit), nuit jamais noire 
 
 Créatures : machine à états simple. Le jour elles errent loin du joueur ; la nuit elles s'approchent, chipent un bloc de l'inventaire au contact, fuient à quelques blocs d'une lampe et ne franchissent pas les clôtures.
 
-Sauvegarde : `localStorage` par profil (blocs du monde compressés par plages puis encodés en base64, inventaire, position, progression) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, le stockage local est partagé entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`.
+Sauvegarde : `localStorage` par profil (blocs du monde compressés par plages puis encodés en base64, inventaire, position, progression) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, Chrome et Edge partagent le stockage local entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`. Firefox, navigateur du convertible, le rattacherait au chemin exact du fichier (non vérifié) : le J4 doit en tenir compte (toujours remplacer le fichier au même endroit sous le même nom, montrer en mode parent où vit la sauvegarde, proposer l'export avant une mise à jour).
 
 Missions : données déclaratives (étapes, conditions observées sur l'état du jeu, textes en deux variantes débutant/autonome, récompense). Le moteur observe le jeu et fait avancer la mission ; le compagnon porte les dialogues.
 
@@ -70,7 +70,7 @@ Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550
 
 ### Ce qu'impose le fichier local (`file://`)
 
-Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni lire des fichiers voisins par `fetch` : tout est inliné dans le HTML. Deux points restent à vérifier au J0 : le Pointer Lock en `file://` (repli : regard par clic-glisser, ou petit serveur local lancé sur le PC) et l'ouverture d'un fichier HTML local dans Chrome sur la tablette Android (repli : servir le jeu depuis le PC sur le wifi de la maison, `npm run preview -- --host`, la tablette ouvrant l'adresse du PC ; on reste « en local » au sens du foyer).
+Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni lire des fichiers voisins par `fetch` : tout est inliné dans le HTML. Deux points restent à vérifier au J0 : le Pointer Lock en `file://` (repli : regard par clic-glisser, ou petit serveur local lancé sur le PC) et l'ouverture d'un fichier HTML local sur la tablette. Les deux sont levés : Pointer Lock vérifié sur PC (Chrome) ; la « tablette » est un convertible Windows qui ouvre le fichier par double-clic dans Firefox (vérifié au J1). Le repli « serveur sur le PC » (`npm run preview -- --host`) n'a plus d'usage prévu.
 
 ## 3. Jalons
 
@@ -80,7 +80,7 @@ Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni 
 | J0.1 | Corrections issues de l'audit (`AUDIT-J0.md`) | Même prototype, fiabilisé pour les tests de Pierre | 1 |
 | J1 | Monde : chunks, terrain par type de monde, textures, jour/nuit, eau | Se promener dans un monde généré | 2 |
 | J2 | Interaction : visée, casser/poser, inventaire, sons | Construire une cabane au clavier | 1 |
-| J3 | Tactile et performances tablette | Construire la même cabane sur la tablette | 1 à 2 |
+| J3 | Tactile et convertible | Construire la même cabane sur le convertible replié | 1 à 2 |
 | J4 | Profils et avatars, choix du type de monde, vue à la 3e personne, sauvegarde, export/import, mode parent | Deux enfants retrouvent chacun leur monde et se voient jouer | 1 à 2 |
 | J5 | Compagnon, moteur de missions, créatures, lampe, clôture, lance-bulles | Le compagnon parle ; les créatures rôdent la nuit | 2 |
 | J6 | Tutoriel, mission 1 complète, finitions | Mission 1 jouable de bout en bout | 2 |
@@ -102,7 +102,7 @@ Porte de décision à la fin du J0 : Pointer Lock fonctionnel ou repli ; voix fr
 
 Chunks, maillage avec suppression des faces cachées, génération de terrain à graine, atlas de textures procédurales, éclairage jour/nuit (couleur du ciel, intensité), eau, arbres et fleurs. Physique du joueur. Mesure des performances et réglage de la distance de rendu.
 
-État : livré le 23/09/2026 (voir `JOURNAL.md`), tablette non encore testée.
+État : livré le 23/09/2026 (voir `JOURNAL.md`) ; testé sur le convertible le 24/09/2026 (tout passe, 60 images/s à 48 et 96 blocs).
 
 Le générateur accepte dès J1 un type de monde (prairie, île, montagne, désert) ; le choix par l'enfant arrive avec l'écran d'accueil au J4. Diagnostic affiné à la suite des retours J0.1 : temps de calcul par image hors attente de l'écran (la marge réelle, masquée par le plafond de 60 images/s), et compteurs de mouvements souris écartés séparés (après capture / trop grand).
 
@@ -112,9 +112,17 @@ Visée par raycast avec surbrillance du bloc ciblé, casse (courte pression avec
 
 État : livré le 24/09/2026 (voir `JOURNAL.md`), avec la boucle « consigne lue + comptage » proposée à l'audit (le jeu annonce « trois pierres ! » à l'écran et, pour le lecteur débutant, à voix haute). Choix faits en l'absence de consigne, à confirmer par Pierre : sac vide au départ ; une case par type de bloc, 99 au plus ; sac plein = le bloc est cassé mais pas ramassé ; nouveau monde = sac vidé ; les planches ne se ramassent pas dans la nature (bouton « Compléter le sac » du panneau de tests en attendant le craft du backlog V2) ; escalade de secours pour sortir d'un trou (garder le saut en avançant contre une paroi).
 
-### J3 — Tactile et performances
+### J3 — Tactile et convertible
 
-Joystick virtuel, regard au doigt, boutons, détection du tactile, plein écran, verrouillage paysage, taille des cibles adaptée aux petits doigts, réglage des performances tablette (distance de rendu, résolution du rendu). Test des enfants sur la tablette.
+Appareil cible : le convertible Windows (Acer Nitro 5 Spin NP515-51) replié en mode tablette, sous Firefox. Les performances ne sont plus un sujet (60 images/s à 96 blocs, calcul de 2,8 ms à 128) ; le verrouillage paysage et le réglage de la résolution sont retirés (sans objet ou impossibles sur cet appareil). Contenu, d'après les retours J2 et l'audit « convertible + Firefox » du 24/09/2026 (`JOURNAL.md`) :
+- zones tactiles : corriger le déplacement involontaire signalé au J2 (aujourd'hui, tout toucher dans la moitié gauche commande le déplacement) ; un nouveau toucher dans une zone déjà prise la reprend (doigt d'un autre enfant, paume posée) ;
+- barre du bas : toute sa surface choisit la case la plus proche ; menu contextuel de Firefox bloqué hors des champs du panneau ;
+- portrait comme paysage : champ de vision élargi en portrait (46° de large aujourd'hui) ; rotation laissée à Windows ;
+- plein écran proposé à l'enfant par un gros bouton (hors du panneau adulte), commandes écartées des bords de l'écran ;
+- distance de rendu : 96 blocs par défaut quel que soit le pointeur, choix de l'adulte mémorisé (`cubes:distance`) et gardé dans l'adresse ; 128 par défaut seulement après une mesure des images par seconde ;
+- doigts remis à zéro quand le jeu perd le focus (bascule d'appli, geste de Windows) ;
+- si les enfants déplient l'appareil (à confirmer par Pierre) : interface et aides qui suivent le dernier moyen utilisé (doigt ou pavé tactile/souris), touches sans effet parasite dans Firefox (apostrophe du « 4 », Alt) ;
+- test des enfants sur le convertible, avec au protocole : balayages depuis les bords, sortie du jeu par accident, main posée sur l'écran.
 
 ### J4 — Profils, sauvegarde, mode parent
 
@@ -148,17 +156,20 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 
 | Risque | Effet | Parade |
 |---|---|---|
-| Performances insuffisantes sur la tablette | Jeu saccadé, abandon | Monde petit, distance de rendu réglable, mesure dès J0, greedy meshing en réserve |
+| Performances insuffisantes sur la tablette | Jeu saccadé, abandon | Levé au J1 : le convertible tient 60 images/s à 96 blocs (calcul de 2,8 ms à 128) |
 | Pointer Lock indisponible en `file://` | Pas de regard souris | Test J0 ; repli clic-glisser ou serveur local |
 | Aucune voix française de synthèse | Consignes non lues pour le lecteur débutant | Test J0 ; repli icônes + sons ; option : enregistrer la voix d'un parent (fichiers audio embarqués, taille en hausse) |
-| Fichier HTML local non ouvrable sur Android | Le jeu ne se lance pas sur la tablette | Test J0 ; repli serveur sur le PC via le wifi domestique |
+| Fichier HTML local non ouvrable sur la tablette | Le jeu ne se lance pas | Sans objet : la tablette est un convertible Windows, le fichier s'ouvre par double-clic dans Firefox (vérifié au J1) |
 | Ergonomie inadaptée à 6 ans | Frustration | Tests enfants dès J2, tutoriel J6, gros boutons, aucun échec bloquant |
 | Dérive de périmètre (quatre domaines pédagogiques) | V1 jamais terminée | Périmètre gelé, une seule mission en V1, backlog V2 |
 | `node_modules` dans OneDrive | Synchronisation dégradée | Voir section 4 |
 | Perte de sauvegarde (vidage du navigateur) | Monde perdu | Export JSON proposé régulièrement, rappel en mode parent |
-| Stockage local indisponible sur la tablette pour un fichier ouvert depuis le gestionnaire de fichiers (non vérifié) | Aucune sauvegarde possible | Ligne « Stockage local » du diagnostic J0 ; repli : serveur sur le PC, ou export/import seul |
+| Stockage local indisponible sur la tablette | Aucune sauvegarde possible | Levé : « Stockage local : ok » sur le convertible (Firefox, `file://`) |
+| Firefox rattache le stockage local au chemin exact du fichier (non vérifié) | Une copie du jeu ailleurs, ou renommée, ne retrouve pas les mondes | À vérifier avant le J4 (deux copies du fichier suffisent) ; toujours remplacer le fichier au même endroit sous le même nom ; export avant chaque mise à jour |
+| L'enfant sort du jeu par accident sur le convertible (barre des tâches, balayage depuis un bord, onglet fermé) | Monde perdu tant qu'il n'y a pas de sauvegarde | J3 : plein écran proposé à l'enfant, commandes loin des bords ; ligne au protocole ; au besoin, réglages Windows (masquer la barre des tâches, raccourci Firefox en mode kiosque) |
+| Le convertible est déplié en cours de partie | Aides et boutons tactiles qui ne correspondent plus au pavé tactile | J3, selon l'usage réel des enfants |
 | Plan B serveur : les sauvegardes sont liées à l'adresse du PC ; si la box lui en attribue une autre, elles « disparaissent » | Monde perdu en apparence | Réserver l'adresse du PC dans la box ; export régulier |
-| Perte du contexte 3D quand la tablette passe à une autre appli (non vérifié) | Écran noir ou figé au retour | Test ajouté au protocole J0.1 ; gestion de la restauration au J1 si nécessaire |
+| Perte du contexte 3D quand la tablette passe à une autre appli | Écran noir ou figé au retour | Gérée au J1 ; vérifié sur le convertible (retour après 30 s dans une autre appli) |
 
 ## 6. Backlog V2 (non planifié)
 
@@ -166,7 +177,7 @@ Missions 2 à 5, une par domaine : mots à composer en blocs-lettres (lecture/é
 
 ## 7. Éléments non vérifiés à confirmer
 
-Présence et version de Node.js sur le poste ; modèle de la tablette Android et ses performances WebGL ; voix de synthèse françaises sur PC et tablette ; Pointer Lock et ouverture `file://` sur PC et Android ; estimations de sessions ; taille du fichier final. Les quatre premiers points sont levés par le J0.
+Présence et version de Node.js sur le poste ; modèle de la tablette et ses performances WebGL ; voix de synthèse françaises sur PC et tablette ; Pointer Lock et ouverture `file://` sur PC et tablette ; estimations de sessions ; taille du fichier final. Les quatre premiers points sont levés (J0 à J2 ; la tablette est un convertible Windows sous Firefox). Restent : les images par seconde à 128 blocs sur le convertible ; le stockage local de Firefox par chemin de fichier (avant le J4).
 
 ## Sources
 
