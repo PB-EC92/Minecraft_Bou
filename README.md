@@ -1,14 +1,18 @@
 # Cubes (nom provisoire)
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J1** : un vrai monde généré (quatre types au choix), jour et nuit, eau (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro (la sauvegarde arrive au J4).
+Jeu de construction en blocs 3D, éducatif, pour deux enfants. Fonctionne dans un navigateur, hors ligne, sans rien installer. État : **prototype J2** : un vrai monde généré (quatre types au choix), jour et nuit, eau ; on casse en gardant l'appui, les blocs cassés vont dans un sac de 9 cases avec leur nombre, on pose ce qu'on a ramassé ; sons et compte lu à voix haute (voir `docs/PLAN.md` et `docs/JOURNAL.md`). Rien n'est encore enregistré : chaque ouverture repart de zéro, sac vide (la sauvegarde arrive au J4).
 
 ## Jouer
 
-Ouvrir `dist/cubes.html` par double-clic (Chrome ou Edge). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J1 ») : si ce n'est pas le cas, c'est une ancienne copie.
+Ouvrir `dist/cubes.html` par double-clic (Chrome ou Edge). C'est tout : le fichier contient le jeu entier. La ligne d'infos en haut à gauche se termine par la version (« J2 ») : si ce n'est pas le cas, c'est une ancienne copie.
 
-Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche** pour casser (ou cueillir une fleur), **clic droit** pour poser, **1 à 9** pour choisir un bloc, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, clic bref pour casser ou poser.
+Sur PC : cliquer sur le monde pour capturer la souris. **ZQSD** (ou flèches) pour bouger, **Espace** pour sauter (ou nager vers le haut), **Maj** pour plonger, **clic gauche maintenu** pour casser (un anneau se remplit autour du viseur ; une fleur se cueille avec un appui plus court, mais un clic bref ne suffit pas), **clic droit** pour poser le bloc de la case choisie, **1 à 9** ou la **molette** pour choisir une case, **Échap** pour libérer la souris. Les marches d'un bloc se montent sans sauter ; dans l'eau, on flotte. Tombé dans un trou ? Garder **Espace** en avançant contre la paroi : au bout d'un instant, on grimpe (un mur de deux blocs arrête toujours si l'on marche sans sauter). En gardant le clic, on casse les blocs à la suite, mais un seul plus bas que ses pieds par appui. Si le navigateur refuse la capture, le jeu passe en mode repli : glisser en tenant le bouton pour regarder, bouton gauche maintenu sans bouger pour casser (on peut aussi viser en glissant puis s'arrêter sans lâcher), clic droit sans bouger pour poser.
 
-Sur tablette : doigt gauche = joystick, doigt droit = regarder, tapoter = agir (bouton **Casser / Poser** pour changer d'action), bouton **Sauter**. Le bouton **Plein écran** est dans le panneau « Tests ».
+Sur tablette : doigt gauche = joystick, doigt droit = regarder ; on vise avec la croix du milieu ; en mode **Casser**, garder le doigt droit immobile casse le bloc visé (on peut viser en glissant puis s'arrêter sans lever le doigt) ; toucher le bouton **Casser** le fait devenir **Poser** : tapoter pose alors ; bouton **Sauter** (garder **Sauter** en poussant le joystick contre une paroi pour grimper hors d'un trou) ; toucher une case de la barre la choisit. Le bouton **Plein écran** est dans le panneau « Tests ».
+
+### Le sac
+
+Chaque bloc cassé est ramassé : il rejoint la case de son type dans la barre du bas (9 cases, 99 blocs au plus par case), et son nombre s'affiche. Poser un bloc en retire un. Le jeu annonce le compte (« 3 pierres ! ») à l'écran et, pour le lecteur débutant, à voix haute. Les planches ne se trouvent pas dans la nature pour l'instant : le bouton **Compléter le sac** du panneau « Tests » complète jusqu'à 20 blocs de chaque sorte, dans la limite des 9 cases (ce qui a été ramassé reste ; « Vider le sac » d'abord pour avoir tout le kit). Le panneau règle aussi le niveau de lecture (débutant : messages courts lus à voix haute ; autonome : phrases complètes, voix coupée), la voix et les sons.
 
 ### Choisir le monde
 
@@ -28,7 +32,7 @@ Prérequis : Node.js 22.12 ou plus récent (`node -v` pour vérifier).
 npm install                       # une fois
 npm run dev                       # développement avec rechargement automatique
 npm run build                     # vérifie les types puis produit dist/cubes.html
-npm test                          # tests unitaires (moteur, terrain, joueur, maillage, souris, voix)
+npm test                          # tests unitaires (moteur, terrain, joueur, maillage, sac, casse, sons, textes, souris, voix)
 npx playwright install chromium   # une fois, pour les tests de fumée
 npm run test:e2e                  # tests de fumée sur dist/cubes.html ouvert en file:// (Node 22.12+ ; v24 sur le poste : ok)
 ```

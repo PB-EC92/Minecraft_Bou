@@ -1,5 +1,7 @@
-import { blockDef, HOTBAR_BLOCKS, type BlockId } from "../engine/blocks";
+import { blockDef, type BlockId } from "../engine/blocks";
+import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
+import { READING_LEVELS } from "../edu/texts";
 import { tileIcon } from "../render/textures";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
@@ -14,9 +16,10 @@ export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
 ];
 
 /**
- * Interface superposée au canvas : réticule, infos (images/s), message,
- * barre d'inventaire, écran de chargement, voile sous l'eau, panneau
- * « Tests » (réglages techniques du prototype). DOM natif, pas de framework.
+ * Interface superposée au canvas : réticule et anneau de casse, infos
+ * (images/s), message, barre d'inventaire à 9 cases avec compteurs (J2),
+ * écran de chargement, voile sous l'eau, panneau « Tests » (réglages du
+ * prototype). DOM natif, pas de framework.
  */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -39,7 +42,18 @@ export class Hud {
   readonly hourButtons: HTMLButtonElement[] = [];
   readonly fastTimeButton: HTMLButtonElement;
   readonly distanceSelect: HTMLSelectElement;
+  readonly levelSelect: HTMLSelectElement;
+  readonly voiceToggle: HTMLInputElement;
+  readonly soundToggle: HTMLInputElement;
+  readonly fillBagButton: HTMLButtonElement;
+  readonly clearBagButton: HTMLButtonElement;
 
+  private readonly breakRing: HTMLDivElement;
+  private readonly slotName: HTMLDivElement;
+  private slotNameTimer = 0;
+  /** Contenu affiché de chaque case (pour ne redessiner que ce qui change). */
+  private readonly shown: (Stack | null)[] = [];
+  private readonly icons = new Map<BlockId, HTMLCanvasElement>();
   private readonly loading: HTMLDivElement;
   private readonly loadingText: HTMLDivElement;
   private readonly underwater: HTMLDivElement;
@@ -47,7 +61,11 @@ export class Hud {
   private messageTimer = 0;
   private readonly selectHandlers: ((index: number) => void)[] = [];
 
-  constructor(parent: HTMLElement, atlas: HTMLCanvasElement) {
+  constructor(
+    parent: HTMLElement,
+    private readonly atlas: HTMLCanvasElement,
+    version: string,
+  ) {
     this.root = document.createElement("div");
     this.root.className = "hud";
 
@@ -56,6 +74,8 @@ export class Hud {
 
     const crosshair = this.div("crosshair");
     this.root.appendChild(crosshair);
+    this.breakRing = this.div("break-ring");
+    this.root.appendChild(this.breakRing);
 
     this.info = this.div("info");
     this.root.appendChild(this.info);
@@ -66,15 +86,20 @@ export class Hud {
     this.hint = this.div("hint");
     this.root.appendChild(this.hint);
 
+    this.slotName = this.div("slot-name");
+    this.root.appendChild(this.slotName);
+
     this.hotbar = this.div("hotbar");
-    HOTBAR_BLOCKS.forEach((id, i) => {
-      const slot = this.div("slot");
-      slot.title = blockDef(id).name;
-      slot.appendChild(tileIcon(atlas, blockDef(id).tiles.side));
+    for (let i = 0; i < INVENTORY_SLOTS; i++) {
+      const slot = this.div("slot empty");
       const key = document.createElement("span");
       key.className = "key";
       key.textContent = String(i + 1);
       slot.appendChild(key);
+      const count = document.createElement("span");
+      count.className = "count";
+      slot.appendChild(count);
+      this.shown.push(null);
       const select = (e: Event) => {
         e.preventDefault();
         e.stopPropagation();
@@ -82,9 +107,10 @@ export class Hud {
       };
       slot.addEventListener("mousedown", select);
       slot.addEventListener("touchstart", select, { passive: false });
+      slot.addEventListener("animationend", () => slot.classList.remove("pulse"));
       this.hotbar.appendChild(slot);
       this.slots.push(slot);
-    });
+    }
     this.root.appendChild(this.hotbar);
 
     this.loading = this.div("loading");
@@ -98,13 +124,38 @@ export class Hud {
     this.root.appendChild(this.panelToggle);
 
     this.panel = this.div("panel");
-    this.panel.appendChild(this.title("Prototype J1 — tests techniques"));
+    this.panel.appendChild(this.title(`Prototype ${version} — tests techniques`));
 
     const rowScreen = this.row();
     this.fullscreenButton = this.button("Plein écran");
     this.lockButton = this.button("Capturer la souris");
     rowScreen.append(this.fullscreenButton, this.lockButton);
     this.panel.appendChild(rowScreen);
+
+    this.panel.appendChild(this.title("Jeu"));
+    const rowLevel = this.row();
+    const levelLabel = document.createElement("label");
+    levelLabel.textContent = "Lecture ";
+    this.levelSelect = document.createElement("select");
+    this.levelSelect.setAttribute("aria-label", "Niveau de lecture");
+    for (const l of READING_LEVELS) {
+      const o = document.createElement("option");
+      o.value = l.id;
+      o.textContent = l.name;
+      this.levelSelect.appendChild(o);
+    }
+    levelLabel.appendChild(this.levelSelect);
+    rowLevel.appendChild(levelLabel);
+    this.panel.appendChild(rowLevel);
+    const rowToggles = this.row();
+    this.voiceToggle = this.checkbox("Lire les messages à voix haute", rowToggles);
+    this.soundToggle = this.checkbox("Sons", rowToggles);
+    this.panel.appendChild(rowToggles);
+    const rowBag = this.row();
+    this.fillBagButton = this.button("Compléter le sac (20 de chaque)");
+    this.clearBagButton = this.button("Vider le sac");
+    rowBag.append(this.fillBagButton, this.clearBagButton);
+    this.panel.appendChild(rowBag);
 
     this.panel.appendChild(this.title("Monde"));
     const rowWorld = this.row();
@@ -200,6 +251,16 @@ export class Hud {
     return h;
   }
 
+  private checkbox(label: string, parent: HTMLElement): HTMLInputElement {
+    const l = document.createElement("label");
+    l.className = "check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    l.append(input, document.createTextNode(` ${label}`));
+    parent.appendChild(l);
+    return input;
+  }
+
   private button(label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.className = "btn";
@@ -214,6 +275,62 @@ export class Hud {
 
   setSelectedSlot(index: number): void {
     this.slots.forEach((s, i) => s.classList.toggle("selected", i === index));
+  }
+
+  /** Met à jour les cases de la barre (icône, compteur) ; seules celles qui ont changé sont redessinées. */
+  setInventory(stacks: readonly (Stack | null)[]): void {
+    this.slots.forEach((el, i) => {
+      const next = stacks[i] ?? null;
+      const prev = this.shown[i] ?? null;
+      if (prev?.id === next?.id && prev?.count === next?.count) return;
+      this.shown[i] = next ? { ...next } : null;
+      if (prev?.id !== next?.id) {
+        el.querySelector("canvas")?.remove();
+        if (next) el.prepend(this.icon(next.id));
+      }
+      el.classList.toggle("empty", next === null);
+      el.title = next ? blockDef(next.id).name : "case vide";
+      const count = el.querySelector(".count");
+      if (count) count.textContent = next ? String(next.count) : "";
+    });
+  }
+
+  /** Petite animation sur une case qui vient de recevoir un bloc. */
+  pulseSlot(index: number): void {
+    const el = this.slots[index];
+    if (!el) return;
+    el.classList.remove("pulse");
+    void el.offsetWidth; // relance l'animation
+    el.classList.add("pulse");
+  }
+
+  /** Nom du bloc tenu, affiché brièvement au-dessus de la barre (entraînement à la lecture). */
+  showSlotName(text: string, durationMs = 1800): void {
+    this.slotName.textContent = text;
+    this.slotName.classList.add("visible");
+    window.clearTimeout(this.slotNameTimer);
+    this.slotNameTimer = window.setTimeout(() => this.slotName.classList.remove("visible"), durationMs);
+  }
+
+  /** Anneau de casse autour du réticule : progression [0, 1], ou null pour le masquer. */
+  setBreakProgress(progress: number | null): void {
+    const on = progress !== null && progress > 0;
+    this.breakRing.classList.toggle("visible", on);
+    if (on) this.breakRing.style.setProperty("--p", progress.toFixed(3));
+  }
+
+  private icon(id: BlockId): HTMLCanvasElement {
+    let base = this.icons.get(id);
+    if (!base) {
+      base = tileIcon(this.atlas, blockDef(id).tiles.side);
+      this.icons.set(id, base);
+    }
+    // Chaque case a son propre canvas (un élément DOM ne peut être à deux endroits).
+    const c = document.createElement("canvas");
+    c.width = base.width;
+    c.height = base.height;
+    c.getContext("2d")?.drawImage(base, 0, 0);
+    return c;
   }
 
   setInfo(text: string): void {

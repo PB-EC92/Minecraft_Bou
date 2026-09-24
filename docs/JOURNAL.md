@@ -92,3 +92,40 @@ Une entrée par session de travail : ce qui a été fait, ce qui est attendu, le
 **Attendu de Pierre.** Protocole J1 de `RETOURS.md`, tablette en priorité ; publier le dépôt sur GitHub si ce n'est pas fait (bundle à jour dans le dossier) ; avis sur la boucle « consigne lue + comptage » au J2.
 
 **Prochaine étape.** J2 (inventaire à 9 cases avec compteurs, casse par appui court avec barre de progression, sons, première séance avec les enfants), ou J3 avancé si la tablette peine.
+
+## 2026-09-24 — J2, interaction et sac
+
+**Contexte.** Première session Claude Code démarrée directement sur le dépôt GitHub `PB-EC92/Minecraft_Bou` (branche `claude/dreamy-curie-ctoxg3`, PR `PB-EC92/Minecraft_Bou#1` ouverte par Pierre) : plus besoin de `cubes.git.bundle` pour cette session. J2 lancé sans attendre les tests tablette du J1, sur décision de Pierre (le J2 ne touche ni au rendu ni au stockage, dont dépendent les décisions tablette).
+
+**Fait.**
+- Casse par appui maintenu (souris capturée, mode repli, doigt en mode Casser), anneau de progression jaune autour du viseur, durée par bloc (fleurs 150 ms, feuilles 200, herbe et terre 350, pierre 650). Un appui bref ne casse rien et affiche « Appuie longtemps ! ». Pour un geste qui peut aussi servir à regarder (doigt à droite, souris non capturée), la casse ne démarre qu'après 150 ms d'immobilité ; viser en glissant puis s'arrêter sans lâcher casse après 400 ms. En gardant l'appui, les blocs se cassent à la suite, mais un seul plus bas que les pieds par appui.
+- Escalade de secours : garder le saut en avançant contre une paroi fait grimper au bout de 0,6 s. Aucun trou ne peut piéger l'enfant (règle « aucun échec bloquant ») ; sans saut, un mur de deux blocs arrête toujours ; le bord du monde ne s'escalade pas.
+- Sac de 9 cases, une par type de bloc, 99 au plus : chaque bloc cassé est ramassé (une fleur posée dessus aussi), poser en retire un, la case vide redevient libre. Barre avec icônes, gros compteurs, animation au ramassage, nom du bloc tenu affiché au-dessus. Touches 1 à 9 (et pavé numérique), molette (une case par cran, pavé tactile compris), toucher une case.
+- Boucle « consigne lue + comptage » (proposée à l'audit J0) : au ramassage, « 3 pierres ! » à l'écran ; pour le lecteur débutant, lu à voix haute avec les nombres en lettres accordés (« vingt et une pierres »). Le compte est lu une fois l'appui relâché. La voix attend le premier vrai geste (règle des navigateurs) ; la consigne d'accueil est lue à ce moment-là.
+- Tous les messages à l'enfant en deux variantes (débutant 6 ans / autonome 8 ans), formulations neutres en genre : ramassage, case vidée, case vide, sac plein, maximum, pas de place, fleur hors sol ou dans l'eau, couche du bas, bord du monde, reprise de la souris, repli, perte d'image, aides d'écran (au doigt, selon le mode Casser / Poser). Durée d'affichage selon la longueur du texte et le niveau (le lecteur autonome, sans voix, a le temps de lire).
+- Sons synthétisés (Web Audio, aucun fichier) : tic de casse selon la matière, casse, pose, ramassage, refus doux, sélection ; niveaux équilibrés par mesure ; contexte créé au premier geste.
+- Panneau « Tests » → section Jeu : niveau de lecture (la voix suit le niveau), voix, sons, « Compléter le sac » (jusqu'à 20 de chaque bloc du kit, sans rien retirer, dans la limite des 9 cases), « Vider le sac ». Diagnostic : Sons, Lecture, Sac ; durées d'image réelles (non bornées), rafraîchies même quand les images sont lentes.
+- Mise en page : cases bornées par la largeur (portrait, petit écran), boutons tactiles au-dessus de la barre sous 1000 px de large, piste d'anneau sombre (lisible sur sable et neige).
+- Nouveaux modules : `engine/inventory`, `engine/breaking`, `input/breakPress`, `audio/sounds`, `edu/texts`, `edu/counting`, `edu/Narrator`. Aucune dépendance ajoutée.
+
+**Méthode.** Modules purs écrits en parallèle par quatre agents d'après une spécification, chacun relu par un second agent ; intégration faite à part. Puis revue en six dimensions (entrées, logique du sac, enfant et règles, sons et voix, tests, HUD) : 38 constats, dont 12 majeurs, presque tous confirmés par des vérificateurs qui les ont reproduits ; tous corrigés. Les plus notables : puits sans issue en creusant vers le bas, compte coupé en cassant de la pierre sans relâcher, consigne tactile trompeuse (on casse sous la croix, pas sous le doigt), barre couverte par « Sauter » en portrait, tests de fumée dépendants du temps réel. Seconde revue sur les corrections (quatre dimensions, un vérificateur par constat) : 19 constats confirmés, tous corrigés, dont le plus important : un trou d'une case et de deux blocs de profondeur suffisait à piéger l'enfant, d'où l'escalade de secours. Aussi : voile de chargement qui clignotait à chaque bloc, viser en glissant puis tenir qui ne cassait rien, messages autonomes trop brefs pour être lus.
+
+**Tests.** 386 tests unitaires (17 fichiers ; 88 au J1). Tests de fumée : 42 exécutions sur les deux profils (26 au J1), dont casse maintenue, clic bref, fleur, casse vers le bas et en diagonale, escalade hors d'un puits, case vide, pas de place, sac plein, maximum 99, panneau Jeu, lecteur autonome, sons débloqués au premier geste, mode repli (viser puis tenir compris), doigt maintenu, viser en glissant puis tenir, changement de mode doigt posé, molette et pavé tactile. Toutes vertes deux fois de suite, et avec quatre processus en parallèle. `dist/cubes.html` : 610 ko ; ligne d'infos terminée par « J2 ».
+
+**Choix faits sans consigne, à confirmer par Pierre.**
+1. Sac vide au départ.
+2. Une case par type, 99 au plus ; sac plein ou maximum atteint : le bloc est cassé mais pas ramassé (l'enfant n'est jamais bloqué, au prix d'un bloc perdu).
+3. Nouveau monde = sac vidé (la sauvegarde arrive au J4).
+4. Les planches ne se trouvent pas dans la nature : « Compléter le sac » en attendant le craft du backlog V2.
+5. Herbe cassée = bloc d'herbe (et non de la terre).
+6. Voix active par défaut pour le niveau débutant ; niveau débutant par défaut tant qu'il n'y a pas de profils.
+7. Escalade de secours partout (pas seulement dans un trou) : une falaise se grimpe aussi en gardant le saut contre elle. Plus simple à comprendre et à découvrir pour un enfant ; à restreindre si cela gâche l'intérêt des montagnes.
+8. Un seul bloc plus bas que les pieds par appui : creuser un trou demande de rappuyer à chaque bloc.
+
+**Limites connues.** L'escalade de secours n'est expliquée qu'à l'écran (aide et README), pas encore par le compagnon (J5). L'eau ne coule toujours pas. Voix et sons non vérifiés sur la tablette.
+
+**Non vérifié.** Voix et sons réels sur PC et tablette (le cloud n'a ni haut-parleur ni voix) ; durée de casse ressentie par les enfants ; tout ce qui concerne la tablette (protocole J1 toujours en attente).
+
+**Attendu de Pierre.** Protocole J2 de `RETOURS.md` (il reprend le J1, tablette en priorité), puis première séance avec les enfants : « Construis une cabane ». Avis sur les huit choix ci-dessus.
+
+**Prochaine étape.** J3 (tactile et performances tablette) après les retours, ou corrections du J2 d'après la séance des enfants.

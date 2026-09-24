@@ -86,6 +86,59 @@ describe("montée automatique des marches (constat 9 de l'audit J0)", () => {
     expect(p.onGround).toBe(true);
   });
 
+  describe("escalade de secours (J2) : aucun trou ne piège l'enfant", () => {
+    /** Monde plein jusqu'à y = 8 (surface), avec un puits d'une case creusé sur `depth` blocs en (8, 8). */
+    function pitWorld(depth: number): World {
+      const w = World.createFlat(16, 16, 16, 8);
+      for (let d = 1; d <= depth; d++) w.set(8, 8 - d, 8, BlockId.Air);
+      return w;
+    }
+
+    it("au fond d'un puits de 3, sauter en avançant contre la paroi fait remonter à la surface", () => {
+      const p = new Player(pitWorld(3));
+      p.setPosition(8.5, 5.01, 8.5);
+      run(p, 0.2, { x: 0, z: 0, jump: false });
+      expect(p.y).toBeCloseTo(5, 2);
+      run(p, 3, { x: 0, z: 1, jump: true });
+      expect(p.y).toBeGreaterThanOrEqual(8 - 1e-3);
+      expect(Math.floor(p.z)).not.toBe(8); // sorti du puits, sur la surface
+    });
+
+    it("sans avancer, sauter sur place ne fait pas grimper (on reste au fond)", () => {
+      const p = new Player(pitWorld(3));
+      p.setPosition(8.5, 5.01, 8.5);
+      run(p, 3, { x: 0, z: 0, jump: true });
+      run(p, 1, { x: 0, z: 0, jump: false });
+      expect(p.y).toBeCloseTo(5, 2);
+      expect(p.climbing).toBe(false);
+    });
+
+    it("un saut bref contre un mur de deux blocs ne suffit pas : il faut garder le saut", () => {
+      const p = new Player(stepWorld(2));
+      p.setPosition(7.5, 4.01, 8.5);
+      p.yaw = -Math.PI / 2;
+      run(p, 0.5, { x: 0, z: 1, jump: false });
+      run(p, 0.3, { x: 0, z: 1, jump: true });
+      run(p, 1.5, { x: 0, z: 1, jump: false });
+      expect(p.x).toBeLessThan(10);
+      expect(p.y).toBeCloseTo(4, 2);
+      run(p, 2.5, { x: 0, z: 1, jump: true });
+      expect(p.y).toBeGreaterThanOrEqual(6 - 1e-3);
+      expect(p.x).toBeGreaterThan(10);
+    });
+
+    it("on ne grimpe pas le mur invisible du bord du monde", () => {
+      const w = World.createFlat(16, 16, 16, 4);
+      const p = new Player(w);
+      p.setPosition(8.5, 4.01, 1.5);
+      run(p, 4, { x: 0, z: 1, jump: true }); // yaw 0 : avancer = vers -Z, donc vers le bord z = 0
+      expect(p.z).toBeGreaterThan(0.29);
+      run(p, 1, { x: 0, z: 0, jump: false });
+      expect(p.y).toBeCloseTo(4, 2);
+      expect(p.climbing).toBe(false);
+    });
+  });
+
   it("ne franchit pas un mur de deux blocs", () => {
     const p = new Player(stepWorld(2));
     p.setPosition(7.5, 4.01, 8.5);
