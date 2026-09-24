@@ -36,8 +36,8 @@ describe("breakDurationMs", () => {
       [BlockId.Log]: 550,
       [BlockId.Water]: 0,
       [BlockId.Leaves]: 200,
-      [BlockId.FlowerRed]: 0,
-      [BlockId.FlowerYellow]: 0,
+      [BlockId.FlowerRed]: 150,
+      [BlockId.FlowerYellow]: 150,
       [BlockId.Snow]: 300,
       [BlockId.Cactus]: 450,
     };
@@ -47,9 +47,10 @@ describe("breakDurationMs", () => {
     }
   });
 
-  it("une fleur casse immédiatement, la pierre résiste plus que l'herbe", () => {
-    expect(breakDurationMs(BlockId.FlowerRed)).toBe(0);
-    expect(breakDurationMs(BlockId.FlowerYellow)).toBe(0);
+  it("une fleur se cueille vite mais pas sur un clic bref (casses accidentelles), la pierre résiste plus que l'herbe", () => {
+    expect(breakDurationMs(BlockId.FlowerRed)).toBeGreaterThan(0);
+    expect(breakDurationMs(BlockId.FlowerRed)).toBeLessThan(breakDurationMs(BlockId.Leaves));
+    expect(breakDurationMs(BlockId.FlowerYellow)).toBe(breakDurationMs(BlockId.FlowerRed));
     expect(breakDurationMs(BlockId.Stone)).toBeGreaterThan(breakDurationMs(BlockId.Grass));
   });
 
@@ -192,9 +193,11 @@ describe("BreakTracker — durée nulle", () => {
     expect(t.update(true, P, -50, 16)).toEqual({ kind: "done", pos: P });
   });
 
-  it("durée d'une fleur (breakDurationMs) : immédiate", () => {
+  it("durée d'une fleur (breakDurationMs) : un clic bref de 50 ms ne la cueille pas, 150 ms oui", () => {
     const t = new BreakTracker();
-    expect(t.update(true, P, breakDurationMs(BlockId.FlowerRed), 16)).toEqual({ kind: "done", pos: P });
+    const d = breakDurationMs(BlockId.FlowerRed);
+    expect(t.update(true, P, d, 50).kind).toBe("progress");
+    expect(t.update(true, P, d, 100)).toEqual({ kind: "done", pos: P });
   });
 });
 

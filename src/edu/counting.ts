@@ -121,10 +121,12 @@ export function spokenQuantity(id: BlockId, n: number): string {
 /** Au ramassage, total = nombre dans le sac APRÈS ajout.
  *  débutant : total 1 « Une pierre ! » ; total ≥ 2 « 3 pierres ! » (majuscule initiale).
  *  autonome : total 1 « Tu as ramassé ta première pierre ! » (« ton premier tronc », « ton premier bloc d'herbe ») ;
- *             total ≥ 2 « Tu as ramassé une pierre. Tu en as 3. » */
-export function pickupText(id: BlockId, total: number): ChildText {
+ *             total ≥ 2 « Tu as ramassé une pierre. Tu en as 3. »
+ *  first : faux si ce type a déjà été ramassé dans ce monde (la case s'était vidée) : « premier » serait
+ *  faux, on dit alors « Tu as ramassé une pierre. Tu en as une. ». Par défaut : vrai quand total = 1. */
+export function pickupText(id: BlockId, total: number, first = pickupTotal(total) === 1): ChildText {
   const n = pickupTotal(total);
-  if (n === 1) return firstPickup(id);
+  if (n === 1) return first ? firstPickup(id) : againPickup(id);
   return {
     debutant: `${capitalize(quantity(id, n))}${NBSP}!`,
     autonome: `Tu as ramassé ${quantity(id, 1)}. Tu en as ${String(n)}.`,
@@ -132,9 +134,9 @@ export function pickupText(id: BlockId, total: number): ChildText {
 }
 
 /** Même contenu, pour la voix : nombres en lettres accordés (« Trois pierres ! », « … Tu en as trois. »). */
-export function pickupSpeech(id: BlockId, total: number): ChildText {
+export function pickupSpeech(id: BlockId, total: number, first = pickupTotal(total) === 1): ChildText {
   const n = pickupTotal(total);
-  if (n === 1) return firstPickup(id);
+  if (n === 1) return first ? firstPickup(id) : againPickup(id);
   const noun = countNoun(id);
   return {
     debutant: `${capitalize(spokenQuantity(id, n))}${NBSP}!`,
@@ -148,6 +150,16 @@ function firstPickup(id: BlockId): ChildText {
   return {
     debutant: `${capitalize(quantity(id, 1))}${NBSP}!`,
     autonome: `Tu as ramassé ${noun.feminine ? "ta première" : "ton premier"} ${noun.one}${NBSP}!`,
+  };
+}
+
+/** Un seul bloc de ce type dans le sac, mais pas le premier ramassé : déjà en lettres, identique à l'écrit et à l'oral. */
+function againPickup(id: BlockId): ChildText {
+  const noun = countNoun(id);
+  const one = noun.feminine ? "une" : "un";
+  return {
+    debutant: `${capitalize(quantity(id, 1))}${NBSP}!`,
+    autonome: `Tu as ramassé ${quantity(id, 1)}. Tu en as ${one}.`,
   };
 }
 

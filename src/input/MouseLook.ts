@@ -73,6 +73,8 @@ export class MouseLook {
       // On retente la capture à chaque clic : un refus peut être passager
       // (Chrome refuse une recapture pendant ~1 s après Échap).
       if (this.supported) this.requestLock();
+      // Deuxième bouton pendant un glisser : le glisser en cours continue.
+      if (this.dragging) return;
       this.dragging = true;
       this.dragButton = e.button;
       this.dragStartX = this.lastDragX = e.clientX;
@@ -81,16 +83,24 @@ export class MouseLook {
       this.dragMoved = 0;
     });
 
-    window.addEventListener("mouseup", (e) => {
-      if (e.button === 0) this.endBreakPress(true);
-      if (!this.dragging) return;
-      this.dragging = false;
-      if (this.locked || !this.inFallback()) return;
-      const moved = Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY);
-      if (this.dragButton === 2 && isClick(Math.max(moved, this.dragMoved), performance.now() - this.dragStartTime)) {
-        this.emit("place");
-      }
-    });
+    // Phase de capture : le relâchement est vu même au-dessus du panneau « Tests »,
+    // qui arrête la propagation de ses événements (sinon l'appui resterait « tenu »).
+    window.addEventListener(
+      "mouseup",
+      (e) => {
+        if (e.button === 0) this.endBreakPress(true);
+        if (!this.dragging) return;
+        // Un autre bouton reste enfoncé (clic droit pendant un appui gauche) : le glisser continue.
+        if (e.buttons !== 0) return;
+        this.dragging = false;
+        if (this.locked || !this.inFallback()) return;
+        const moved = Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY);
+        if (this.dragButton === 2 && isClick(Math.max(moved, this.dragMoved), performance.now() - this.dragStartTime)) {
+          this.emit("place");
+        }
+      },
+      { capture: true },
+    );
     window.addEventListener("blur", () => this.endBreakPress(false));
 
     window.addEventListener("mousemove", (e) => {

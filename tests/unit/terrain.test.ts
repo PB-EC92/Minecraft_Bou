@@ -37,8 +37,10 @@ describe("génération du terrain par type de monde", () => {
     const a = generateWorld("prairie", 1234).world;
     const b = generateWorld("prairie", 1234).world;
     const c = generateWorld("prairie", 1235).world;
-    expect(a.data).toEqual(b.data);
-    expect(a.data).not.toEqual(c.data);
+    // Comparaison binaire : toEqual sur 1 Mo élément par élément dépassait 5 s sur une machine chargée.
+    const same = (x: Uint8Array, y: Uint8Array) => Buffer.from(x.buffer, x.byteOffset, x.byteLength).equals(Buffer.from(y.buffer, y.byteOffset, y.byteLength));
+    expect(same(a.data, b.data)).toBe(true);
+    expect(same(a.data, c.data)).toBe(false);
   });
 
   for (const type of NATURAL) {

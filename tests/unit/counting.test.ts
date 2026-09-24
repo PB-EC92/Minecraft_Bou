@@ -83,9 +83,14 @@ describe("messages fixes (texts.ts)", () => {
       [
         "BOTTOM_LAYER",
         "EMPTY_HAND",
+        "FLOWER_IN_WATER",
         "FLOWER_NEEDS_GROUND",
         "FULL_BAG",
         "HOLD_TO_BREAK",
+        "IMAGE_BACK",
+        "IMAGE_LOST",
+        "MOUSE_FALLBACK",
+        "MOUSE_RESUME",
         "NO_SPACE",
         "WELCOME",
         "WORLD_EDGE",
@@ -108,6 +113,27 @@ describe("messages fixes (texts.ts)", () => {
     expect(plain(texts.WELCOME.debutant)).toBe("Casse des blocs !");
     expect(texts.WELCOME.autonome).toContain("ramasser");
     expect(texts.FLOWER_NEEDS_GROUND.autonome).toContain("fleur");
+    expect(texts.FLOWER_IN_WATER.debutant).toContain("eau");
+    expect(texts.FLOWER_IN_WATER.autonome).toContain("eau");
+    // Le repli ne promet plus qu'un clic bref casse (J2 : appui maintenu).
+    expect(texts.MOUSE_FALLBACK.autonome).toContain("Garde le clic gauche");
+    expect(texts.MOUSE_FALLBACK.autonome).not.toMatch(/clic bref/);
+  });
+
+  it("formulations neutres : rien qui suppose le genre de l'enfant", () => {
+    for (const [name, t] of CONSTANTS) {
+      for (const v of [t.debutant, t.autonome]) expect(v, name).not.toMatch(/appuyé|prêt|content/i); // \b ne connaît pas les lettres accentuées
+    }
+  });
+
+  it("aides d'écran (HINTS) : deux variantes, la débutante plus courte, sans « clic bref » pour casser", () => {
+    for (const [name, h] of Object.entries(texts.HINTS)) {
+      expect(h.debutant.length, name).toBeGreaterThan(0);
+      expect(h.debutant.length, name).toBeLessThan(h.autonome.length);
+      expect(h.debutant, name).not.toMatch(/clic bref gauche/);
+      expect(h.autonome, name).not.toMatch(/clic bref gauche/);
+    }
+    expect(texts.HINTS.touch.autonome).toContain("croix");
   });
 
   it("contiennent les mots cherchés par les tests de fumée (tests/e2e/smoke.spec.ts), dans les deux variantes", () => {
@@ -116,9 +142,10 @@ describe("messages fixes (texts.ts)", () => {
       [texts.EMPTY_HAND, "case est vide"],
       [texts.FULL_BAG, "sac est plein"],
     ];
+    // Insensible à la casse : la variante autonome peut placer le fragment en milieu de phrase.
     for (const [t, fragment] of expected) {
-      expect(t.debutant).toContain(fragment);
-      expect(t.autonome).toContain(fragment);
+      expect(t.debutant.toLowerCase()).toContain(fragment.toLowerCase());
+      expect(t.autonome.toLowerCase()).toContain(fragment.toLowerCase());
     }
   });
 });
@@ -317,6 +344,18 @@ describe("texte de ramassage", () => {
       autonome: "Tu as ramassé ton premier bloc d'herbe !",
     });
     expect(plainText(pickupText(BlockId.FlowerYellow, 1)).autonome).toBe("Tu as ramassé ta première fleur jaune !");
+  });
+
+  it("« premier » n'est dit qu'au tout premier ramassage d'un type (first = faux ensuite)", () => {
+    expect(plainText(pickupText(BlockId.Log, 1, false))).toEqual({
+      debutant: "Un tronc !",
+      autonome: "Tu as ramassé un tronc. Tu en as un.",
+    });
+    expect(plainText(pickupText(BlockId.Stone, 1, false)).autonome).toBe("Tu as ramassé une pierre. Tu en as une.");
+    expect(plainText(pickupSpeech(BlockId.Stone, 1, false)).autonome).toBe("Tu as ramassé une pierre. Tu en as une.");
+    // first n'a d'effet que pour un total de 1
+    expect(pickupText(BlockId.Stone, 3, true)).toEqual(pickupText(BlockId.Stone, 3));
+    expect(pickupText(BlockId.Stone, 1)).toEqual(pickupText(BlockId.Stone, 1, true));
   });
 
   it("total 2", () => {

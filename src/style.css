@@ -1,4 +1,6 @@
 :root {
+  /* Côté d'une case de la barre : borné par la hauteur ET par la largeur (portrait, petit écran). */
+  --slot: clamp(34px, min(7vh, calc((100vw - 110px) / 9)), 64px);
   --ui-bg: rgba(20, 24, 32, 0.72);
   --ui-fg: #f4f6f8;
   --ui-accent: #ffd23f;
@@ -86,7 +88,8 @@ canvas.game {
   height: 54px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: conic-gradient(var(--ui-accent) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.25) 0);
+  /* Piste sombre : le jaune reste visible sur le sable et la neige (contraste de clarté, pas seulement de teinte). */
+  background: conic-gradient(var(--ui-accent) calc(var(--p) * 360deg), rgba(0, 0, 0, 0.5) 0);
   /* Ne garder qu'un anneau épais : le centre reste transparent pour voir le bloc. */
   -webkit-mask: radial-gradient(circle, transparent 17px, #000 18px);
   mask: radial-gradient(circle, transparent 17px, #000 18px);
@@ -113,7 +116,8 @@ canvas.game {
 .message {
   position: absolute;
   left: 50%;
-  top: 18%;
+  /* Sous le cadre d'infos en haut à gauche, même sur un petit écran. */
+  top: max(18%, 112px);
   transform: translateX(-50%);
   padding: 10px 18px;
   background: var(--ui-bg);
@@ -142,8 +146,8 @@ canvas.game {
   pointer-events: auto;
 }
 .slot {
-  width: clamp(44px, 7vh, 64px);
-  height: clamp(44px, 7vh, 64px);
+  width: var(--slot);
+  height: var(--slot);
   border: 3px solid rgba(255, 255, 255, 0.25);
   border-radius: 8px;
   background: #555;
@@ -204,7 +208,7 @@ canvas.game {
   position: absolute;
   left: 50%;
   /* Juste au-dessus de la barre (marge + case + rembourrage et bordures de la barre). */
-  bottom: calc(14px + clamp(44px, 7vh, 64px) + 36px + env(safe-area-inset-bottom));
+  bottom: calc(14px + var(--slot) + 36px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   padding: 4px 12px;
   background: var(--ui-bg);
@@ -410,6 +414,12 @@ canvas.game {
   gap: 12px;
   align-items: flex-end;
 }
+/* Écran étroit (portrait, petite tablette) : les boutons remontent au-dessus de la barre pour ne pas couvrir de case. */
+@media (max-width: 1000px) {
+  .touch-buttons {
+    bottom: calc(14px + var(--slot) + 36px + env(safe-area-inset-bottom));
+  }
+}
 .touch-btn {
   pointer-events: auto;
   width: 84px;
@@ -432,7 +442,7 @@ canvas.game {
   position: absolute;
   left: 50%;
   /* Au-dessus du nom du bloc tenu (.slot-name). */
-  bottom: calc(14px + clamp(44px, 7vh, 64px) + 76px + env(safe-area-inset-bottom));
+  bottom: calc(14px + var(--slot) + 76px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   font-size: 13px;
   opacity: 0.85;

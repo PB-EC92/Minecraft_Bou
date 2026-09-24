@@ -2,7 +2,7 @@ import { Sounds } from "../audio/sounds";
 import { BlockId, breakDurationMs, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { DAY_CYCLE_MS, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
-import { Inventory, MAX_STACK } from "../engine/inventory";
+import { Inventory, MAX_STACK, type AddResult } from "../engine/inventory";
 import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
@@ -13,9 +13,15 @@ import { Speech } from "../edu/speech";
 import {
   BOTTOM_LAYER,
   EMPTY_HAND,
+  FLOWER_IN_WATER,
   FLOWER_NEEDS_GROUND,
   FULL_BAG,
+  HINTS,
   HOLD_TO_BREAK,
+  IMAGE_BACK,
+  IMAGE_LOST,
+  MOUSE_FALLBACK,
+  MOUSE_RESUME,
   NO_SPACE,
   parseReadingLevel,
   pick,
@@ -50,12 +56,9 @@ const PICKUP_VOICE_DELAY_MS = 550;
 const HOLD_HINT_EVERY_MS = 6000;
 /** Kit du bouton « Remplir le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
 const TEST_KIT_COUNT = 20;
-
-const HINT_TOUCH = "Doigt gauche : bouger · doigt droit : regarder · garder le doigt sur un bloc : casser";
-const HINT_MOUSE =
-  "Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\nGarder le clic gauche casser · clic droit poser · 1-9 ou molette choisir · Échap libérer";
-const HINT_MOUSE_FALLBACK =
-  "Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\nGarder le clic gauche sans bouger casser · clic bref droit poser · 1-9 choisir";
+/** Molette : défilement cumulé (px) pour passer d'une case à la suivante, et délai minimal entre deux cases (ms). */
+const WHEEL_STEP_PX = 60;
+const WHEEL_MIN_INTERVAL_MS = 90;
 
 interface PixelRequest {
   fx: number;
@@ -109,6 +112,22 @@ export class Game {
   private lastHoldHintAt = -Infinity;
   private lastTickAt = -Infinity;
   private shownInventory = -1;
+  /** Types déjà ramassés dans ce monde : « ton premier tronc » n'est dit qu'une fois. */
+  private readonly collectedTypes = new Set<BlockId>();
+  /** Appui pendant lequel « Ça ne se casse pas » a déjà été dit (couche du bas). */
+  private bottomToldFor: BreakPress | null = null;
+  private wheelAccum = 0;
+  private lastWheelStepAt = -Infinity;
+  private lastStatsAt = -Infinity;
+  /**
+   * Activation par l'utilisateur : le navigateur refuse la voix avant un vrai
+   * geste (relâchement du doigt, clic, touche). Une phrase demandée avant est
+   * gardée et lue au premier geste ; la consigne d'accueil aussi.
+   */
+  private activated = false;
+  private queuedSpeech: string | null = null;
+  private welcomeSpoken = false;
+  private wasFallback = false;
 
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
@@ -128,7 +147,7 @@ export class Game {
     this.hud = new Hud(root, this.view.atlasCanvas, VERSION);
     this.narrator = new Narrator({
       show: (text, ms) => this.hud.showMessage(text, ms),
-      speak: (text) => void this.speech.speak(text),
+      speak: (text) => this.speakWhenAllowed(text),
       now: () => performance.now(),
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (id) => window.clearTimeout(id),
@@ -155,7 +174,9 @@ export class Game {
     this.syncGameControls();
     this.refreshInventory();
     // Pas de voix ici : le navigateur la bloque tant que l'enfant n'a ni cliqué ni touché l'écran.
+    // La consigne est lue au premier geste (voir onActivation).
     this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
+    this.watchActivation();
 
     requestAnimationFrame((t) => this.safeFrame(t));
   }
@@ -189,14 +210,51 @@ export class Game {
     this.breaker.reset();
     // Nouveau monde, nouveau départ : le sac est vidé (la sauvegarde arrive au J4).
     this.inventory.clear();
+    this.collectedTypes.clear();
     this.narrator.cancelPending();
     this.afterWorldChange();
     this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
   }
 
   private updateHint(): void {
-    if (this.touchUi) this.hud.setHint(HINT_TOUCH);
-    else this.hud.setHint(this.mouse.inFallback() ? HINT_MOUSE_FALLBACK : HINT_MOUSE);
+    const h = this.touchUi ? HINTS.touch : this.mouse.inFallback() ? HINTS.mouseFallback : HINTS.mouse;
+    this.hud.setHint(pick(h, this.narrator.level));
+  }
+
+  /** Premier vrai geste (le navigateur autorise alors la voix) : lit la phrase en attente ou la consigne d'accueil. */
+  private watchActivation(): void {
+    const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+    const events = ["pointerup", "touchend", "keydown", "click"] as const;
+    const onGesture = () => {
+      if (ua && !ua.hasBeenActive) return; // ce geste-là ne suffit pas encore (ex. doigt encore posé)
+      this.activated = true;
+      for (const ev of events) window.removeEventListener(ev, onGesture, true);
+      window.setTimeout(() => this.onActivation(), 0);
+    };
+    for (const ev of events) window.addEventListener(ev, onGesture, { capture: true, passive: true });
+  }
+
+  private onActivation(): void {
+    const q = this.queuedSpeech;
+    this.queuedSpeech = null;
+    if (q !== null) {
+      this.welcomeSpoken = true;
+      void this.speech.speak(q);
+      return;
+    }
+    if (this.welcomeSpoken || this.narrator.hasPending) return;
+    this.welcomeSpoken = true;
+    this.tell(WELCOME, { ms: 3000 });
+  }
+
+  /** Lit tout de suite si le navigateur le permet, sinon garde la phrase (la dernière) pour le premier geste. */
+  private speakWhenAllowed(text: string): void {
+    if (!this.activated) {
+      this.queuedSpeech = text;
+      return;
+    }
+    this.welcomeSpoken = true;
+    void this.speech.speak(text);
   }
 
   /** Boucle protégée : une erreur affiche un écran lisible au lieu de figer le jeu en silence. */
@@ -217,27 +275,20 @@ export class Game {
       if (m) this.setSlot(Number(m[1]) - 1, true);
     });
     this.hud.onSelectSlot((i) => this.setSlot(i, true));
-    this.view.renderer.domElement.addEventListener(
-      "wheel",
-      (e) => {
-        e.preventDefault();
-        if (e.deltaY === 0) return;
-        const n = this.inventory.size;
-        this.setSlot((this.selectedSlot + (e.deltaY > 0 ? 1 : n - 1)) % n, true);
-      },
-      { passive: false },
-    );
+    this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 
     this.mouse.onAction(() => this.placeBlock());
     this.mouse.onBreakRelease((p) => this.onBreakRelease(p));
     this.mouse.onLockChange((locked) => {
       this.hud.lockButton.textContent = locked ? "Souris capturée (Échap)" : "Capturer la souris";
       this.updateHint();
+      const fallback = this.mouse.inFallback();
+      const enteredFallback = fallback && !this.wasFallback;
+      this.wasFallback = fallback;
       if (locked || this.touchUi) return;
-      this.hud.showMessage(
-        this.mouse.inFallback() ? "Capture de la souris refusée : glisse pour regarder, clic bref pour agir" : "Clique sur le monde pour reprendre",
-        2500,
-      );
+      // Le repli n'est annoncé qu'à son entrée, pas à chaque recapture refusée.
+      if (enteredFallback) this.tell(MOUSE_FALLBACK, { ms: 3500, dedupe: true });
+      else if (!fallback) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
     });
     this.touch.onAction(() => this.placeBlock());
     this.touch.onBreakRelease((p) => this.onBreakRelease(p));
@@ -266,7 +317,7 @@ export class Game {
     });
 
     this.view.onContextChange((lost) => {
-      this.hud.showMessage(lost ? "L'image s'est interrompue, le monde revient…" : "Le monde est revenu", 2500);
+      this.tell(lost ? IMAGE_LOST : IMAGE_BACK, { ms: 2500, dedupe: true });
     });
   }
 
@@ -294,6 +345,7 @@ export class Game {
       const level = parseReadingLevel(hud.levelSelect.value);
       if (level) this.narrator.setLevel(level);
       this.syncGameControls();
+      this.updateHint();
     });
     hud.voiceToggle.addEventListener("change", () => {
       this.narrator.voice = hud.voiceToggle.checked;
@@ -313,10 +365,30 @@ export class Game {
     this.hud.soundToggle.checked = this.sounds.enabled;
   }
 
+  /** Complète le sac jusqu'à 20 de chaque bloc du kit, sans rien retirer de ce qui a été ramassé. */
   private fillTestKit(): void {
-    this.inventory.fill(HOTBAR_BLOCKS, TEST_KIT_COUNT);
+    for (const id of HOTBAR_BLOCKS) {
+      const missing = TEST_KIT_COUNT - this.inventory.count(id);
+      if (missing > 0) this.inventory.add(id, missing); // sac plein : ce bloc-là n'entre pas, sans conséquence
+    }
     this.refreshInventory();
     this.setSlot(this.selectedSlot, true);
+  }
+
+  /** Molette : une case par cran, même avec un pavé tactile qui envoie des rafales de petits défilements. */
+  private onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY;
+    if (!Number.isFinite(px) || px === 0) return;
+    if (Math.sign(px) !== Math.sign(this.wheelAccum)) this.wheelAccum = 0;
+    this.wheelAccum += px;
+    const now = performance.now();
+    if (Math.abs(this.wheelAccum) < WHEEL_STEP_PX || now - this.lastWheelStepAt < WHEEL_MIN_INTERVAL_MS) return;
+    const dir = this.wheelAccum > 0 ? 1 : -1;
+    this.wheelAccum = 0;
+    this.lastWheelStepAt = now;
+    const n = this.inventory.size;
+    this.setSlot((this.selectedSlot + dir + n) % n, true);
   }
 
   setHour(hour: number): void {
@@ -366,16 +438,33 @@ export class Game {
 
   private deny(text: ChildText): void {
     this.sounds.play("deny");
-    this.tell(text, { ms: 1800 });
+    this.tell(text, { ms: 1800, dedupe: true });
   }
 
   /** Casse par appui maintenu : appelé à chaque image. */
   private updateBreaking(now: number, dtMs: number): void {
     const press = this.mouse.breakPress ?? this.touch.breakPress;
-    const holding = isHolding(press, now);
+    let holding = isHolding(press, now);
     const t = this.target;
+    const id = t ? this.world.get(t.x, t.y, t.z) : BlockId.Air;
+    if (holding && press && t) {
+      if (t.y === 0 && !isPlantId(id)) {
+        // Couche du bas : pas d'anneau qui promet une casse impossible ; on le dit une fois par appui.
+        holding = false;
+        if (this.bottomToldFor !== press) {
+          this.bottomToldFor = press;
+          this.deny(BOTTOM_LAYER);
+        }
+      } else if (this.lastBreakAt >= press.since && this.isUnderFeet(t)) {
+        // Un bloc déjà cassé pendant cet appui : on ne creuse pas en continu sous ses pieds
+        // (l'enfant tomberait dans un puits trop profond pour en ressortir en sautant).
+        holding = false;
+      }
+    }
+    // Tant que l'enfant garde l'appui, le compte attend : il sera lu au relâchement, pas coupé par la casse suivante.
+    if (holding) this.narrator.snooze(PICKUP_VOICE_DELAY_MS);
     const pos: BlockPos | null = t ? { x: t.x, y: t.y, z: t.z } : null;
-    const duration = t ? breakDurationMs(this.world.get(t.x, t.y, t.z)) : 0;
+    const duration = t ? breakDurationMs(id) : 0;
     const step = this.breaker.update(holding, pos, duration, dtMs);
     if (step.kind === "done") {
       this.hud.setBreakProgress(null);
@@ -390,13 +479,19 @@ export class Game {
     }
   }
 
+  /** Le bloc visé est-il sous les pieds du joueur (colonne occupée par sa boîte, plus bas que ses pieds) ? */
+  private isUnderFeet(t: { x: number; y: number; z: number }): boolean {
+    const b = this.player.box();
+    return t.y < Math.floor(this.player.y + 0.001) && t.x + 1 > b.minX && t.x < b.maxX && t.z + 1 > b.minZ && t.z < b.maxZ;
+  }
+
   /** Relâchement d'un appui « casser » : conseil si l'enfant a seulement cliqué ou tapoté. */
   private onBreakRelease(press: BreakPress): void {
     const now = performance.now();
     if (!this.target || !shouldHintHold(press, now, this.lastBreakAt)) return;
     if (now - this.lastHoldHintAt < HOLD_HINT_EVERY_MS) return;
     this.lastHoldHintAt = now;
-    this.tell(HOLD_TO_BREAK, { ms: 2000 });
+    this.tell(HOLD_TO_BREAK, { ms: 2000, dedupe: true });
   }
 
   private breakBlock(pos: BlockPos): void {
@@ -411,25 +506,39 @@ export class Game {
     if (!w.set(x, y, z, BlockId.Air)) return;
     this.lastBreakAt = performance.now();
     this.sounds.play("break", id);
-    this.collect(id);
-    // Une fleur posée sur le bloc cassé tombe avec lui : elle est ramassée aussi.
+    // Une fleur posée sur le bloc cassé tombe avec lui : elle est ramassée aussi, en premier,
+    // pour que le dernier message (et la voix) parle du bloc que l'enfant a cassé.
     const above = w.get(x, y + 1, z);
-    if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above);
+    if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above, false);
+    this.collect(id);
   }
 
-  /** Met un bloc cassé dans le sac et annonce le nouveau compte. */
-  private collect(id: BlockId): void {
+  /**
+   * Met un bloc dans le sac. announce : affiche et lit le nouveau compte (ou
+   * le refus : sac plein, maximum). Sans annonce, seuls le son et
+   * l'animation de la case signalent le ramassage.
+   */
+  private collect(id: BlockId, announce = true): AddResult {
     const r = this.inventory.add(id);
     if (!r.ok) {
-      this.tell(r.reason === "full" ? FULL_BAG : maxStackText(id, MAX_STACK), { ms: 2500 });
-      return;
+      if (announce) this.tell(r.reason === "full" ? FULL_BAG : maxStackText(id, MAX_STACK), { ms: 2500 });
+      return r;
     }
+    const first = !this.collectedTypes.has(id);
+    this.collectedTypes.add(id);
     this.sounds.play("pickup", id);
     this.hud.pulseSlot(r.slot);
     // Main vide : le bloc ramassé passe dans la main (premier ramassage, case épuisée…).
     if (!this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
     this.refreshInventory();
-    this.tell(pickupText(id, r.count), { spoken: pickupSpeech(id, r.count), voiceDelayMs: PICKUP_VOICE_DELAY_MS, ms: 1800 });
+    if (announce) {
+      this.tell(pickupText(id, r.count, first), {
+        spoken: pickupSpeech(id, r.count, first),
+        voiceDelayMs: PICKUP_VOICE_DELAY_MS,
+        ms: 1800,
+      });
+    }
+    return r;
   }
 
   private placeBlock(): void {
@@ -454,6 +563,10 @@ export class Game {
     if (isPlantId(id)) {
       // Une fleur se pose sur un bloc plein, dans l'air (pas dans l'eau).
       const cell = w.get(x, y, z);
+      if (cell === BlockId.Water) {
+        this.deny(FLOWER_IN_WATER);
+        return;
+      }
       if (!isOpaqueId(w.get(x, y - 1, z)) || !(cell === BlockId.Air || isPlantId(cell))) {
         this.deny(FLOWER_NEEDS_GROUND);
         return;
@@ -465,10 +578,13 @@ export class Game {
     const replaced = w.get(x, y, z);
     if (replaced === id || !w.set(x, y, z, id)) return;
     this.inventory.takeFrom(this.selectedSlot);
-    if (isPlantId(replaced)) this.inventory.add(replaced);
+    const emptied = this.inventory.count(id) === 0;
     this.sounds.play("place", id);
+    // Fleur remplacée par le bloc posé : elle est cueillie (comptée, ou « sac plein » si elle ne rentre pas).
+    if (isPlantId(replaced)) this.collect(replaced);
     this.refreshInventory();
-    if (!this.inventory.slot(this.selectedSlot)) this.tell(emptiedText(id), { ms: 2200 });
+    // Dit en dernier : c'est l'information utile (la main est vide, ou tient la fleur cueillie).
+    if (emptied) this.tell(emptiedText(id), { ms: 2200 });
   }
 
   private testStorage(): void {
@@ -531,6 +647,8 @@ export class Game {
         slot: this.selectedSlot,
         inventory: this.inventory.slots(),
         breakProgress: this.breaker.progress,
+        breakPress: this.mouse.breakPress ?? this.touch.breakPress,
+        touchMode: this.touch.mode,
         level: this.narrator.level,
         voice: this.narrator.voice,
         sound: this.sounds.state,
@@ -542,6 +660,10 @@ export class Game {
         return r;
       },
       clearInventory: () => this.inventory.clear(),
+      /** Pose un bloc sans passer par le sac (préparer un scénario de test). */
+      setBlock: (x: number, y: number, z: number, id: number) => this.world.set(x, y, z, id as BlockId),
+      /** Casse un bloc comme au terme d'un appui maintenu (règles du jeu comprises : ramassage, fleur au-dessus…). */
+      breakBlock: (x: number, y: number, z: number) => this.breakBlock({ x, y, z }),
       fillInventory: () => this.fillTestKit(),
       selectSlot: (i: number) => this.setSlot(i),
       setHour: (h: number) => this.setHour(h),
@@ -564,7 +686,8 @@ export class Game {
 
   private frame(now: number): void {
     const t0 = performance.now();
-    const dt = Math.min((now - this.lastTime) / 1000, 0.05);
+    const frameMs = Math.max(0, now - this.lastTime);
+    const dt = Math.min(frameMs / 1000, 0.05);
     this.lastTime = now;
 
     // Regard
@@ -617,7 +740,7 @@ export class Game {
 
     this.cpuTimes.push(performance.now() - t0);
     if (this.cpuTimes.length > 60) this.cpuTimes.shift();
-    this.updateStats(now, dt);
+    this.updateStats(now, frameMs);
     requestAnimationFrame((n) => this.safeFrame(n));
   }
 
@@ -635,11 +758,13 @@ export class Game {
     }
   }
 
-  private updateStats(now: number, dt: number): void {
-    this.frameTimes.push(dt * 1000);
+  private updateStats(now: number, frameMs: number): void {
+    // Durée réelle de l'image (non bornée) : le diagnostic doit montrer les vraies lenteurs.
+    this.frameTimes.push(frameMs);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
-    // Mise à jour de l'affichage 4 fois par seconde
-    if (Math.floor(now / 250) === Math.floor((now - dt * 1000) / 250)) return;
+    // Mise à jour de l'affichage 4 fois par seconde, même quand les images sont très lentes.
+    if (now - this.lastStatsAt < 250) return;
+    this.lastStatsAt = now;
     const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / Math.max(1, a.length);
     const frameAvg = avg(this.frameTimes);
     const worst = Math.max(...this.frameTimes);

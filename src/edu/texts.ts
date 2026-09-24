@@ -73,7 +73,7 @@ export const WORLD_EDGE: ChildText = {
 /** Clic ou tape trop bref pour casser. */
 export const HOLD_TO_BREAK: ChildText = {
   debutant: `Appuie longtemps${NBSP}!`,
-  autonome: "Appuie longtemps sur un bloc pour le casser.",
+  autonome: "Vise un bloc avec la croix et appuie longtemps pour le casser.",
 };
 
 /** Poser avec une case vide. */
@@ -88,14 +88,68 @@ export const FULL_BAG: ChildText = {
   autonome: `Ton sac est plein${NBSP}: pose tous les blocs d'une case pour la vider.`,
 };
 
-/** Fleur posée sans bloc plein dessous, ou dans l'eau (voir Game.placeBlock). */
+/** Fleur posée sans bloc plein dessous (voir Game.placeBlock). */
 export const FLOWER_NEEDS_GROUND: ChildText = {
-  debutant: `Pose-la sur le sol${NBSP}!`,
-  autonome: "Une fleur se pose sur un bloc, pas dans le vide ni dans l'eau.",
+  debutant: `La fleur va au sol${NBSP}!`,
+  autonome: "Une fleur se pose sur un bloc, pas dans le vide.",
+};
+
+/** Fleur posée dans l'eau (l'enfant vise le fond d'une mare : le sol est bien là, mais sous l'eau). */
+export const FLOWER_IN_WATER: ChildText = {
+  debutant: `Pas dans l'eau${NBSP}!`,
+  autonome: "Une fleur ne se pose pas dans l'eau.",
+};
+
+/** Souris libérée (Échap) : comment reprendre. */
+export const MOUSE_RESUME: ChildText = {
+  debutant: `Clique pour jouer${NBSP}!`,
+  autonome: "Clique sur le monde pour reprendre la partie.",
+};
+
+/** Capture de la souris refusée par le navigateur : mode repli (glisser pour regarder). */
+export const MOUSE_FALLBACK: ChildText = {
+  debutant: "Glisse pour regarder.",
+  autonome: "Glisse en tenant le bouton pour regarder. Garde le clic gauche sans bouger pour casser.",
+};
+
+/** Image 3D perdue (tablette passée à une autre appli) : elle revient seule. */
+export const IMAGE_LOST: ChildText = {
+  debutant: "Attends un peu.",
+  autonome: "L'image s'est arrêtée. Attends, le monde revient.",
+};
+
+/** Image 3D revenue. */
+export const IMAGE_BACK: ChildText = {
+  debutant: `Le monde est revenu${NBSP}!`,
+  autonome: "Le monde est revenu, tu peux continuer.",
 };
 
 /** Début de partie. */
 export const WELCOME: ChildText = {
   debutant: `Casse des blocs${NBSP}!`,
-  autonome: "Appuie longtemps sur un bloc pour le casser et le ramasser.",
+  autonome: "Vise un bloc avec la croix et appuie longtemps pour le ramasser.",
+};
+
+/**
+ * Aides permanentes en bas de l'écran (commandes), selon l'appareil. Plus
+ * longues que les messages : elles restent affichées et servent aussi à
+ * l'adulte. Le débutant a une version courte, sans abréviation.
+ */
+export const HINTS: { readonly touch: ChildText; readonly mouse: ChildText; readonly mouseFallback: ChildText } = {
+  touch: {
+    debutant: `Gauche${NBSP}: marcher · droite${NBSP}: regarder · garde le doigt${NBSP}: casser`,
+    autonome: `Doigt gauche${NBSP}: marcher · doigt droit${NBSP}: regarder · vise avec la croix et garde le doigt immobile${NBSP}: casser · bouton Poser puis tape${NBSP}: poser`,
+  },
+  mouse: {
+    debutant: `Clique pour jouer · ZQSD${NBSP}: marcher · clic gauche gardé${NBSP}: casser · clic droit${NBSP}: poser`,
+    autonome:
+      `Clique pour capturer la souris · ZQSD bouger · Espace sauter ou nager · Maj plonger\n` +
+      `Garder le clic gauche${NBSP}: casser · clic droit${NBSP}: poser · 1 à 9 ou molette${NBSP}: choisir · Échap${NBSP}: libérer`,
+  },
+  mouseFallback: {
+    debutant: `Glisse${NBSP}: regarder · clic gauche gardé${NBSP}: casser · clic droit${NBSP}: poser`,
+    autonome:
+      `Glisse en tenant le bouton pour regarder · ZQSD bouger · Espace sauter ou nager\n` +
+      `Garder le clic gauche sans bouger${NBSP}: casser · clic bref droit${NBSP}: poser · 1 à 9${NBSP}: choisir`,
+  },
 };

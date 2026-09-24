@@ -70,17 +70,45 @@ describe("Narrator", () => {
     expect(h.shown).toEqual(["Une pierre !", "2 pierres !"]);
   });
 
-  it("ne relit pas la même phrase avant le délai de répétition", () => {
+  it("refus ou conseil (dedupe) : pas relu à l'identique avant le délai de répétition", () => {
     const h = harness();
     const t = { debutant: "Pas de place !", autonome: "" };
-    h.n.tell(t);
+    h.n.tell(t, { dedupe: true });
     h.advance(REPEAT_MS - 1);
-    h.n.tell(t);
+    h.n.tell(t, { dedupe: true });
     expect(h.spoken).toHaveLength(1);
     h.advance(1);
-    h.n.tell(t);
+    h.n.tell(t, { dedupe: true });
     expect(h.spoken).toHaveLength(2);
     expect(h.shown).toHaveLength(3); // l'affichage, lui, suit toujours
+  });
+
+  it("un compte identique redevenu vrai est relu (pas d'anti-répétition sans dedupe)", () => {
+    const h = harness();
+    const t = { debutant: "Deux blocs d'herbe !", autonome: "" };
+    h.n.tell(t);
+    h.advance(1000);
+    h.n.tell(t);
+    expect(h.spoken).toEqual([t.debutant, t.debutant]);
+  });
+
+  it("snooze repousse la lecture en attente tant qu'on le rappelle", () => {
+    const h = harness();
+    h.n.tell({ debutant: "Trois pierres !", autonome: "" }, { voiceDelayMs: 500 });
+    expect(h.n.hasPending).toBe(true);
+    for (let i = 0; i < 10; i++) {
+      h.advance(100);
+      h.n.snooze(500);
+    }
+    expect(h.spoken).toEqual([]);
+    h.advance(499);
+    expect(h.spoken).toEqual([]);
+    h.advance(1);
+    expect(h.spoken).toEqual(["Trois pierres !"]);
+    expect(h.n.hasPending).toBe(false);
+    h.n.snooze(500); // rien en attente : sans effet
+    h.advance(1000);
+    expect(h.spoken).toHaveLength(1);
   });
 
   it("option voice: false et annulation d'une lecture en attente", () => {

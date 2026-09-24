@@ -53,6 +53,8 @@ declare global {
       clearInventory(): void;
       fillInventory(): void;
       selectSlot(i: number): void;
+      setBlock(x: number, y: number, z: number, id: number): boolean;
+      breakBlock(x: number, y: number, z: number): void;
     };
   }
 }
@@ -138,12 +140,41 @@ async function waitBroken(page: Page, p: { x: number; y: number; z: number }): P
   await page.waitForFunction(([x, y, z]) => window.cubesDebug.block(x, y, z) === 0, [p.x, p.y, p.z] as const, { timeout: 10_000 });
 }
 
-/** Souris capturée, regard vers le sol juste devant soi. */
-async function lockAndLookDown(page: Page): Promise<void> {
+/**
+ * Souris capturée, regard vers le sol juste devant soi. On attend la capture
+ * elle-même (elle peut arriver tard sous charge), puis on oriente le regard
+ * par l'accès de test : le trajet de la souris est vérifié par d'autres cas.
+ */
+async function lockAndLookDown(page: Page, pitchDeg = -60): Promise<void> {
   await page.mouse.click(640, 360);
-  await page.waitForTimeout(200);
-  await lockedMouseMove(page, 0, 80, 6);
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await page.evaluate((p) => window.cubesDebug.look(0, p), pitchDeg);
+  await page.waitForFunction(() => window.cubesDebug.state().target !== null, null, { timeout: 5_000 });
+}
+
+/**
+ * Clic gauche bref, appui et relâchement dans la même tâche de la page : aucune
+ * image (lente sous SwiftShader) ne peut s'intercaler et allonger l'appui.
+ */
+async function quickLeftClick(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const canvas = document.querySelector("canvas.game")!;
+    canvas.dispatchEvent(new MouseEvent("mousedown", { button: 0, buttons: 1, bubbles: true, clientX: 640, clientY: 360 }));
+    window.dispatchEvent(new MouseEvent("mouseup", { button: 0, buttons: 0, bubbles: true, clientX: 640, clientY: 360 }));
+  });
+}
+
+/** Tapotement bref du doigt droit, atomique comme quickLeftClick. */
+async function quickTap(page: Page, x: number, y: number): Promise<void> {
+  await page.evaluate(
+    ([cx, cy]) => {
+      const canvas = document.querySelector("canvas.game")!;
+      const touch = new Touch({ identifier: 77, target: canvas, clientX: cx, clientY: cy });
+      canvas.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch], changedTouches: [touch] }));
+      canvas.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [touch] }));
+    },
+    [x, y] as const,
+  );
 }
 
 /** Pilote tactile bas niveau (plusieurs événements, glissers compris). */
@@ -222,16 +253,20 @@ test("le joueur apparaît au sol, pas sur un arbre (constat 3)", async ({ page }
 
 test("le diagnostic est renseigné", async ({ page }) => {
   await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(3, 2));
   await page.getByRole("button", { name: "Tests" }).click();
-  const diag = await page.locator(".diag").innerText();
-  expect(diag).toContain("Version : J2");
-  expect(diag).toMatch(/Sons : (en attente d'un geste|actif|absent)/);
-  expect(diag).toContain("Sac : 0/9 cases, 0 blocs");
-  expect(diag).toContain("Adresse : file:");
-  expect(diag).toContain("WebGL2 : oui");
-  expect(diag).toContain("Stockage local : ok");
-  expect(diag).toMatch(/Calcul par image \(hors attente de l'écran\) : moy\. [\d.]+ ms/);
-  expect(diag).toMatch(/écartés \d+ après capture et \d+ trop grands/);
+  const diag = page.locator(".diag");
+  // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
+  await expect(diag).toContainText("Version : J2");
+  await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
+  await expect(diag).toContainText("Lecture : debutant, voix active");
+  await expect(diag).toContainText("Adresse : file:");
+  await expect(diag).toContainText("WebGL2 : oui");
+  await expect(diag).toContainText("Stockage local : ok");
+  await expect(diag).toContainText(/Calcul par image \(hors attente de l'écran\) : moy\. [\d.]+ ms/);
+  await expect(diag).toContainText(/écartés \d+ après capture et \d+ trop grands/);
+  // Le profil tablette simulé n'a pas eu de geste : sons en attente ; Chromium fournit Web Audio.
+  await expect(diag).toContainText("Sons : en attente d'un geste");
 });
 
 test("le panneau crée un nouveau monde du type et de la graine choisis", async ({ page }) => {
@@ -314,6 +349,7 @@ test("les touches 1 à 9 et la molette changent la case choisie", async ({ page 
   await expect(page.locator(".slot").nth(2)).toHaveClass(/selected/);
   await expect(page.locator(".info")).toContainText("bloc : pierre ×20");
   await expect(page.locator(".slot-name")).toHaveText("pierre");
+  await expect(page.locator(".slot-name")).toHaveClass(/visible/);
   await expect(page.locator(".slot").nth(2).locator(".count")).toHaveText("20");
   await page.keyboard.press("Digit9");
   await expect(page.locator(".info")).toContainText("bloc : cactus");
@@ -333,6 +369,10 @@ test("la caméra ne saute pas au moment de la capture de la souris (constat 1)",
   expect(await page.evaluate(() => document.pointerLockElement !== null)).toBe(true);
   expect(after.yaw).toBe(before.yaw);
   expect(after.pitch).toBe(before.pitch);
+  // Une fois la capture posée, les mouvements de la souris font bien tourner le regard.
+  await page.waitForTimeout(200);
+  await lockedMouseMove(page, 0, 80, 6);
+  await expect.poll(async () => (await readInfo(page)).pitch).toBeLessThan(before.pitch - 20);
 });
 
 test("souris capturée : garder le clic gauche casse et ramasse, clic droit pose le bloc ramassé", async ({ page }, testInfo) => {
@@ -342,54 +382,164 @@ test("souris capturée : garder le clic gauche casse et ramasse, clic droit pose
   const aimed = await aimedBlock(page);
   expect(aimed.id).toBe(B.grass);
   await page.mouse.down({ button: "left" });
-  // Pendant l'appui : l'anneau de progression se remplit, le bloc est encore là.
-  await page.waitForFunction(() => window.cubesDebug.state().breakProgress > 0, null, { timeout: 5_000 });
-  await expect(page.locator(".break-ring")).toHaveClass(/visible/);
+  // Pendant l'appui : l'anneau de progression se remplit (vérifié dans la même évaluation que la progression).
+  await page.waitForFunction(
+    () => window.cubesDebug.state().breakProgress > 0 && document.querySelector(".break-ring")!.classList.contains("visible"),
+    null,
+    { timeout: 5_000 },
+  );
   await waitBroken(page, aimed);
   await page.mouse.up({ button: "left" });
   await expect(page.locator(".break-ring")).not.toHaveClass(/visible/);
-  await expect(page.locator(".message")).toContainText("Un bloc d'herbe");
-  expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: 1 });
-  await expect(page.locator(".slot").nth(0).locator(".count")).toHaveText("1");
-  await expect(page.locator(".info")).toContainText("bloc : herbe ×1");
-  // Clic droit : le bloc d'herbe revient à sa place, le sac est vide.
+  // Sur une machine très chargée, le relâchement peut arriver après la casse du bloc suivant :
+  // on lit le compte réel plutôt que de supposer 1.
+  const n = (await state(page)).inventory[0]!.count;
+  expect((await state(page)).inventory[0]!.id).toBe(B.grass);
+  await expect(page.locator(".message")).toContainText(n === 1 ? "Un bloc d'herbe" : `${n} blocs d'herbe`);
+  await expect(page.locator(".slot").nth(0).locator(".count")).toHaveText(String(n));
+  await expect(page.locator(".info")).toContainText(`bloc : herbe ×${n}`);
+  // Clic droit : un bloc d'herbe est posé dans la case visée (celle d'où vient le rayon), le sac en perd un.
+  const t = (await state(page)).target!;
+  const cell = { x: t.x + t.nx, y: t.y + t.ny, z: t.z + t.nz };
   await page.mouse.down({ button: "right" });
   await page.mouse.up({ button: "right" });
-  await expect.poll(() => blockAt(page, aimed)).toBe(B.grass);
-  expect((await state(page)).inventory[0]).toBeNull();
-  await expect(page.locator(".message")).toContainText("Plus de blocs d'herbe");
-  await expect(page.locator(".slot").nth(0)).toHaveClass(/empty/);
+  await expect.poll(() => blockAt(page, cell)).toBe(B.grass);
+  if (n === 1) {
+    expect((await state(page)).inventory[0]).toBeNull();
+    await expect(page.locator(".message")).toContainText("Plus de blocs d'herbe");
+    await expect(page.locator(".slot").nth(0)).toHaveClass(/empty/);
+  } else {
+    expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: n - 1 });
+  }
   expect(errors).toEqual([]);
 });
 
-test("un clic bref ne casse rien et conseille de rester appuyé", async ({ page }, testInfo) => {
+test("un clic bref ne casse rien, même une fleur, et conseille d'appuyer longtemps", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
-  await openGame(page);
+  const errors = await openGame(page);
   await lockAndLookDown(page);
   const aimed = await aimedBlock(page);
-  await page.mouse.down({ button: "left" });
-  await page.mouse.up({ button: "left" });
+  await quickLeftClick(page);
   await expect(page.locator(".message")).toContainText("Appuie longtemps");
   await page.waitForTimeout(500);
   expect(await blockAt(page, aimed)).toBe(aimed.id);
+  // Une fleur non plus ne se cueille pas sur un clic bref.
+  await page.evaluate(([x, y, z]) => window.cubesDebug.setBlock(x, y + 1, z, 9), [aimed.x, aimed.y, aimed.z] as const);
+  await page.waitForFunction((y) => window.cubesDebug.state().target?.y === y + 1, aimed.y, { timeout: 5_000 });
+  await quickLeftClick(page);
+  await page.waitForTimeout(500);
+  expect(await blockAt(page, { ...aimed, y: aimed.y + 1 })).toBe(B.flowerRed);
   expect((await state(page)).inventory.every((s) => s === null)).toBe(true);
+  expect(errors).toEqual([]);
 });
 
 test("case vide : poser explique qu'il faut d'abord ramasser", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
-  await openGame(page);
+  const errors = await openGame(page);
   await lockAndLookDown(page);
   const faces = (await state(page)).faces;
   await page.mouse.down({ button: "right" });
   await page.mouse.up({ button: "right" });
-  await expect(page.locator(".message")).toContainText("Ta case est vide");
+  await expect(page.locator(".message")).toContainText("case est vide");
   await page.waitForTimeout(300);
   expect((await state(page)).faces).toBe(faces);
+  expect(errors).toEqual([]);
+});
+
+test("pas de place : on ne pose pas un bloc là où l'on se tient", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(3, 5));
+  await lockAndLookDown(page, -89); // le bloc sous les pieds : poser viserait la case du joueur
+  await page.mouse.down({ button: "right" });
+  await page.mouse.up({ button: "right" });
+  await expect(page.locator(".message")).toContainText("Pas de place");
+  expect((await state(page)).inventory[0]).toEqual({ id: B.stone, count: 5 });
+  expect(errors).toEqual([]);
+});
+
+test("appui maintenu vers le bas : un seul bloc sous les pieds par appui (pas de puits sans issue)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
+  const errors = await openGame(page);
+  await lockAndLookDown(page, -89);
+  const under = await aimedBlock(page);
+  await page.mouse.down({ button: "left" });
+  await waitBroken(page, under);
+  await page.waitForFunction(() => window.cubesDebug.state().player.onGround, null, { timeout: 5_000 });
+  const below = { ...under, y: under.y - 1 };
+  await page.waitForTimeout(1500); // bien plus que la durée de casse de la terre (350 ms)
+  expect(await blockAt(page, below)).not.toBe(B.air);
+  await page.mouse.up({ button: "left" });
+  // Nouvel appui : la casse reprend.
+  await page.mouse.down({ button: "left" });
+  await waitBroken(page, below);
+  await page.mouse.up({ button: "left" });
+  expect(errors).toEqual([]);
+});
+
+test("fleurs : cassée avec son bloc, elle est ramassée aussi ; remplacée par une pose, elle est cueillie", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const inv = async () => (await state(page)).inventory.filter(Boolean);
+  // Bloc d'herbe portant une fleur, cassé : herbe et fleur dans le sac, le message parle du bloc cassé.
+  await page.evaluate(() => {
+    window.cubesDebug.setBlock(5, 4, 5, 9);
+    window.cubesDebug.breakBlock(5, 3, 5);
+  });
+  expect(await inv()).toEqual(expect.arrayContaining([{ id: B.flowerRed, count: 1 }, { id: B.grass, count: 1 }]));
+  await expect(page.locator(".message")).toContainText("Un bloc d'herbe");
+  expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B.air);
+  // Pierre posée en visant une fleur : la fleur est cueillie, la pierre prend sa place.
+  await page.evaluate(() => window.cubesDebug.clearInventory());
+  await page.evaluate(() => window.cubesDebug.give(3, 3));
+  await lockAndLookDown(page);
+  const aimed = await aimedBlock(page);
+  await page.evaluate(([x, y, z]) => window.cubesDebug.setBlock(x, y + 1, z, 9), [aimed.x, aimed.y, aimed.z] as const);
+  await page.waitForFunction((y) => window.cubesDebug.state().target?.y === y + 1, aimed.y, { timeout: 5_000 });
+  await page.mouse.down({ button: "right" });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(() => blockAt(page, { ...aimed, y: aimed.y + 1 })).toBe(B.stone);
+  expect(await inv()).toEqual([{ id: B.stone, count: 2 }, { id: B.flowerRed, count: 1 }]);
+  await expect(page.locator(".message")).toContainText("Une fleur rouge");
+  expect(errors).toEqual([]);
+});
+
+test("maximum de 99 blocs par case : le bloc cassé n'est pas ramassé, le jeu le dit", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(1, 99));
+  await page.evaluate(() => window.cubesDebug.breakBlock(5, 3, 5));
+  await expect(page.locator(".message")).toContainText("99, c'est le maximum");
+  expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: 99 });
+  expect(errors).toEqual([]);
+});
+
+test("panneau Jeu : remplir complète le sac sans rien retirer, vider, couper sons et voix", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(3, 50); // pierre : au-dessus du kit (20), ne doit pas baisser
+    window.cubesDebug.give(9, 5); // fleur : hors du kit, ne doit pas disparaître
+  });
+  await page.getByRole("button", { name: "Tests" }).click();
+  await page.getByRole("button", { name: /Remplir le sac/ }).click();
+  const inv = (await state(page)).inventory;
+  expect(inv.find((s) => s?.id === B.stone)?.count).toBe(50);
+  expect(inv.find((s) => s?.id === B.flowerRed)?.count).toBe(5);
+  expect(inv.find((s) => s?.id === B.planks)?.count).toBe(20);
+  expect(inv.filter(Boolean)).toHaveLength(9); // 2 + 7 blocs du kit : le dernier n'entre pas (sac plein)
+  await page.getByRole("button", { name: "Vider le sac" }).click();
+  expect((await state(page)).inventory.filter(Boolean)).toHaveLength(0);
+  await page.getByLabel("Sons").uncheck();
+  expect((await state(page)).sound).toBe("coupé");
+  await page.getByLabel("Lire les messages à voix haute").uncheck();
+  expect((await state(page)).voice).toBe(false);
+  expect(errors).toEqual([]);
 });
 
 test("sac plein : le bloc est cassé, pas ramassé, et le jeu le dit", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
-  await openGame(page);
+  const errors = await openGame(page);
   await page.evaluate((ids) => {
     for (const id of ids) window.cubesDebug.give(id, 3);
   }, [B.dirt, B.stone, B.planks, B.sand, B.log, B.leaves, B.snow, B.cactus, B.flowerRed]);
@@ -402,11 +552,12 @@ test("sac plein : le bloc est cassé, pas ramassé, et le jeu le dit", async ({ 
   await expect(page.locator(".message")).toContainText("sac est plein");
   const inv = (await state(page)).inventory;
   expect(inv.some((s) => s?.id === B.grass)).toBe(false);
+  expect(errors).toEqual([]);
 });
 
 test("lecteur autonome : message complet au ramassage", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
-  await openGame(page);
+  const errors = await openGame(page);
   await page.getByRole("button", { name: "Tests" }).click();
   await page.getByLabel("Niveau de lecture").selectOption("autonome");
   expect((await state(page)).level).toBe("autonome");
@@ -418,14 +569,18 @@ test("lecteur autonome : message complet au ramassage", async ({ page }, testInf
   await waitBroken(page, aimed);
   await page.mouse.up({ button: "left" });
   await expect(page.locator(".message")).toContainText("Tu as ramassé ton premier bloc d'herbe");
+  // Aide d'écran dans la variante autonome.
+  await expect(page.locator(".hint")).toContainText("Espace sauter ou nager");
+  expect(errors).toEqual([]);
 });
 
 test("les sons se débloquent au premier geste", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
   await openGame(page);
-  expect((await state(page)).sound).toMatch(/en attente d'un geste|absent/);
+  // Chromium fournit Web Audio : « absent » serait une régression.
+  expect((await state(page)).sound).toBe("en attente d'un geste");
   await page.mouse.click(640, 360);
-  await expect.poll(async () => (await state(page)).sound).toMatch(/actif|absent/);
+  await expect.poll(async () => (await state(page)).sound).toBe("actif");
 });
 
 test("un nouveau monde vide le sac", async ({ page }, testInfo) => {
@@ -444,7 +599,7 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   await page.addInitScript(() => {
     delete (Element.prototype as Partial<Element>).requestPointerLock;
   });
-  await openGame(page);
+  const errors = await openGame(page);
   const before = await readInfo(page);
   await page.mouse.move(640, 250);
   await page.mouse.down();
@@ -462,17 +617,19 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   await page.mouse.up();
   await expect(page.locator(".message")).toContainText("bloc");
   expect((await state(page)).inventory[0]?.id).toBe(aimed.id);
-  await expect(page.locator(".hint")).toContainText("Glisse en tenant le bouton");
+  await expect(page.locator(".hint")).toContainText("Glisse");
+  await expect(page.locator(".hint")).toContainText("clic gauche gardé");
+  expect(errors).toEqual([]);
 });
 
 test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mode Poser puis tapoter pose", async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
-  await openGame(page);
+  const errors = await openGame(page);
   const t = await touchDriver(context, page);
   await t.drag(900, 250, 450); // regarder vers le sol
   const aimed = await aimedBlock(page);
   expect(aimed.id).toBe(B.grass);
-  await t.tap(850, 420);
+  await quickTap(page, 850, 420);
   await expect(page.locator(".message")).toContainText("Appuie longtemps");
   expect(await blockAt(page, aimed)).toBe(B.grass);
   await t.hold(850, 420, () => waitBroken(page, aimed));
@@ -482,6 +639,33 @@ test("au doigt : glisser regarde, tapoter ne casse pas, doigt maintenu casse, mo
   await t.tap(850, 420);
   await expect.poll(() => blockAt(page, aimed)).toBe(B.grass);
   await expect(page.locator(".message")).toContainText("Plus de blocs d'herbe");
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : passer en mode Casser avec le doigt déjà posé commence la casse", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "tablette", "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  const t = await touchDriver(context, page);
+  await t.drag(900, 250, 450);
+  const aimed = await aimedBlock(page);
+  await page.getByRole("button", { name: "Casser" }).tap(); // → mode Poser
+  await expect(page.locator(".touch-btn").first()).toHaveText("Poser");
+  const cdp = await context.newCDPSession(page);
+  // Doigt droit réellement posé (mode Poser), puis un second doigt sur le bouton pour revenir en mode Casser.
+  // Le second doigt est simulé dans la page : le protocole de Chrome ne sait pas lever un seul doigt sur deux.
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 850, y: 420, id: 1 }] });
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    const btn = document.querySelector(".touch-btn")!;
+    const r = btn.getBoundingClientRect();
+    const touch = new Touch({ identifier: 2, target: btn, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+    btn.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch], changedTouches: [touch] }));
+    btn.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [touch] }));
+  });
+  await expect(page.locator(".touch-btn").first()).toHaveText("Casser");
+  await waitBroken(page, aimed);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  expect(errors).toEqual([]);
 });
 
 test("au doigt : toucher une case de la barre la choisit", async ({ page }, testInfo) => {
@@ -491,6 +675,7 @@ test("au doigt : toucher une case de la barre la choisit", async ({ page }, test
   await page.locator(".slot").nth(4).tap();
   await expect(page.locator(".slot").nth(4)).toHaveClass(/selected/);
   await expect(page.locator(".slot-name")).toHaveText("sable");
+  await expect(page.locator(".slot-name")).toHaveClass(/visible/);
 });
 
 test("l'interface tactile apparaît sur tablette, pas sur PC", async ({ page }, testInfo) => {

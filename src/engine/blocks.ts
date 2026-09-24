@@ -79,8 +79,8 @@ const defs: BlockDef[] = [
   { id: BlockId.Log, name: "tronc", solid: true, targetable: true, shape: "cube", tiles: { top: Tile.LogTop, side: Tile.LogSide, bottom: Tile.LogTop }, breakMs: 550 },
   { id: BlockId.Water, name: "eau", solid: false, targetable: false, shape: "liquid", tiles: same(Tile.Water), breakMs: 0 },
   { id: BlockId.Leaves, name: "feuilles", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Leaves), breakMs: 200 },
-  { id: BlockId.FlowerRed, name: "fleur rouge", solid: false, targetable: true, shape: "cross", tiles: same(Tile.FlowerRed), breakMs: 0 },
-  { id: BlockId.FlowerYellow, name: "fleur jaune", solid: false, targetable: true, shape: "cross", tiles: same(Tile.FlowerYellow), breakMs: 0 },
+  { id: BlockId.FlowerRed, name: "fleur rouge", solid: false, targetable: true, shape: "cross", tiles: same(Tile.FlowerRed), breakMs: 150 },
+  { id: BlockId.FlowerYellow, name: "fleur jaune", solid: false, targetable: true, shape: "cross", tiles: same(Tile.FlowerYellow), breakMs: 150 },
   { id: BlockId.Snow, name: "neige", solid: true, targetable: true, shape: "cube", tiles: same(Tile.Snow), breakMs: 300 },
   { id: BlockId.Cactus, name: "cactus", solid: true, targetable: true, shape: "cube", tiles: { top: Tile.CactusTop, side: Tile.CactusSide, bottom: Tile.CactusTop }, breakMs: 450 },
 ];

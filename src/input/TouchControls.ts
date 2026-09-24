@@ -77,7 +77,9 @@ export class TouchControls {
       e.preventDefault();
       e.stopPropagation();
       this.mode = this.mode === "break" ? "place" : "break";
-      this.breakPress = null;
+      // Doigt droit déjà posé et immobile : en passant en mode Casser, l'appui commence maintenant.
+      this.breakPress =
+        this.mode === "break" && this.lookTouchId !== null && !this.lookMoved ? newBreakPress(performance.now(), true) : null;
       this.updateModeButton();
     });
 
