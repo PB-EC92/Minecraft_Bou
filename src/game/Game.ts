@@ -56,7 +56,7 @@ const PICKUP_VOICE_DELAY_MS = 550;
 const HOLD_HINT_EVERY_MS = 6000;
 /** Kit du bouton « Remplir le sac » du panneau (les planches ne se ramassent pas encore dans la nature). */
 const TEST_KIT_COUNT = 20;
-/** Molette : défilement cumulé (px) pour passer d'une case à la suivante, et délai minimal entre deux cases (ms). */
+/** Molette : défilement cumulé (px) pour passer d'une case à la suivante, et délai minimal entre deux cases dans le même sens (ms). */
 const WHEEL_STEP_PX = 60;
 const WHEEL_MIN_INTERVAL_MS = 90;
 
@@ -118,6 +118,7 @@ export class Game {
   private bottomToldFor: BreakPress | null = null;
   private wheelAccum = 0;
   private lastWheelStepAt = -Infinity;
+  private lastWheelDir = 0;
   private lastStatsAt = -Infinity;
   /**
    * Activation par l'utilisateur : le navigateur refuse la voix avant un vrai
@@ -383,10 +384,13 @@ export class Game {
     if (Math.sign(px) !== Math.sign(this.wheelAccum)) this.wheelAccum = 0;
     this.wheelAccum += px;
     const now = performance.now();
-    if (Math.abs(this.wheelAccum) < WHEEL_STEP_PX || now - this.lastWheelStepAt < WHEEL_MIN_INTERVAL_MS) return;
+    if (Math.abs(this.wheelAccum) < WHEEL_STEP_PX) return;
     const dir = this.wheelAccum > 0 ? 1 : -1;
+    // Le délai minimal n'absorbe que l'inertie (même sens) : un retour en arrière passe tout de suite.
+    if (dir === this.lastWheelDir && now - this.lastWheelStepAt < WHEEL_MIN_INTERVAL_MS) return;
     this.wheelAccum = 0;
     this.lastWheelStepAt = now;
+    this.lastWheelDir = dir;
     const n = this.inventory.size;
     this.setSlot((this.selectedSlot + dir + n) % n, true);
   }

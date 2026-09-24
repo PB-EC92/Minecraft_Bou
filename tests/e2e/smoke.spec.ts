@@ -358,6 +358,14 @@ test("les touches 1 à 9 et la molette changent la case choisie", async ({ page 
   await expect(page.locator(".slot").nth(0)).toHaveClass(/selected/);
   await page.mouse.wheel(0, -120);
   await expect(page.locator(".slot").nth(8)).toHaveClass(/selected/);
+  // Pavé tactile : une rafale de petits défilements (60 px en tout) avance d'une seule case, pas de six.
+  await page.evaluate(() => {
+    const canvas = document.querySelector("canvas.game")!;
+    for (let i = 0; i < 15; i++) canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 4, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(".slot").nth(0)).toHaveClass(/selected/);
+  await page.waitForTimeout(200);
+  await expect(page.locator(".slot").nth(0)).toHaveClass(/selected/);
 });
 
 test("la caméra ne saute pas au moment de la capture de la souris (constat 1)", async ({ page }, testInfo) => {
