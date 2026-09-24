@@ -35,7 +35,7 @@ src/render/   SceneView (Three.js, brouillard, mer au-delà des bords, perte de 
 src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/appui), mouseFilter (fonctions pures), TouchControls,
               breakPress (appui « casser » commun souris/tactile, pur)
 src/audio/    sounds (sons synthétisés Web Audio, recettes pures, contexte créé au premier geste)
-src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`), Player (marches, eau), urlOptions (#monde=…)
+src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`), Player (marches, eau, escalade de secours), urlOptions (#monde=…)
 src/edu/      Speech (synthèse vocale, voix locales préférées), texts (messages en deux variantes, niveaux de lecture),
               counting (noms comptables, nombres en lettres accordés, phrases de ramassage), Narrator (affiche la
               variante du niveau, lit à voix haute, anti-répétition) ; à venir : profils, missions, compagnon
@@ -52,7 +52,8 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Toute nouvelle fonctionnalité du moteur arrive avec un test unitaire ; toute nouvelle interface avec un cas dans `tests/e2e/smoke.spec.ts` si elle est vérifiable sans WebGL matériel.
 - Avant de livrer : `npm run build` réussit, `npm test` passe, `dist/cubes.html` a été ouvert en `file://`.
 - Le dossier vit dans OneDrive : ne jamais y écrire `node_modules` depuis Cowork ; en local, travailler dans le clone git hors OneDrive (voir `README.md`).
-- Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
+- Git : une session Cowork commite ses changements et redépose `cubes.git.bundle` ; une session Claude Code démarrée sur le dépôt GitHub `PB-EC92/Minecraft_Bou` commite et pousse sur sa branche (PR vers `main`). Messages de commit en français, préfixés par le jalon (ex. « J1 : … »).
+- Aucun échec bloquant, y compris physique : toute nouvelle façon de se coincer (trou, piège de blocs) doit garder une sortie à la portée d'un enfant de 6 ans (aujourd'hui : l'escalade de secours, `Player`).
 - Tests de fumée : l'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 - Tests de fumée : ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons compris), oriente le regard, téléporte, remplit ou vide le sac, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
 - Casser demande un appui maintenu (J2) : dans un test, `mouse.down`, attendre que le bloc soit devenu de l'air, puis `mouse.up` ; un `click` ne casse rien.
