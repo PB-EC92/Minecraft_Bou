@@ -4,6 +4,41 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole de recette V1 (J7, version 1.0-rc)
+
+Sur le convertible replié, Firefox ; ligne d'infos (mode parent → « Afficher le panneau Tests et les infos techniques ») terminée par « 1.0-rc ». **Exporter les sauvegardes avant** de remplacer le fichier. Pendant les parties des enfants, le panneau Tests et la ligne d'infos sont désormais masqués : les réafficher seulement pour relever un diagnostic.
+
+### Les quatre critères du brief (avec les enfants)
+
+| Critère | Comment l'observer | Résultat |
+|---|---|---|
+| 1. L'enfant de 6 ans lance le jeu et joue 15 minutes seul | Raccourci sur le bureau → « Qui joue ? » → son prénom → son monde ; chronométrer sans intervenir ; noter chaque appel à l'aide et sa raison | |
+| 2. Il comprend et termine la mission 1 sans aide d'un adulte | Nouveau monde, profil débutant ; noter le temps par étape (tutoriel, troncs, pierres, abri, lampe, nuit) et les blocages | |
+| 3. Le jeu tourne de façon fluide sur le convertible | Au ressenti ; si doute, mode parent → infos techniques : images/s en marchant, la nuit, près des Grignotes | |
+| 4. Les deux profils retrouvent leur monde à la partie suivante | Fermer Firefox, rouvrir le lendemain : chaque enfant retrouve monde, sac, étape de mission, étoile | |
+
+### Vérifications de la 1.0-rc (Pierre)
+
+| Vérification | Convertible |
+|---|---|
+| Partie d'un enfant : pas de bouton « Tests » ni de ligne d'infos ; les boutons ronds (bulles, maison, œil) sont contre le bord droit | |
+| Mode parent → cocher « Afficher le panneau Tests… » → ils réapparaissent dans la partie | |
+| Au fond d'un trou de deux blocs, pousser contre la paroi sans sauter : après quelques secondes, « Garde Sauter contre le mur ! » ; le faire : on grimpe | |
+| Enfermé dans un abri de 1 × 1 avec toit, pousser contre les murs : « Casse un mur pour sortir ! » | |
+| Nager au large : Pixel attend sur la rive (il ne réapparaît pas dans l'eau) | |
+| Grand enclos de clôtures (plus de 14 blocs de côté) la nuit : aucune Grignote n'apparaît dedans | |
+| Vue à la troisième personne le long d'un mur en escalier, en diagonale : la caméra ne passe pas derrière le mur | |
+| Import d'un fichier de sauvegarde : tout est remplacé, ou rien (message d'erreur sans état mélangé) | |
+
+## Séance du 25/09/2026 — J6 (retour de Pierre)
+
+Appareil : non précisé
+Testeurs : Pierre
+
+Ce qui marche : scénario complet réalisé en profil « petit » (lecteur débutant) : tutoriel puis mission 1 jusqu'à la fin ; la partie est bien sauvegardée.
+
+Ce qui coince : rien de signalé. Tests complets avec les enfants à venir (après le J7).
+
 ## Protocole J6 (tutoriel, mission 1 complète, félicitations)
 
 Sur le convertible replié, Firefox ; ligne d'infos terminée par « J6 ». **Exporter les sauvegardes avant** de remplacer le fichier (mode parent → Exporter). Les protocoles J3 à J5 restent à faire s'ils ne l'ont pas été.
