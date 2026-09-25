@@ -19,6 +19,7 @@ Sur le convertible replié, Firefox ; ligne d'infos terminée par « J6 ». **Ex
 | Dernière étape : « Reste près de ta lampe » ; le soleil se couche en quelques secondes ; la nuit, les Grignotes approchent et s'enfuient devant la lampe ; Pixel : « Elles fuient la lampe ! » | |
 | Écran de félicitations : « Bravo (prénom) ! », 6 troncs, 4 pierres, un abri, une lampe, cadeau de 5 blocs arc-en-ciel, confettis, voix (lecteur débutant) ; le bouton « Continuer » ne répond qu'après un instant, puis ferme l'écran | |
 | Les blocs arc-en-ciel sont dans le sac et se posent ; sac plein à la fin : « Vide une case du sac ! », le cadeau arrive dès qu'une case se libère | |
+| Sac plein (9 sortes) : viser une pierre brillante et garder l'appui ne la casse pas ; « Sac plein : vide une case ! » ; après avoir vidé une case, elle se casse et donne sa lampe | |
 | Accueil : le monde réussi porte une étoile ; un nouveau monde du même enfant commence directement à la mission 1 (pas de tutoriel) | |
 | Mode parent : section « Progression » (tutoriel fait ou non, étape de chaque monde) | |
 | Mode parent → nuit « pas de nuit » : la dernière étape se valide quand même (écran de félicitations) | |
