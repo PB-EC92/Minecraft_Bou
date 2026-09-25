@@ -15,8 +15,15 @@ export class Keyboard {
       // Évite le défilement de la page avec les flèches / espace.
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
     });
-    target.addEventListener("keyup", (e) => this.down.delete(e.code));
+    // Relâchement écouté en capture (J6) : un écran posé sur le jeu (félicitations, accueil) arrête la
+    // propagation des touches ; sans cela, une touche relâchée dessus resterait « enfoncée » pour le jeu.
+    target.addEventListener("keyup", (e) => this.down.delete(e.code), true);
     target.addEventListener("blur", () => this.down.clear());
+  }
+
+  /** Oublie les touches enfoncées (ouverture d'un écran posé sur le jeu). */
+  clear(): void {
+    this.down.clear();
   }
 
   isDown(code: string): boolean {

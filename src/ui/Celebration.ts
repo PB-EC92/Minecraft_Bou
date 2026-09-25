@@ -34,8 +34,9 @@ export class Celebration {
     this.root = document.createElement("div");
     this.root.className = "celebration";
     this.root.hidden = true;
-    // Les gestes faits sur cet écran ne pilotent pas le jeu derrière (regard, casse, sauts).
-    for (const ev of ["mousedown", "mouseup", "touchstart", "touchend", "touchmove", "keydown", "keyup", "wheel", "contextmenu"]) {
+    // Les gestes faits sur cet écran ne pilotent pas le jeu derrière (regard, casse, sauts). Le menu contextuel,
+    // lui, doit remonter jusqu'au jeu, qui le bloque (« Actualiser » ferait perdre la partie).
+    for (const ev of ["mousedown", "mouseup", "touchstart", "touchend", "touchmove", "keydown", "keyup", "wheel"]) {
       this.root.addEventListener(ev, (e) => e.stopPropagation());
     }
     parent.appendChild(this.root);

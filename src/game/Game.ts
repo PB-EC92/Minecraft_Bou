@@ -32,6 +32,9 @@ import {
   pick,
   BACK_TO_LAMP,
   bravoTitle,
+  FULL_BAG_KEEP,
+  PLACE_LAMP_AGAIN,
+  SPOKEN_TIPS,
   REWARD_WAITING,
   SAVED,
   SHELTER_NO_ROOF,
@@ -96,7 +99,8 @@ const WHEEL_MIN_INTERVAL_MS = 90;
 const WATCH_TIME_BOOST = 30;
 /** Dernière étape, la nuit : sans Grignotes (réglage), l'étape se valide après ce délai ; avec, au plus tard après le second (ms). */
 const WATCH_NO_CREATURES_MS = 4000;
-const WATCH_FALLBACK_MS = 60_000;
+/** Cumulé sur toutes les nuits de l'étape : la nuit « courte » (mode parent) ne dure qu'une minute. */
+const WATCH_FALLBACK_MS = 40_000;
 /** Conseils de Pixel pendant la construction de l'abri et la dernière étape : pas plus souvent que (ms). */
 const SHELTER_HINT_EVERY_MS = 12_000;
 const LAMP_HINT_EVERY_MS = 12_000;
@@ -233,7 +237,12 @@ export class Game {
   private lastShelterHintAt = -Infinity;
   /** Dernière étape de la mission 1 : consigne lue (le temps file), début de la nuit. */
   private watchAnnounced = false;
-  private watchNightSince: number | null = null;
+  /** Temps de nuit passé pendant la dernière étape (ms, cumulé d'une nuit à l'autre). */
+  private watchNightMs = 0;
+  /** Écran de félicitations à montrer à la reprise (partie quittée juste après la fin de la mission). */
+  private celebrateOnResume = false;
+  /** Appui pendant lequel « sac plein » a déjà été dit pour un bloc précieux. */
+  private fullToldFor: BreakPress | null = null;
   /** Une Grignote a vraiment fui la lampe pendant la dernière étape (la découverte sera dite). */
   private watchSawScare = false;
   private lastLampHintAt = -Infinity;
@@ -396,6 +405,9 @@ export class Game {
     this.inventory.clear();
     this.collectedTypes.clear();
     this.rewardPending = null;
+    this.celebrateOnResume = false;
+    // Un nouveau monde commence le matin (et non à l'heure du monde précédent, qui a pu finir sa mission la nuit).
+    this.phase = phaseForHour(8);
     this.narrator.cancelPending();
     this.afterWorldChange();
     this.hud.showMessage(`Nouveau monde : ${worldTypeName(type)} (graine ${seed})`, 3000);
@@ -451,6 +463,7 @@ export class Game {
     this.phase = save.phase;
     this.rewardPending = save.reward && isInventoryBlockId(save.reward.block) ? { block: save.reward.block, count: save.reward.count } : null;
     this.rewardSeenInventory = -1;
+    this.celebrateOnResume = save.celebrate === true;
     this.narrator.cancelPending();
     this.afterWorldChange();
   }
@@ -470,6 +483,7 @@ export class Game {
       savedAt: Date.now(),
       ...(this.mission ? { mission: this.mission.toJSON() } : {}),
       ...(this.rewardPending ? { reward: { ...this.rewardPending } } : {}),
+      ...(this.celebrationAt !== null || this.celebrateOnResume ? { celebrate: true } : {}),
     };
   }
 
@@ -534,6 +548,12 @@ export class Game {
       this.tell(r.def.intro, { ms: 4500, important: true });
       this.announceStepAt = performance.now() + 4500;
     } else this.announceStepAt = performance.now() + 1200;
+    // Partie quittée entre la fin de la mission et l'écran de félicitations : il est montré à la reprise.
+    if (this.celebrateOnResume && this.mission.done && r.def.recap) {
+      this.missionDoneAt = performance.now();
+      this.celebrationAt = performance.now() + 2000;
+    }
+    this.celebrateOnResume = false;
     this.refreshCompanionPanel();
   }
 
@@ -542,7 +562,7 @@ export class Game {
     this.stepStartedAt = now;
     this.lastShelterHintAt = -Infinity;
     this.watchAnnounced = false;
-    this.watchNightSince = null;
+    this.watchNightMs = 0;
     this.watchSawScare = false;
     this.lastLampHintAt = -Infinity;
     this.shelterNow = null;
@@ -775,7 +795,9 @@ export class Game {
       const h = this.sky.hour;
       if (this.creaturesOn() && this.prevHour >= 0 && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
         this.sounds.play("night");
-        this.tell(NIGHT_COMING, { ms: 4000, important: true });
+        // Pendant la dernière étape de la mission 1, le carillon seul : la phrase couperait la consigne
+        // de Pixel et donnerait la réponse (« une lampe les éloigne ») que l'enfant doit découvrir.
+        if (this.mission?.current()?.goal.kind !== "watch") this.tell(NIGHT_COMING, { ms: 4000, important: true });
       }
       this.prevHour = h;
       const events = this.sim.update(dt * 1000, {
@@ -816,7 +838,7 @@ export class Game {
         const goal = m.current()?.goal;
         this.shelterNow = goal?.kind === "shelter" ? checkShelter(this.world, this.player.x, this.player.y, this.player.z, this.changedAt) : null;
         if (goal?.kind === "shelter") this.shelterHint(now);
-        if (goal?.kind === "watch") this.updateWatch(now);
+        if (goal?.kind === "watch") this.updateWatch(now, dt * 1000);
         const ev = m.update(this.missionView);
         if (ev?.kind === "step") {
           this.sounds.play("bravo");
@@ -880,7 +902,7 @@ export class Game {
     if (!started && !natural) return;
     this.lastShelterHintAt = now;
     const hint = !c.roof ? SHELTER_NO_ROOF : c.walls < SHELTER_WALLS_NEEDED ? SHELTER_NO_WALLS : SHELTER_NOT_OWN;
-    this.tell(hint, { ms: 3500, dedupe: true });
+    this.tell(hint, { ms: 3500, dedupe: true, ...(hint === SHELTER_NO_ROOF ? { spoken: SPOKEN_TIPS.noRoof } : {}) });
   }
 
   /**
@@ -889,25 +911,29 @@ export class Game {
    * sans nuit (mode parent), l'étape est validée tout de suite ; sans Grignotes, peu après la tombée de la
    * nuit ; sinon, au plus tard après WATCH_FALLBACK_MS de nuit. Loin de toute lampe, Pixel rappelle d'y revenir.
    */
-  private updateWatch(now: number): void {
+  private updateWatch(now: number, dtMs: number): void {
     const m = this.mission;
     if (!m) return;
     if (this.settings.night === "aucune") {
       m.noteSignal("lamp-scare");
       return;
     }
-    if (!this.watchAnnounced) return;
-    if (!this.sky.night) {
-      this.watchNightSince = null;
-      return;
-    }
-    this.watchNightSince ??= now;
-    const t = now - this.watchNightSince;
+    if (!this.watchAnnounced || !this.sky.night) return;
+    this.watchNightMs += dtMs;
+    const t = this.watchNightMs;
     if (t >= (this.creaturesOn() ? WATCH_FALLBACK_MS : WATCH_NO_CREATURES_MS)) {
       m.noteSignal("lamp-scare");
       return;
     }
     if (!this.creaturesOn() || t < 6000 || now - this.lastLampHintAt < LAMP_HINT_EVERY_MS) return;
+    if (this.lamps.length === 0) {
+      // Lampe reprise : si elle est dans le sac, Pixel propose de la reposer (sinon, le délai de secours suffit).
+      if (this.inventory.count(BlockId.Lamp) > 0) {
+        this.lastLampHintAt = now;
+        this.tell(PLACE_LAMP_AGAIN, { ms: 3000, dedupe: true });
+      }
+      return;
+    }
     let nearest = Infinity;
     for (const l of this.lamps) nearest = Math.min(nearest, Math.hypot(l.x - this.player.x, l.z - this.player.z));
     if (nearest > LAMP_RADIUS + 1) {
@@ -998,6 +1024,7 @@ export class Game {
     this.touch.reset();
     this.hud.setBreakProgress(null);
     this.hud.message.classList.remove("visible"); // pas de message qui dépasse derrière la carte
+    this.keyboard.clear();
     this.paused = true;
     this.celebration.show(
       {
@@ -1008,6 +1035,7 @@ export class Game {
         button: level === "autonome" ? "Continuer à jouer" : "Continuer",
       },
       () => {
+        this.keyboard.clear();
         this.paused = false;
         if (this.rewardPending) this.tell(REWARD_WAITING, { ms: 4500 });
         this.updateHint();
@@ -1324,6 +1352,14 @@ export class Game {
           this.bottomToldFor = press;
           this.deny(BOTTOM_LAYER);
         }
+      } else if (this.wouldLose(id)) {
+        // Sac plein (J6) : une pierre brillante, une lampe ou un bloc arc-en-ciel ne se cassent pas, ils seraient
+        // perdus (et les pierres brillantes sont comptées : la mission 1 en a besoin). Dit une fois par appui.
+        holding = false;
+        if (this.fullToldFor !== press) {
+          this.fullToldFor = press;
+          this.deny(FULL_BAG_KEEP);
+        }
       } else if (brokeThisPress && t.y < Math.floor(this.player.y + 0.001)) {
         // Un bloc déjà cassé pendant cet appui : on ne creuse plus plus bas que ses pieds, dans aucune
         // colonne (en diagonale, le puits se formerait juste devant). Un nouvel appui en casse un de plus ;
@@ -1358,6 +1394,13 @@ export class Game {
     this.tell(HOLD_TO_BREAK, { ms: 2000, dedupe: true });
   }
 
+  /** Bloc précieux (pierre brillante, lampe, arc-en-ciel) dont le butin n'entrerait pas dans le sac : on ne le casse pas. */
+  private wouldLose(id: BlockId): boolean {
+    if (id !== BlockId.GlowStone && id !== BlockId.Lamp && id !== BlockId.Rainbow) return false;
+    const drop = dropsOf(id).main;
+    return drop !== null && !this.inventory.canAdd(drop);
+  }
+
   private breakBlock(pos: BlockPos): void {
     const { x, y, z } = pos;
     const w = this.world;
@@ -1365,6 +1408,10 @@ export class Game {
     if (id === BlockId.Air) return;
     if (y === 0 && !isPlantId(id)) {
       this.deny(BOTTOM_LAYER);
+      return;
+    }
+    if (this.wouldLose(id)) {
+      this.deny(FULL_BAG_KEEP);
       return;
     }
     if (!w.set(x, y, z, BlockId.Air)) return;

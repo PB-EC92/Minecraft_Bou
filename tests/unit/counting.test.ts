@@ -96,6 +96,7 @@ describe("messages fixes (texts.ts)", () => {
         "FLOWER_IN_WATER",
         "FLOWER_NEEDS_GROUND",
         "FULL_BAG",
+        "FULL_BAG_KEEP",
         "HOLD_TO_BREAK",
         "IMAGE_BACK",
         "IMAGE_LOST",
@@ -104,6 +105,7 @@ describe("messages fixes (texts.ts)", () => {
         "MOUSE_RESUME",
         "NIGHT_COMING",
         "NO_SPACE",
+        "PLACE_LAMP_AGAIN",
         "REWARD_WAITING",
         "SAVED",
         "SHELTER_NOT_OWN",
@@ -197,6 +199,9 @@ describe("noms comptables", () => {
     expect(r.spoken.autonome).not.toMatch(/\d/);
     expect(texts.bravoTitle("Léa").debutant).toBe(`Bravo Léa${NBSP}!`);
     expect(texts.bravoTitle(null).autonome).toBe(`Bravo, mission réussie${NBSP}!`);
+    // Astuce du toit : dite au lecteur débutant (trop longue pour son écran), plus longue que l'affichage.
+    expect(texts.SPOKEN_TIPS.noRoof.debutant.startsWith(texts.SHELTER_NO_ROOF.debutant)).toBe(true);
+    expect(texts.SPOKEN_TIPS.noRoof.autonome).toBe(texts.SHELTER_NO_ROOF.autonome);
   });
 
   it("donnent « bloc » pour l'air et les identifiants inconnus", () => {

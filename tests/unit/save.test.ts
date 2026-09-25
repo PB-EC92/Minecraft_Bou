@@ -185,6 +185,8 @@ describe("profils, réglages, mondes enregistrés", () => {
       expect(parseWorldSave({ ...world, reward: bad })!.reward).toBeUndefined();
     }
     expect(parseWorldSave(world)!.reward).toBeUndefined();
+    expect(parseWorldSave({ ...world, celebrate: true })!.celebrate).toBe(true);
+    expect(parseWorldSave({ ...world, celebrate: "oui" })!.celebrate).toBeUndefined();
   });
 
   it("monde inutilisable : null", () => {

@@ -108,4 +108,29 @@ describe("abri (mission 1)", () => {
     expect(r.walls).toBe(2); // nord et sud ; ouest = hors du monde, est = vide
     expect(r.ok).toBe(false);
   });
+
+  it("un creux d'un bloc au pied d'un arbre, sous le feuillage : pas un abri (relecture J6)", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    for (let y = 4; y < 8; y++) w.set(16, y, 15, BlockId.Log);
+    for (let x = 14; x <= 18; x++) for (let z = 13; z <= 17; z++) for (let y = 7; y < 9; y++) if (w.get(x, y, z) === BlockId.Air) w.set(x, y, z, BlockId.Leaves);
+    const base = w.data.slice();
+    const changed = (x: number, y: number, z: number) => w.get(x, y, z) !== base[w.index(x, y, z)];
+    w.set(16, 3, 16, BlockId.Air); // l'enfant creuse la case voisine du tronc et s'y tient
+    const r = checkShelter(w, 16.5, 3, 16.5, changed);
+    expect(r.roof).toBe(true);
+    expect(r.walls).toBe(4);
+    expect(r).toMatchObject({ own: false, ok: false });
+    // Un bloc posé par l'enfant parmi les murs en fait son abri.
+    w.set(17, 4, 16, BlockId.Dirt);
+    expect(checkShelter(w, 16.5, 3, 16.5, changed).ok).toBe(true);
+  });
+
+  it("un terrier sous un plafond de feuilles posé à ras de la tête : pas un terrier (plafond d'arbre)", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    w.set(16, 5, 16, BlockId.Leaves);
+    const base = w.data.slice();
+    const changed = (x: number, y: number, z: number) => w.get(x, y, z) !== base[w.index(x, y, z)];
+    w.set(16, 3, 16, BlockId.Air);
+    expect(checkShelter(w, 16.5, 3, 16.5, changed)).toMatchObject({ roof: true, own: false, ok: false });
+  });
 });

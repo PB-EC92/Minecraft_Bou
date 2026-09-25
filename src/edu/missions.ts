@@ -121,7 +121,7 @@ export const TUTORIAL: MissionDef = {
       touch: {
         text: {
           debutant: "Touche Casser, puis tape.",
-          autonome: `Touche le bouton Casser${NBSP}: il devient Poser. Puis tape l'écran pour poser ton bloc.`,
+          autonome: `Touche le bouton Casser${NBSP}: il devient Poser. Puis tape l'écran${NBSP}: ton bloc se pose sous la croix du milieu.`,
         },
       },
       label: "poser un bloc",
@@ -240,7 +240,12 @@ export function progressLabel(saved: unknown): string {
   const def = missionById(isObj(saved) ? saved.id : null);
   if (!def) return "pas encore commencé";
   const step = new MissionRunner(def, saved).stepIndex;
-  if (step >= def.steps.length) return `${def.name} réussie`;
+  if (step >= def.steps.length) {
+    // Mission finie qui a une suite (tutoriel) : le monde reprendra à la suite (voir resumeMission).
+    const next = nextMission(def);
+    if (next) return `${next.name} : étape 1 sur ${next.steps.length} (${next.steps[0]?.label ?? ""})`;
+    return `${def.name} réussie`;
+  }
   return `${def.name} : étape ${step + 1} sur ${def.steps.length} (${def.steps[step]?.label ?? ""})`;
 }
 

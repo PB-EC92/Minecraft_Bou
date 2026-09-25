@@ -241,6 +241,29 @@ export const SHELTER_NOT_OWN: ChildText = {
   autonome: `Cet abri s'est fait tout seul${NBSP}: construis le tien avec les blocs de ton sac.`,
 };
 
+/**
+ * Forme dite (lecteur débutant) du conseil « Il manque le toit » : l'astuce du toit, trop longue pour
+ * l'écran d'un lecteur de CP (voir SHELTER_NO_ROOF), est dite à voix haute.
+ */
+export const SPOKEN_TIPS: { readonly noRoof: ChildText } = {
+  noRoof: {
+    debutant: `Il manque le toit${NBSP}! Fais des murs de trois blocs de haut, puis pose le toit depuis l'intérieur.`,
+    autonome: `Il manque un toit au-dessus de ta tête. Astuce${NBSP}: avec des murs de trois blocs de haut, on pose le toit depuis l'intérieur.`,
+  },
+};
+
+/** Pierre brillante, lampe ou bloc arc-en-ciel visés sac plein : on ne les casse pas (ils seraient perdus). */
+export const FULL_BAG_KEEP: ChildText = {
+  debutant: `Sac plein${NBSP}: vide une case${NBSP}!`,
+  autonome: `Ton sac est plein${NBSP}: pose tous les blocs d'une case pour faire de la place, puis recommence.`,
+};
+
+/** Dernière étape de la mission 1, la nuit : l'enfant a repris sa lampe (elle est dans son sac). */
+export const PLACE_LAMP_AGAIN: ChildText = {
+  debutant: `Pose ta lampe${NBSP}!`,
+  autonome: "Pose ta lampe près de toi, puis regarde ce que font les Grignotes.",
+};
+
 /** Dernière étape de la mission 1 : l'enfant est resté loin de sa lampe à la nuit tombée. */
 export const BACK_TO_LAMP: ChildText = {
   debutant: `Reviens près de ta lampe${NBSP}!`,

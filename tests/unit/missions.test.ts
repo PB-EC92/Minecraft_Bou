@@ -137,6 +137,8 @@ describe("moteur de missions", () => {
     expect(progressLabel({ id: "tuto", step: 1 })).toBe("tutoriel : étape 2 sur 3 (casser un bloc)");
     expect(progressLabel({ id: "abri", step: 2 })).toBe("mission 1 (l'abri) : étape 3 sur 6 (construire un abri et y entrer)");
     expect(progressLabel({ id: "abri", step: 6 })).toBe("mission 1 (l'abri) réussie");
+    // Tutoriel fini : le monde reprendra à la mission 1 (relecture J6 : pas de « tutoriel réussie »).
+    expect(progressLabel({ id: "tuto", step: 3 })).toBe("mission 1 (l'abri) : étape 1 sur 6 (ramasser 6 troncs)");
   });
 
   it("consigne selon l'appareil : variante au doigt quand elle existe", () => {

@@ -83,6 +83,7 @@ declare global {
       setBlock(x: number, y: number, z: number, id: number): boolean;
       breakBlock(x: number, y: number, z: number): void;
       placeBlock(): void;
+      newWorld(type: string, seed: number): void;
       saveNow(): boolean;
       bubbles(): void;
       spawnCreature(dx: number, dz: number): number | null;
@@ -1458,7 +1459,9 @@ test("tutoriel : marcher, casser, poser, puis la mission 1 commence (au doigt : 
   await page.evaluate(() => window.cubesDebug.breakBlock(3, 3, 3));
   await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
   expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: 1 });
-  // 3. Poser.
+  // 3. Poser. Au centre d'une case : là où la marche s'est arrêtée, la case visée au sol pourrait chevaucher
+  // les pieds (« Pas de place ! », comportement voulu du jeu).
+  await page.evaluate(() => window.cubesDebug.teleport(16.5, 4, 15.5));
   if (touch) {
     await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain("Touche Casser");
     await page.evaluate(() => window.cubesDebug.look(0, -60));
@@ -1555,11 +1558,27 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   expect(s.paused).toBe(true);
   expect(s.rewardPending).toEqual({ block: B6.rainbow, count: 5 });
   await page.screenshot({ path: testInfo.outputPath("felicitations.png") });
+  // Pas de menu contextuel du navigateur sur l'écran (« Actualiser » ferait perdre la partie).
+  expect(
+    await page.evaluate(() => {
+      const e = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      document.querySelector(".celebration-card")!.dispatchEvent(e);
+      return e.defaultPrevented;
+    }),
+  ).toBe(true);
+  // Une touche gardée pendant l'apparition et relâchée sur l'écran ne reste pas « enfoncée » pour le jeu.
+  await page.keyboard.down("KeyW");
   const button = page.getByRole("button", { name: "Continuer" });
   await expect(button).toBeEnabled({ timeout: 5_000 });
+  await expect(button).toBeFocused();
+  await page.keyboard.up("KeyW");
   await button.click();
   await expect(page.locator(".celebration")).toBeHidden();
   expect((await state(page)).paused).toBe(false);
+  const before = (await state(page)).player;
+  await page.waitForTimeout(800);
+  const after = (await state(page)).player;
+  expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThan(0.05);
   await expect(page.locator(".message")).toContainText("Vide une case du sac");
   // Une case libérée : le cadeau entre dans le sac et le jeu le dit.
   await page.evaluate(() => {
@@ -1600,6 +1619,10 @@ test("sans Grignotes : la dernière étape se valide peu après la tombée de la
   await expect(page.locator(".celebration")).toBeVisible({ timeout: 10_000 });
   // Le cadeau est entré tout de suite (sac pas plein).
   expect(invCount(await state(page), B6.rainbow)).toBe(5);
+  // Un nouveau monde commence le matin, pas à l'heure (de nuit) du monde précédent.
+  await page.getByRole("button", { name: "Continuer" }).click();
+  await page.evaluate(() => window.cubesDebug.newWorld("plat", 2));
+  await expect.poll(async () => Math.round((await state(page)).hour)).toBe(8);
   expect(errors).toEqual([]);
 });
 
@@ -1649,5 +1672,28 @@ test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour 
   expect(profiles.profiles[0].tutorialDone).toBe(true);
   s = await state(page);
   expect(s.home).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("sac plein : une pierre brillante (ou une lampe) ne se casse pas, elle serait perdue", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    for (const id of [1, 2, 3, 4, 5, 6, 8, 9, 10]) window.cubesDebug.give(id, 2);
+    window.cubesDebug.setBlock(5, 4, 5, 15);
+    window.cubesDebug.setBlock(6, 4, 5, 13);
+    window.cubesDebug.breakBlock(5, 4, 5);
+  });
+  expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B5.glow);
+  await expect(page.locator(".message")).toContainText("Sac plein");
+  await page.evaluate(() => window.cubesDebug.breakBlock(6, 4, 5));
+  expect(await blockAt(page, { x: 6, y: 4, z: 5 })).toBe(B5.lamp);
+  // Une case libérée : la pierre brillante se casse et donne sa lampe.
+  await page.evaluate(() => {
+    window.cubesDebug.clearInventory();
+    window.cubesDebug.breakBlock(5, 4, 5);
+  });
+  expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B.air);
+  expect(invCount(await state(page), B5.lamp)).toBe(1);
   expect(errors).toEqual([]);
 });

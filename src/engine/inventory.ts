@@ -173,6 +173,14 @@ export class Inventory {
     return { ok: true, slot: free, count: added, added };
   }
 
+  /** Un bloc de ce type entrerait-il dans le sac (case de ce type pas pleine, ou case libre) ? (J6) */
+  canAdd(id: BlockId): boolean {
+    if (!isInventoryBlockId(id)) return false;
+    const i = this.indexOf(id);
+    if (i >= 0) return (this.cells[i]?.count ?? 0) < MAX_STACK;
+    return this.cells.includes(null);
+  }
+
   /**
    * Retire min(n, nombre) blocs de la case `i` (1 par défaut) et renvoie leur
    * type ; null si la case est vide ou hors bornes. Une case tombée à 0

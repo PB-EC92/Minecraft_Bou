@@ -67,6 +67,8 @@ export interface WorldSave {
   mission?: unknown;
   /** Cadeau de fin de mission pas encore entré dans le sac (sac plein) : nombre de blocs à donner (J6). */
   reward?: { block: number; count: number };
+  /** Écran de félicitations pas encore montré (partie quittée juste après la fin de la mission) (J6). */
+  celebrate?: boolean;
 }
 
 export interface ExportFile {
@@ -154,6 +156,7 @@ export function parseWorldSave(raw: unknown): WorldSave | null {
     ...(isObj(raw.reward) && isInventoryBlockId(raw.reward.block) && Number.isInteger(raw.reward.count) && (raw.reward.count as number) > 0
       ? { reward: { block: raw.reward.block, count: Math.min(raw.reward.count as number, 99) } }
       : {}),
+    ...(raw.celebrate === true ? { celebrate: true } : {}),
   };
 }
 

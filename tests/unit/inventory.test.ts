@@ -611,3 +611,17 @@ describe("rechargement d'une sauvegarde (J4)", () => {
     expect(inv.totalBlocks()).toBe(0);
   });
 });
+
+describe("canAdd (J6)", () => {
+  it("vrai s'il reste une place pour ce type, faux sac plein ou case au maximum", () => {
+    const inv = new Inventory(2);
+    expect(inv.canAdd(BlockId.Stone)).toBe(true);
+    inv.add(BlockId.Stone, MAX_STACK);
+    expect(inv.canAdd(BlockId.Stone)).toBe(false);
+    expect(inv.canAdd(BlockId.Dirt)).toBe(true);
+    inv.add(BlockId.Dirt, 1);
+    expect(inv.canAdd(BlockId.Dirt)).toBe(true);
+    expect(inv.canAdd(BlockId.Lamp)).toBe(false);
+    expect(inv.canAdd(BlockId.Air)).toBe(false);
+  });
+});

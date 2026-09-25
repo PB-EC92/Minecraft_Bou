@@ -1,4 +1,4 @@
-import { isSolidId } from "./blocks";
+import { BlockId, isSolidId } from "./blocks";
 import type { World } from "./World";
 
 /**
@@ -11,8 +11,10 @@ import type { World } from "./World";
  *   plein à hauteur des pieds ou de la tête, à SHELTER_WALL_REACH blocs au plus
  *   (la porte reste ouverte : trois murs suffisent) ;
  * - fait par l'enfant : au moins un de ces blocs a été posé par lui, ou il se
- *   tient dans un creux qu'il a creusé (un terrier dans une colline compte).
- *   Un sous-bois naturel entre trois troncs, sous les feuilles, ne compte pas.
+ *   tient dans un terrier qu'il a creusé : creux fait par lui ET plafond de
+ *   terre ou de pierre juste au-dessus de la tête (un creux d'un bloc au pied
+ *   d'un arbre, sous le feuillage, ne compte pas). Un sous-bois naturel entre
+ *   trois troncs, sous les feuilles, ne compte pas non plus.
  * Le bord du monde ne sert pas de mur (hors du monde, c'est de l'air).
  */
 
@@ -48,13 +50,17 @@ export function checkShelter(world: World, x: number, y: number, z: number, chan
   const fx = Math.floor(x);
   const fy = Math.floor(y + 0.001);
   const fz = Math.floor(z);
-  let own = changed(fx, fy, fz) || changed(fx, fy + 1, fz);
+  const dug = changed(fx, fy, fz) || changed(fx, fy + 1, fz);
+  let own = false;
 
   let roof = false;
   for (let dy = 2; dy < 2 + SHELTER_ROOF_REACH; dy++) {
-    if (isSolidId(world.get(fx, fy + dy, fz))) {
+    const id = world.get(fx, fy + dy, fz);
+    if (isSolidId(id)) {
       roof = true;
       if (changed(fx, fy + dy, fz)) own = true;
+      // Terrier : creusé par l'enfant, plafond naturel collé à la tête et qui n'est pas un arbre.
+      else if (dug && dy === 2 && id !== BlockId.Leaves && id !== BlockId.Log) own = true;
       break;
     }
   }
