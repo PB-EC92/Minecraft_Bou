@@ -163,6 +163,14 @@ describe("moteur de missions", () => {
       }
     }
     expect(TUTORIAL.intro.debutant).toContain("Pixel");
+    // Conseils quand une étape n'avance plus (J7) : deux variantes, sans chiffre (ils sont lus tels quels).
+    const hints = CAMPAIGN.flatMap((d) => d.steps.flatMap((s) => (s.hint ? [s.hint] : [])));
+    expect(hints.length).toBeGreaterThanOrEqual(4);
+    for (const h of hints) {
+      expect(h.debutant.length).toBeLessThan(h.autonome.length);
+      expect(h.debutant + h.autonome).not.toMatch(/\d/);
+    }
+    expect(MISSION_1.steps[1]!.hint!.debutant).toContain("Creuse");
     expect(MISSION_1.reward).toEqual({ block: BlockId.Rainbow, count: 5 });
   });
 });

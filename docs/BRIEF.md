@@ -73,6 +73,8 @@ Un seul et même fichier de jeu pour tous ; l'interface détecte le tactile.
 
 ## Points ouverts et éléments non vérifiés
 
+- État au 25/09/2026 : version **1.0-rc** livrée (tout le périmètre de la V1), recette technique dans `RECETTE-V1.md` ; la recette avec les enfants (critères de réussite ci-dessus) reste à faire. Nom définitif pas encore choisi : « Cubes » en attendant.
+
 - Voix françaises de synthèse : vérifiées sur le PC (Chrome, 4 voix françaises dont Microsoft Hortense, fonctionne wifi coupé) et sur le convertible (Firefox, mêmes 4 voix locales).
 - Node.js sur le poste : v24.11.0, compatible avec Vite 8 et Vitest 5 (vérifié le 23/09/2026).
 - Capture souris (Pointer Lock) dans un fichier ouvert par double-clic : vérifiée sur le PC (Chrome) ; Edge non testé.

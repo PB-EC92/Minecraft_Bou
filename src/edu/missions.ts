@@ -44,6 +44,8 @@ export interface StepDef extends StepText {
   touch?: StepText;
   /** Libellé court pour l'adulte (mode parent). */
   label: string;
+  /** Conseil de Pixel quand l'étape n'avance plus depuis un moment (J7 : « creuse, la pierre est dessous »). */
+  hint?: ChildText;
 }
 
 /** Ligne du récapitulatif de l'écran de félicitations : un bloc et son nombre, ou l'abri. */
@@ -147,12 +149,21 @@ export const MISSION_1: MissionDef = {
       text: { debutant: "Ramasse 6 troncs.", autonome: "Casse des troncs d'arbre pour en ramasser 6." },
       spoken: { debutant: "Ramasse six troncs.", autonome: "Casse des troncs d'arbre pour en ramasser six." },
       label: "ramasser 6 troncs",
+      hint: {
+        debutant: `Cherche un arbre${NBSP}!`,
+        autonome: `Les troncs sont le bois des arbres${NBSP}: approche-toi d'un arbre, vise le tronc et garde l'appui. Dans le désert, les arbres sont rares${NBSP}: va plus loin.`,
+      },
     },
     {
       goal: { kind: "collect", block: BlockId.Stone, count: 4 },
       text: { debutant: "Ramasse 4 pierres.", autonome: "Casse des pierres grises pour en ramasser 4." },
       spoken: { debutant: "Ramasse quatre pierres.", autonome: "Casse des pierres grises pour en ramasser quatre." },
       label: "ramasser 4 pierres",
+      // Recette J7 : hors des montagnes, la pierre n'est jamais en surface (sous 4 à 5 blocs d'herbe, de terre ou de sable).
+      hint: {
+        debutant: `Creuse${NBSP}: la pierre est dessous${NBSP}!`,
+        autonome: `La pierre grise est cachée sous l'herbe et la terre${NBSP}: creuse vers le bas pour la trouver.`,
+      },
     },
     {
       goal: { kind: "shelter" },
@@ -169,6 +180,10 @@ export const MISSION_1: MissionDef = {
         autonome: `Trouve une pierre brillante et casse-la${NBSP}: elle donne une lampe.`,
       },
       label: "trouver une lampe (pierre brillante)",
+      hint: {
+        debutant: `Cherche des cristaux bleus${NBSP}!`,
+        autonome: `Une pierre brillante est grise avec des cristaux bleus, posée au sol. Promène-toi pour en trouver une.`,
+      },
     },
     {
       goal: { kind: "place", block: BlockId.Lamp, count: 1 },
@@ -177,6 +192,10 @@ export const MISSION_1: MissionDef = {
         autonome: `Pose la lampe près de ton abri${NBSP}: les Grignotes n'aiment pas la lumière.`,
       },
       label: "poser la lampe",
+      hint: {
+        debutant: "Choisis la lampe, puis pose-la.",
+        autonome: "Choisis la case de la lampe dans la barre du bas, puis pose-la près de ton abri.",
+      },
     },
     {
       goal: { kind: "watch", signal: "lamp-scare" },

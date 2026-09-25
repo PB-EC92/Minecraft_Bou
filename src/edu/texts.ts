@@ -283,6 +283,20 @@ export function bravoTitle(name: string | null): ChildText {
 }
 
 
+/* ---------- Messages d'interface (J7 : plus aucun message à l'enfant en une seule variante) ---------- */
+
+/** Le même monde a été ouvert dans un autre onglet : celui-ci revient à l'accueil. */
+export const OPENED_ELSEWHERE: ChildText = {
+  debutant: `Ton monde est ouvert ailleurs.`,
+  autonome: `Ce monde a été ouvert dans un autre onglet${NBSP}: reprends-le depuis l'accueil.`,
+};
+
+/** Le navigateur refuse le plein écran. */
+export const NO_FULLSCREEN: ChildText = {
+  debutant: `Pas de plein écran${NBSP}!`,
+  autonome: `Le plein écran n'est pas possible ici.`,
+};
+
 /* ---------- Enfant coincé (J7) : Pixel explique comment sortir ---------- */
 
 /** Au fond d'un trou, au clavier : l'escalade de secours (garder Espace en avançant contre la paroi). */

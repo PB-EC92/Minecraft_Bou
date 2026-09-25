@@ -1,6 +1,6 @@
 # CLAUDE.md — projet « Cubes »
 
-Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur débutant, 8 ans lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Appareil des enfants : un convertible Windows 10 (Acer Nitro 5 Spin NP515-51) replié en mode tablette, sous **Firefox** (pas de tablette Android) ; il peut aussi être déplié (clavier, pavé tactile). Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
+Jeu de construction en blocs 3D, éducatif, pour deux enfants (6 ans lecteur débutant, 8 ans lecteur autonome). Navigateur, hors ligne, un seul fichier HTML. Appareil des enfants : un convertible Windows 10 (Acer Nitro 5 Spin NP515-51) replié en mode tablette, sous **Firefox** (pas de tablette Android) ; il peut aussi être déplié (clavier, pavé tactile). Lire `docs/BRIEF.md` (le quoi) et `docs/PLAN.md` (le comment, jalons J0 à J7) avant toute modification ; `docs/RECETTE-V1.md` dit ce que la V1 livre, comment c'est vérifié, et les décisions ouvertes. `docs/JOURNAL.md` tient l'état d'avancement session après session : le mettre à jour à chaque fin de session.
 
 ## Commandes
 
@@ -29,8 +29,8 @@ src/engine/   World (tableau plat + versions par section de 16³, bords = murs),
               tables rapides), terrain (types de monde, graine, apparition), noise (bruit à graine), dayNight (cycle),
               raycast (DDA), physics (AABB), random, inventory (sac de 9 cases, une par type, 99 max, format de
               sauvegarde), breaking (casse par appui maintenu : progression, verrou, écart de répétition),
-              creatures (Grignotes : jour, nuit, vol, lampe, clôture, bulles), shelter (abri de la mission 1 : toit,
-              3 murs, fait ou creusé par l'enfant)
+              creatures (Grignotes : jour, nuit, vol, lampe, clôture, bulles, jamais nées dans un enclos), shelter
+              (abri de la mission 1 : toit, 3 murs, fait ou creusé par l'enfant), pit (enfant coincé : grimper ou casser)
 src/render/   SceneView (Three.js, brouillard, mer au-delà des bords, perte de contexte), ChunkRenderer (sections,
               file par distance, budget par image, distance de rendu), mesher (pur : faces visibles, occlusion
               ambiante, eau, fleurs en croix), atlas (disposition pure), textures (dessin), Sky (soleil, lune, étoiles),
@@ -42,7 +42,7 @@ src/input/    Keyboard, MouseLook (Pointer Lock + repli glisser/appui), mouseFil
 src/audio/    sounds (sons synthétisés Web Audio, recettes pures, contexte créé au premier geste)
 src/game/     Game (assemblage + boucle protégée + `window.cubesDebug`, session, sauvegarde auto, vue 3e personne), Player (marches,
               eau, escalade de secours), urlOptions (#monde=…), avatars (dessins, pur), thirdPerson (caméra, pur),
-              companion (déplacement de Pixel, pur),
+              companion (déplacement de Pixel, pur), identity (nom et version du jeu : le seul endroit à changer),
               renderDistance (distance au démarrage : adresse, puis `cubes:distance`, puis 96)
 src/edu/      Speech (synthèse vocale, voix locales préférées), texts (messages en deux variantes, niveaux de lecture),
               counting (noms comptables, nombres en lettres accordés, phrases de ramassage), Narrator (affiche la
@@ -68,6 +68,7 @@ tests/e2e     Playwright — fumée sur le fichier construit
 - Aucun échec bloquant, y compris physique : toute nouvelle façon de se coincer (trou, piège de blocs) doit garder une sortie à la portée d'un enfant de 6 ans (aujourd'hui : l'escalade de secours, `Player`). De même pour les missions : toute étape doit pouvoir se valider quels que soient les réglages du mode parent (pas de nuit, pas de Grignotes) et l'état du sac (plein).
 - Tests de fumée : Playwright n'a ici que Chromium ; tout comportement propre à Firefox (appareil des enfants) se vérifie à la main par Pierre, à noter dans le protocole de `RETOURS.md`. Profils : `pc`, `tablette` (le convertible en portrait, 1080 × 1802) et `tablette-paysage` (1920 × 1080, seulement les cas dont le titre contient `@tactile`). L'option `hasTouch` de Playwright fait passer un PC pour une tablette (`pointer: coarse`) ; pour simuler un PC à écran tactile, garder le profil PC et envoyer les touchers par CDP (`Input.dispatchTouchEvent`).
 - Sauvegardes (J4) : un monde = type + graine + écart ; toute modification du générateur qui change le terrain d'une graine doit incrémenter `GENERATOR_VERSION` (`terrain.ts`) et garder la lecture des anciens mondes (test « empreinte du terrain »).
+- Écran des enfants (J7) : panneau « Tests » et ligne d'infos masqués pendant leurs parties (réglage `devTools` du mode parent), toujours visibles en mode adresse. Dans un test de partie d'enfant qui en a besoin : `firstLaunch(page, info, true)` coche la case, ou lire `.info` par `textContent`.
 - Tests de fumée : sans rien dans l'adresse, l'accueil s'affiche (voir les cas J4) ; `#monde=…&graine=…` le saute et n'enregistre rien. En mode adresse, Grignotes et compagnon/mission sont coupés sauf `&creatures=1` / `&mission=0` (tutoriel) ou `&mission=1` (mission 1) (ils perturberaient les autres scénarios). Une partie d'enfant commence par le tutoriel si son profil ne l'a pas fait (`tutorialDone`) : en tenir compte dans les scénarios « premier lancement ». Ouvrir `#monde=plat&graine=1` (monde plat du J0, positions connues) pour les scénarios d'interaction ; attendre `!window.cubesDebug.state().loading`. `window.cubesDebug` donne l'état (sac, progression de casse, niveau de lecture, sons, mission, abri, félicitations, cadeau en attente compris), oriente le regard, téléporte, remplit ou vide le sac, pose ou casse un bloc selon les règles du jeu, lit un pixel juste après le rendu et provoque une perte de contexte 3D.
 - Casser demande un appui maintenu (J2) : dans un test, `mouse.down`, attendre que le bloc soit devenu de l'air, puis `mouse.up` ; un `click` ne casse rien.
 - Sons et voix : le navigateur les bloque tant qu'il n'y a pas eu de geste (clic, touche, toucher) ; ne jamais lire ni jouer au démarrage.

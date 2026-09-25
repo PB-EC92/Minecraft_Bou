@@ -11,6 +11,7 @@ import {
   quantity,
   returnedText,
   rewardText,
+  goalReachedText,
   shouldSpeakPickup,
   stolenText,
   spokenQuantity,
@@ -104,7 +105,9 @@ describe("messages fixes (texts.ts)", () => {
         "MOUSE_FALLBACK",
         "MOUSE_RESUME",
         "NIGHT_COMING",
+        "NO_FULLSCREEN",
         "NO_SPACE",
+        "OPENED_ELSEWHERE",
         "PIT_CLIMB",
         "PIT_CLIMB_TOUCH",
         "PLACE_LAMP_AGAIN",
@@ -190,6 +193,14 @@ describe("noms comptables", () => {
     expect(countNoun(BlockId.Snow)).toEqual({ one: "bloc de neige", many: "blocs de neige", feminine: false });
     expect(countNoun(BlockId.Cactus)).toEqual({ one: "cactus", many: "cactus", feminine: false });
     expect(countNoun(BlockId.Rainbow)).toEqual({ one: "bloc arc-en-ciel", many: "blocs arc-en-ciel", feminine: false });
+  });
+
+  it("objectif atteint (J7) : le compte est dit, en lettres accordées", () => {
+    const logs = goalReachedText(BlockId.Log, 6);
+    expect(plainText(logs.text)).toEqual({ debutant: "6 troncs ! Bravo !", autonome: "Tu as 6 troncs. Bravo, c'est fait !" });
+    expect(plain(logs.spoken.debutant)).toBe("Six troncs ! Bravo !");
+    expect(plain(goalReachedText(BlockId.Stone, 4).spoken.debutant)).toBe("Quatre pierres ! Bravo !");
+    expect(plain(goalReachedText(BlockId.Lamp, 1).text.debutant)).toBe("Une lampe ! Bravo !");
   });
 
   it("cadeau de fin de mission (J6) : chiffres à l'écran, lettres à la voix", () => {

@@ -444,3 +444,13 @@ describe("ce que rapporte un bloc cassé (J5)", () => {
     expect(dropsOf(200)).toEqual({ main: null, extra: null });
   });
 });
+
+describe("identifiants de blocs figés (règle 6, recette J7)", () => {
+  it("aucun bloc n'est renuméroté : les sauvegardes en dépendent", () => {
+    expect(BlockId.Air).toBe(0);
+    expect([BlockId.Grass, BlockId.Dirt, BlockId.Stone, BlockId.Planks, BlockId.Sand, BlockId.Log]).toEqual([1, 2, 3, 4, 5, 6]);
+    expect([BlockId.Water, BlockId.Leaves, BlockId.FlowerRed, BlockId.FlowerYellow, BlockId.Snow, BlockId.Cactus]).toEqual([7, 8, 9, 10, 11, 12]);
+    expect([BlockId.Lamp, BlockId.Fence, BlockId.GlowStone, BlockId.Rainbow]).toEqual([13, 14, 15, 16]);
+    BLOCKS.forEach((d, i) => expect(d.id).toBe(i));
+  });
+});

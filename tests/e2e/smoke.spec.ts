@@ -254,6 +254,9 @@ test.beforeAll(() => {
 });
 
 test("le jeu démarre en file:// sans erreur : accueil devant une prairie générée, adresse inchangée", async ({ page }, testInfo) => {
+  // Règle 1 : un seul fichier, hors ligne. Aucune requête en dehors du fichier lui-même (recette J7).
+  const requests: string[] = [];
+  page.on("request", (r) => requests.push(r.url()));
   const errors = await openGame(page, "");
   const info = await readInfo(page);
   const s = await state(page);
@@ -273,6 +276,7 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   await expect(page.locator(".panel-toggle")).toBeHidden();
   // Sans #monde=… dans l'adresse : un rechargement doit ramener à l'accueil.
   expect(page.url()).not.toContain("#");
+  expect(requests.filter((u) => !/^(file|data|blob):/.test(u))).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
 });
 
@@ -1482,10 +1486,12 @@ test("tutoriel : marcher, casser, poser, puis la mission 1 commence (au doigt : 
     const vp = page.viewportSize()!;
     await quickTap(page, vp.width * 0.7, vp.height * 0.4);
   } else {
+    // La pose au clic droit est vérifiée par le cas « souris capturée… » ; ici, l'accès de test (mêmes règles),
+    // car sous forte charge la capture de la souris peut faire sauter la visée juste après le clic.
     await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain("clic droit");
-    await lockAndLookDown(page);
-    await page.mouse.down({ button: "right" });
-    await page.mouse.up({ button: "right" });
+    await page.evaluate(() => window.cubesDebug.look(0, -60));
+    await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+    await page.evaluate(() => window.cubesDebug.placeBlock());
   }
   await expect.poll(async () => (await state(page)).mission?.done).toBe(true);
   await expect(page.locator(".message")).toContainText("tu sais jouer");
@@ -1520,10 +1526,15 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   const s0 = await state(page);
   const cx = Math.floor(s0.player.x);
   const cz = Math.floor(s0.player.z);
+  // Icône du bloc demandé dans le bandeau (J7).
+  await expect(page.locator(".companion-block")).toBeVisible({ timeout: 10_000 });
   await page.evaluate(() => window.cubesDebug.give(6, 6));
   await expect.poll(async () => (await state(page)).mission?.step).toBe(1);
+  // Objectif atteint : le compte est dit (J7).
+  await expect.poll(async () => (await state(page)).spoken).toContain("Six troncs\u00a0! Bravo\u00a0!");
   await page.evaluate(() => window.cubesDebug.give(3, 4));
   await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
+  await expect(page.locator(".companion-block")).toBeHidden();
   // Abri : pictogramme dans le bandeau, rien d'allumé dehors.
   await expect(page.locator(".companion .shelter-icon")).toBeVisible();
   await expect(page.locator(".companion .shelter-icon .part.on")).toHaveCount(0);
@@ -1755,5 +1766,25 @@ test("coincé au fond d'un puits : le jeu explique comment grimper (au doigt : S
   await page.keyboard.down("KeyW"); // pousse contre la paroi, sans sauter
   await expect(page.locator(".message")).toContainText(touch ? "Garde Sauter contre le mur" : "Garde Espace contre le mur", { timeout: 15_000 });
   await page.keyboard.up("KeyW");
+  expect(errors).toEqual([]);
+});
+
+test("sac plein pendant l'étape « 6 troncs » : un tronc ne se casse pas, il serait perdu (recette J7)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1");
+  await expect.poll(async () => (await state(page)).missionId).toBe("abri");
+  await page.evaluate(() => {
+    for (const id of [1, 2, 3, 4, 5, 8, 9, 10, 11]) window.cubesDebug.give(id, 1);
+    window.cubesDebug.setBlock(5, 4, 5, 6);
+    window.cubesDebug.breakBlock(5, 4, 5);
+  });
+  expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B.log);
+  await expect(page.locator(".message")).toContainText("Sac plein");
+  // Hors de l'étape qui le demande (autre bloc), la règle du J2 reste : cassé, pas ramassé.
+  await page.evaluate(() => {
+    window.cubesDebug.setBlock(6, 4, 5, 12);
+    window.cubesDebug.breakBlock(6, 4, 5);
+  });
+  expect(await blockAt(page, { x: 6, y: 4, z: 5 })).toBe(B.air);
   expect(errors).toEqual([]);
 });

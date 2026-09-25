@@ -44,11 +44,11 @@ Maillage : par section, seules les faces visibles (voisin non opaque) sont gén�
 
 Textures : atlas de tuiles 16 × 16 px dessinées par code sur un canvas au démarrage. Zéro image externe, style pixel-art original, aucun emprunt à Minecraft.
 
-Génération : bruit de gradient 2D à graine (réalisé au J1, type Perlin) ; quatre types de monde (prairie, île, montagne, désert) avec herbe, terre, pierre, sable, neige, eau, arbres, fleurs, cactus. Même type et même graine donnent le même monde ; graine fixée par profil pour que chaque enfant retrouve « son » monde (J4).
+Génération : bruit de gradient 2D à graine (réalisé au J1, type Perlin) ; quatre types de monde (prairie, île, montagne, désert) avec herbe, terre, pierre, sable, neige, eau, arbres, fleurs, cactus. Même type et même graine donnent le même monde. Réalisé au J4 autrement : trois mondes par enfant, chacun avec une graine tirée à sa création et enregistrée avec lui. Pierres brillantes en surface depuis le J5 (générateur version 2).
 
 Physique : boîte du joueur contre les blocs (AABB), gravité, saut, aucun dégât de chute ; au J1, montée automatique des marches d'un bloc, et dans l'eau on flotte (nager vers le haut, plonger), sans noyade.
 
-Blocs V1 (une quinzaine) : herbe, terre, pierre, sable, tronc, planches, feuilles, verre, eau, lampe, clôture, fleurs, plus neige et cactus pour les types de monde (J1) ; le bloc-lettre est prévu dans le registre pour la V2 sans être exposé en V1.
+Blocs V1 (livrés) : herbe, terre, pierre, sable, tronc, planches, feuilles, eau, deux fleurs, neige, cactus, lampe, clôture, pierre brillante (donne la lampe), arc-en-ciel (cadeau de la mission 1). Écarts : pas de verre ; les planches existent mais l'enfant ne peut pas en trouver (craft en V2) ; le bloc-lettre sera ajouté en V2 à la fin du registre (voir `RECETTE-V1.md`).
 
 Contrôles clavier : touches repérées par position physique (`KeyboardEvent.code`), ce qui donne ZQSD en AZERTY et WASD en QWERTY sans aucun réglage. Regard à la souris via Pointer Lock.
 
@@ -60,13 +60,13 @@ Jour/nuit : cycle de 12 minutes au J1 (9 de jour, 3 de nuit), nuit jamais noire 
 
 Créatures : machine à états simple. Le jour elles errent loin du joueur ; la nuit elles s'approchent, chipent un bloc de l'inventaire au contact, fuient à quelques blocs d'une lampe et ne franchissent pas les clôtures.
 
-Sauvegarde : `localStorage` par profil (blocs du monde compressés par plages puis encodés en base64, inventaire, position, progression) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, Chrome et Edge partagent le stockage local entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`. Firefox, navigateur du convertible, le rattacherait au chemin exact du fichier (non vérifié) : le J4 doit en tenir compte (toujours remplacer le fichier au même endroit sous le même nom, montrer en mode parent où vit la sauvegarde, proposer l'export avant une mise à jour).
+Sauvegarde : `localStorage` par profil (réalisé au J4 : écart avec le monde régénéré depuis sa graine, encodé en base64, plus inventaire, position, heure, progression de mission ; J6 : cadeau et écran de félicitations en attente) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, Chrome et Edge partagent le stockage local entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`. Firefox, navigateur du convertible, le rattacherait au chemin exact du fichier (non vérifié) : le J4 doit en tenir compte (toujours remplacer le fichier au même endroit sous le même nom, montrer en mode parent où vit la sauvegarde, proposer l'export avant une mise à jour).
 
 Missions : données déclaratives (étapes, conditions observées sur l'état du jeu, textes en deux variantes débutant/autonome, récompense). Le moteur observe le jeu et fait avancer la mission ; le compagnon porte les dialogues.
 
-Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil.
+Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil. Réalisé : prénoms, niveau de lecture (qui règle aussi la longueur des phrases), voix, nuit (normale, courte, pas de nuit), Grignotes, panneau Tests (J7), progression (J6), effacer un monde, export et import. La plage de nombres n'est pas faite (sans effet sur la mission 1) : backlog V2.
 
-Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, 580 ko au J1, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
+Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, 580 ko au J1, 700 ko environ à la 1.0-rc, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
 
 ### Ce qu'impose le fichier local (`file://`)
 
@@ -148,6 +148,8 @@ Mission 0 (tutoriel, trois étapes : se déplacer, casser, poser) puis mission 1
 
 Vérification des quatre critères de réussite du brief avec les enfants, corrections, version 1.0, mise à jour de la documentation, tri du backlog V2.
 
+État : première partie livrée le 25/09/2026 (voir `JOURNAL.md`) : version **1.0-rc**, recette technique (`RECETTE-V1.md`), corrections des limites connues et des écarts relevés par l'audit, protocole de recette avec les enfants dans `RETOURS.md`, backlog V2 trié (§6). Reste : la séance avec les enfants (Pierre), les corrections qui en sortiront, puis le passage à « 1.0 ».
+
 ## 4. Organisation du travail
 
 En session Cowork : je code et je teste côté cloud (tests unitaires, Chromium sans interface, captures d'écran que je relis), puis je dépose `src/`, `docs/`, les fichiers de configuration et `dist/cubes.html` dans le dossier `Minecraft`. Chaque fichier déposé reste sous 20 Mo.
@@ -179,9 +181,27 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 | Plan B serveur : les sauvegardes sont liées à l'adresse du PC ; si la box lui en attribue une autre, elles « disparaissent » | Monde perdu en apparence | Réserver l'adresse du PC dans la box ; export régulier |
 | Perte du contexte 3D quand la tablette passe à une autre appli | Écran noir ou figé au retour | Gérée au J1 ; vérifié sur le convertible (retour après 30 s dans une autre appli) |
 
-## 6. Backlog V2 (non planifié)
+## 6. Backlog V2 (non planifié, trié au J7)
 
-Missions 2 à 5, une par domaine : mots à composer en blocs-lettres (lecture/écriture) ; construction symétrique à compléter (mathématiques) ; maison qui garde la chaleur la nuit et plantes à arroser (sciences) ; suite d'ordres à donner au compagnon pour franchir un parcours (logique). Puis : craft simple (planches à partir de tronc), animaux à nourrir, météo, musique d'ambiance, nom définitif choisi par les enfants, blocs, biomes et types de monde supplémentaires, autres outils rigolos (filet pour attraper les créatures, bloc confettis qui fait sauter des blocs).
+Trié par intérêt pour les enfants et par coût estimé (non vérifié). À revoir après la séance de recette.
+
+**Priorité 1 — prolonge directement la V1.**
+- Craft simple : planches à partir d'un tronc (aujourd'hui introuvables par l'enfant), puis verre à partir de sable.
+- Mission 2, lecture et écriture : mots à composer en blocs-lettres (nouveau bloc-lettre, ajouté à la fin du registre).
+- Nom définitif choisi par les enfants (un seul endroit à changer : `src/game/identity.ts`).
+- Selon les retours : geste pour vider une case du sac, nuit retenue jusqu'à l'abri, rappel d'export dans le mode parent.
+
+**Priorité 2 — les autres domaines du brief.**
+- Mission 3, mathématiques : construction symétrique à compléter ; « plage de nombres » du mode parent.
+- Mission 4, sciences : maison qui garde la chaleur la nuit, plantes à arroser.
+- Mission 5, logique : suite d'ordres à donner au compagnon pour franchir un parcours.
+- Créatures qui bloquent un passage (brief), pas seulement qui chipent.
+
+**Priorité 3 — richesse du monde.**
+- Autres outils rigolos : filet pour attraper les créatures, bloc confettis qui fait sauter des blocs.
+- Animaux à nourrir, météo, musique d'ambiance.
+- Blocs, biomes et types de monde supplémentaires ; grottes, obscurité sous terre, eau qui coule.
+- Bouton « plonger » au doigt (on flotte seulement).
 
 ## 7. Éléments non vérifiés à confirmer
 

@@ -814,6 +814,14 @@ canvas.game {
   font-weight: 600;
   line-height: 1.25;
 }
+.companion-block {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  image-rendering: pixelated;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px #e8762c;
+}
 .companion-progress {
   flex: none;
   font-size: 20px;

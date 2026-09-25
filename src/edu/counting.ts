@@ -219,6 +219,23 @@ export function returnedText(id: BlockId): ChildText {
   };
 }
 
+/**
+ * Objectif « ramasser » atteint (J7) : le compte est dit à voix haute (« Six troncs ! Bravo ! »), la voix ne
+ * lisant sinon les comptes qu'au premier bloc et aux paliers de 5 (J2.1). Écrit en chiffres, dit en lettres.
+ */
+export function goalReachedText(id: BlockId, n: number): { text: ChildText; spoken: ChildText } {
+  return {
+    text: {
+      debutant: `${capitalize(quantity(id, n))}${NBSP}! Bravo${NBSP}!`,
+      autonome: `Tu as ${quantity(id, n)}. Bravo, c'est fait${NBSP}!`,
+    },
+    spoken: {
+      debutant: `${capitalize(spokenQuantity(id, n))}${NBSP}! Bravo${NBSP}!`,
+      autonome: `Tu as ${spokenQuantity(id, n)}. Bravo, c'est fait${NBSP}!`,
+    },
+  };
+}
+
 /** Cadeau de fin de mission (J6) : « Cadeau : 5 blocs arc-en-ciel ! » ; forme dite en lettres (« cinq blocs arc-en-ciel »). */
 export function rewardText(id: BlockId, n: number): { text: ChildText; spoken: ChildText } {
   return {

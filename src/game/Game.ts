@@ -7,7 +7,7 @@ import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
+import { emptiedText, goalReachedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
 import { BRAVO, MISSION_1, MissionRunner, nextMission, resumeMission, stepText, TUTORIAL, type MissionDef, type MissionView } from "../edu/missions";
 import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
 import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
@@ -34,6 +34,8 @@ import {
   BACK_TO_LAMP,
   bravoTitle,
   FULL_BAG_KEEP,
+  NO_FULLSCREEN,
+  OPENED_ELSEWHERE,
   PIT_CLIMB,
   PIT_CLIMB_TOUCH,
   PLACE_LAMP_AGAIN,
@@ -111,6 +113,9 @@ const SHELTER_HINT_EVERY_MS = 12_000;
 const LAMP_HINT_EVERY_MS = 12_000;
 /** Délai entre la fin d'une mission et la suite (mission suivante, écran de félicitations) (ms). */
 const NEXT_MISSION_DELAY_MS = 3200;
+/** Étape qui n'avance plus (J7) : délai avant le conseil de Pixel, puis écart entre deux conseils (ms). */
+const STALL_HINT_MS = 40_000;
+const STALL_HINT_EVERY_MS = 60_000;
 /** Enfant coincé (J7) : après ce temps passé à pousser contre les parois, Pixel explique comment sortir ; pas plus souvent que. */
 const STUCK_HINT_AFTER_MS = 4000;
 const STUCK_HINT_EVERY_MS = 20_000;
@@ -260,8 +265,15 @@ export class Game {
   /** Cadeau pas encore entré dans le sac (sac plein) ; enregistré avec le monde. */
   private rewardPending: { block: BlockId; count: number } | null = null;
   private rewardSeenInventory = -1;
-  /** Temps passé à pousser en vain contre les parois d'un trou ou d'un abri fermé, et dernier conseil (J7). */
-  private stuckMs = 0;
+  /** Étape qui n'avance plus (J7) : dernier avancement vu, sa date, dernier conseil de Pixel. */
+  private stepHave = -1;
+  private stepProgressAt = 0;
+  private lastStallHintAt = -Infinity;
+  /** Icône du bloc demandé dans le bandeau de Pixel (J7) et bloc qu'elle montre. */
+  private readonly companionIcon: HTMLCanvasElement;
+  private companionIconId: BlockId | null = null;
+  /** Début (temps réel) de la poussée en vain contre les parois d'un trou ou d'un abri fermé, et dernier conseil (J7). */
+  private stuckSince: number | null = null;
   private lastStuckHintAt = -Infinity;
   /** Position de l'image précédente (pas du tutoriel). */
   private prevX = 0;
@@ -316,8 +328,13 @@ export class Game {
     this.view.scene.add(this.avatar.group);
     this.sim = new CreatureSim(this.world, this.gen.seed);
     this.view.scene.add(this.critters.group, this.fox.group, this.bubbles.group, this.lampGlow.group);
-    ({ panel: this.companionPanel, text: this.companionText, progress: this.companionProgress, shelter: this.companionShelter } =
-      this.buildCompanionPanel());
+    ({
+      panel: this.companionPanel,
+      text: this.companionText,
+      progress: this.companionProgress,
+      shelter: this.companionShelter,
+      icon: this.companionIcon,
+    } = this.buildCompanionPanel());
     this.celebration = new Celebration(root);
     this.bubbleButton = this.topButton("bubble-btn", "Bulles", '<circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.2"/><circle cx="18.5" cy="17" r="2"/>');
     // Au doigt, le même bouton rejoint la colonne des boutons tactiles (sous le pouce droit).
@@ -576,6 +593,9 @@ export class Game {
   /** Début d'une étape : remise à zéro des conseils et de la dernière étape. */
   private onStepStart(now: number): void {
     this.stepStartedAt = now;
+    this.stepHave = -1;
+    this.stepProgressAt = now;
+    this.lastStallHintAt = -Infinity;
     this.lastShelterHintAt = -Infinity;
     this.watchAnnounced = false;
     this.watchNightMs = 0;
@@ -615,6 +635,17 @@ export class Game {
       this.placeMessageBelowCompanion();
     }
     if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
+    const iconId = goal && (goal.kind === "collect" || goal.kind === "place") && goal.block !== "any" ? goal.block : null;
+    if (iconId !== this.companionIconId) {
+      this.companionIconId = iconId;
+      this.companionIcon.style.display = iconId === null ? "none" : "";
+      const g = this.companionIcon.getContext("2d");
+      if (g && iconId !== null) {
+        g.imageSmoothingEnabled = false;
+        g.clearRect(0, 0, 16, 16);
+        g.drawImage(tileIcon(this.view.atlasCanvas, blockDef(iconId).tiles.side), 0, 0);
+      }
+    }
     const sh = goal?.kind === "shelter";
     const display = sh ? "" : "none";
     if (this.companionShelter.style.display !== display) this.companionShelter.style.display = display;
@@ -708,7 +739,13 @@ export class Game {
   }
 
   /** Panneau du compagnon (haut de l'écran) : portrait de Pixel, consigne, avancement, bouton « répète ». */
-  private buildCompanionPanel(): { panel: HTMLDivElement; text: HTMLSpanElement; progress: HTMLSpanElement; shelter: SVGSVGElement } {
+  private buildCompanionPanel(): {
+    panel: HTMLDivElement;
+    text: HTMLSpanElement;
+    progress: HTMLSpanElement;
+    shelter: SVGSVGElement;
+    icon: HTMLCanvasElement;
+  } {
     const panel = document.createElement("div");
     panel.className = "companion";
     panel.hidden = true;
@@ -735,6 +772,11 @@ export class Game {
     progress.className = "companion-progress";
     const shelter = shelterIcon(46);
     shelter.style.display = "none";
+    // Icône du bloc demandé (J7) : le lecteur débutant voit ce qu'il faut chercher, sans lire.
+    const icon = document.createElement("canvas");
+    icon.width = icon.height = 16;
+    icon.className = "companion-block";
+    icon.style.display = "none";
     const repeat = document.createElement("button");
     repeat.type = "button";
     repeat.className = "companion-repeat";
@@ -747,10 +789,10 @@ export class Game {
       if (m?.done) this.tell(m.def.outro, { ms: 4000, important: true });
       else this.announceStep();
     });
-    panel.append(face, text, progress, shelter, repeat);
+    panel.append(face, text, icon, progress, shelter, repeat);
     this.hud.root.appendChild(panel);
     window.addEventListener("resize", () => this.placeMessageBelowCompanion());
-    return { panel, text, progress, shelter };
+    return { panel, text, progress, shelter, icon };
   }
 
   /** Retour à l'accueil : la partie est enregistrée (sauf save = faux), le jeu attend en pause. */
@@ -800,7 +842,7 @@ export class Game {
       if (!this.session) return;
       if (e.key === null || e.key === KEYS.world(this.session.profile.id, this.session.slot)) {
         this.goHome(false);
-        this.hud.showMessage("Ce monde a été ouvert ailleurs : reprends-le depuis l'accueil.", 5000);
+        this.tell(OPENED_ELSEWHERE, { ms: 5000 });
       }
     });
   }
@@ -860,10 +902,16 @@ export class Game {
         this.shelterNow = goal?.kind === "shelter" ? checkShelter(this.world, this.player.x, this.player.y, this.player.z, this.changedAt) : null;
         if (goal?.kind === "shelter") this.shelterHint(now);
         if (goal?.kind === "watch") this.updateWatch(now, dt * 1000);
+        this.stallHint(now);
         const ev = m.update(this.missionView);
         if (ev?.kind === "step") {
           this.sounds.play("bravo");
-          this.tell(BRAVO, { ms: 1500, important: true });
+          // Objectif « ramasser » atteint : le compte est dit (« Six troncs ! Bravo ! ») ; sinon « Bravo ! ».
+          const done = m.def.steps[ev.index - 1]?.goal;
+          if (done?.kind === "collect") {
+            const t = goalReachedText(done.block, done.count);
+            this.tell(t.text, { spoken: t.spoken, ms: 2000, important: true });
+          } else this.tell(BRAVO, { ms: 1500, important: true });
           this.onStepStart(now);
           this.announceStepAt = now + 1600;
           this.saveNow();
@@ -908,6 +956,25 @@ export class Game {
     count: (id) => this.inventory.count(id),
     shelter: () => this.shelterNow,
   };
+
+  /**
+   * Étape qui n'avance plus (J7) : au bout de STALL_HINT_MS sans progrès, Pixel donne le conseil de l'étape
+   * (« Creuse : la pierre est dessous ! »), puis au plus toutes les STALL_HINT_EVERY_MS.
+   */
+  private stallHint(now: number): void {
+    const m = this.mission;
+    const step = m?.current();
+    if (!m || !step?.hint || this.announceStepAt !== null) return;
+    const have = m.progress(this.missionView)?.have ?? 0;
+    if (have !== this.stepHave) {
+      this.stepHave = have;
+      this.stepProgressAt = now;
+      return;
+    }
+    if (now - this.stepProgressAt < STALL_HINT_MS || now - this.lastStallHintAt < STALL_HINT_EVERY_MS) return;
+    this.lastStallHintAt = now;
+    this.tell(step.hint, { ms: 4500, important: true });
+  }
 
   /**
    * Étape « abri » : quand l'enfant se tient, presque immobile, dans un abri commencé, Pixel dit ce qui
@@ -968,22 +1035,18 @@ export class Game {
    * sortir. Pixel (ou le message, sans compagnon) dit comment faire : grimper en gardant Sauter contre la paroi,
    * ou casser un bloc si tout est fermé, toit compris. Rien pendant l'escalade elle-même.
    */
-  private updateStuck(pushing: boolean, dtMs: number): void {
+  private updateStuck(pushing: boolean, now: number): void {
     const p = this.player;
-    if (!pushing || p.inWater || p.climbing || !p.onGround) {
-      this.stuckMs = 0;
-      return;
-    }
-    const state = pitState(this.world, p.x, p.y, p.z);
+    // Temps réel, et non temps de jeu : c'est ce que vit l'enfant, même si les images sont lentes.
+    const state = pushing && !p.inWater && !p.climbing && p.onGround ? pitState(this.world, p.x, p.y, p.z) : "open";
     if (state === "open") {
-      this.stuckMs = 0;
+      this.stuckSince = null;
       return;
     }
-    this.stuckMs += dtMs;
-    const now = performance.now();
-    if (this.stuckMs < STUCK_HINT_AFTER_MS || now - this.lastStuckHintAt < STUCK_HINT_EVERY_MS) return;
+    this.stuckSince ??= now;
+    if (now - this.stuckSince < STUCK_HINT_AFTER_MS || now - this.lastStuckHintAt < STUCK_HINT_EVERY_MS) return;
     this.lastStuckHintAt = now;
-    this.stuckMs = 0;
+    this.stuckSince = null;
     this.tell(state === "closed" ? WALLED_IN : this.touchUi ? PIT_CLIMB_TOUCH : PIT_CLIMB, { ms: 4000, dedupe: true });
   }
 
@@ -1345,7 +1408,8 @@ export class Game {
         await document.documentElement.requestFullscreen();
       }
     } catch (err) {
-      this.hud.showMessage(`Plein écran impossible : ${String(err)}`);
+      this.tell(NO_FULLSCREEN, { ms: 2500, dedupe: true });
+      console.warn("Plein écran impossible :", err);
     }
   }
 
@@ -1439,11 +1503,16 @@ export class Game {
     this.tell(HOLD_TO_BREAK, { ms: 2000, dedupe: true });
   }
 
-  /** Bloc précieux (pierre brillante, lampe, arc-en-ciel) dont le butin n'entrerait pas dans le sac : on ne le casse pas. */
+  /**
+   * Bloc qu'on ne casse pas sac plein, parce qu'il serait perdu : les blocs précieux (pierre brillante, lampe,
+   * arc-en-ciel) et, recette J7, celui que demande l'étape en cours (un désert n'a parfois qu'une douzaine de troncs).
+   */
   private wouldLose(id: BlockId): boolean {
-    if (id !== BlockId.GlowStone && id !== BlockId.Lamp && id !== BlockId.Rainbow) return false;
     const drop = dropsOf(id).main;
-    return drop !== null && !this.inventory.canAdd(drop);
+    if (drop === null || this.inventory.canAdd(drop)) return false;
+    if (id === BlockId.GlowStone || id === BlockId.Lamp || id === BlockId.Rainbow) return true;
+    const goal = this.mission?.current()?.goal;
+    return goal?.kind === "collect" && goal.block === drop;
   }
 
   private breakBlock(pos: BlockPos): void {
@@ -1718,7 +1787,7 @@ export class Game {
       // Pas du tutoriel (J6) : un déplacement d'un bloc ou plus en une image est une téléportation, pas un pas.
       const moved = Math.hypot(this.player.x - this.prevX, this.player.z - this.prevZ);
       if (moved < 1) this.mission?.noteWalked(moved);
-      this.updateStuck(Math.hypot(kx + this.touch.moveX, kz + this.touch.moveZ) > 0.1, dt * 1000);
+      this.updateStuck(Math.hypot(kx + this.touch.moveX, kz + this.touch.moveZ) > 0.1, performance.now());
     }
     this.prevX = this.player.x;
     this.prevZ = this.player.z;
