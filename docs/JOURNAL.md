@@ -305,3 +305,30 @@ Non traités : un enclos de clôture de plus de 14 blocs de côté peut voir na�
 **Attendu de Pierre.** Exporter les sauvegardes, remplacer le fichier au même endroit, dérouler le protocole J6 de `RETOURS.md`, puis la séance enfants J6 (test complet de la V1, critères du brief). Retours des J3 à J5 à intégrer ensuite, comme convenu. Avis sur les cinq choix ci-dessus.
 
 **Prochaine étape.** Corrections d'après les retours (J3 à J6), puis J7 (recette V1).
+
+## 2026-09-25 — Retour de Pierre sur le J6
+
+**Reçu de Pierre.** Scénario complet réalisé en profil « petit » (lecteur débutant) : tutoriel puis mission 1 jusqu'à la fin ; la partie est bien sauvegardée. Appareil non précisé. Consigné dans `RETOURS.md`. Décision : passer au J7, les tests complets (enfants, convertible) viendront après.
+
+## 2026-09-25 — J7, recette technique et version 1.0-rc
+
+**Décisions de Pierre** (questions posées en début de session, options recommandées retenues) : masquer le panneau « Tests » et la ligne d'infos pendant les parties des enfants, avec une case du mode parent pour les réafficher ; afficher « 1.0-rc » jusqu'à la recette avec les enfants, puis « 1.0 » ; garder le nom « Cubes » pour l'instant ; dans ce J7, recette technique et correction des limites connues (sans attendre les retours des enfants).
+
+**Fait.**
+- **Version 1.0-rc** : nom et version en un seul endroit (`src/game/identity.ts` ; titre de l'onglet, messages, panneau). `package.json` en 1.0.0-rc.1.
+- **Écran des enfants** : panneau « Tests » (qui permettait de « tricher » avec Compléter le sac, de changer l'heure…) et ligne d'infos techniques masqués pendant leurs parties ; les boutons ronds du haut se rangent contre le bord. Mode parent → « Afficher le panneau Tests et les infos techniques » (réglage `devTools`). Toujours visibles en mode adresse.
+- **Recette technique** (`docs/RECETTE-V1.md`) : audit indépendant du code contre le brief, le plan et les règles, ligne par ligne (statut, où, test automatique). Tout le périmètre V1 est livré, les sept règles non négociables sont respectées (vérifiées concrètement : aucune requête réseau, rien de Minecraft, `KeyboardEvent.code`, moteur pur, identifiants stables, clés `cubes:`). Écarts avec le plan consignés (planches introuvables par l'enfant, pas de verre, graine par monde et non par profil, pas de « plage de nombres »).
+- **Corrections issues de l'audit** :
+  - la pierre n'est jamais en surface hors des montagnes (60 graines sur 60 par type) : conseil de Pixel quand l'étape stagne (« Creuse : la pierre est dessous ! ») ; conseils déclaratifs aussi pour les troncs, la pierre brillante et la pose de la lampe (`StepDef.hint`, après 40 s sans progrès, puis toutes les 60 s) ;
+  - sac plein, un tronc cassé pendant l'étape « 6 troncs » était détruit (un désert n'en a parfois qu'une douzaine : mission impossible) : le bloc demandé par l'étape en cours ne se casse plus sac plein (« Sac plein : vide une case ! ») ;
+  - le compte n'était jamais dit à l'objectif (paliers de 5) : « Six troncs ! Bravo ! », « Quatre pierres ! Bravo ! » ;
+  - icône du bloc demandé dans le bandeau de Pixel (le lecteur débutant voit ce qu'il cherche) ;
+  - deux derniers messages à une seule variante (monde ouvert ailleurs, plein écran refusé) ;
+  - tests : aucune requête réseau au démarrage, identifiants de blocs figés.
+- **Limites connues des jalons précédents, corrigées** :
+  - import de sauvegarde tout ou rien (J4) ;
+  - Pixel ne réapparaît plus dans l'eau (J5) ;
+  - aucune Grignote ne naît dans un enclos de clôtures, même de plus de 14 blocs (J5) ;
+  - caméra à la troisième personne qui passait derrière un mur en escalier vu en diagonale (J4) : sonde en boîte ;
+  - escalade de secours expliquée seulement à l'écran (J2) : quand l'enfant pousse en vain contre les parois d'un trou, « Garde Sauter contre le mur ! » (Espace au clavier), ou « Casse un mur pour sortir ! » s'il est enfermé (`engine/pit.ts`, temps réel et non temps de jeu : c'est ce que vit l'enfant, même si les images sont lentes).
+- **Documentation** : protocole « Recette V1 » dans `RETOURS.md` (les quatre critères du brief, avec les enfants, et les vérifications de la 1.0-rc) ; `PLAN.md` §2 remis d'équerre avec le livré, état du J7, **backlog V2 trié** (priorité 1 : craft des planches puis du verre, mission 2 avec blocs-lettres, nom définitif, suites de la recette ; priorité 2 : missions 3 à 5, plage de nombres, créatures qui bloquent un passage ; priorité 3 : outils, animaux, météo, musique, biomes, grottes, eau qui coule, bouton plonger) ; `BRIEF.md`, `README.md`, `CLAUDE.md`.
