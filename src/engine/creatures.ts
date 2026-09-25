@@ -37,6 +37,8 @@ const FLEE_SPEED = 3.4;
 const DESPAWN_DISTANCE = 40;
 /** Portée de la recherche de clôtures autour d'un lieu d'apparition (blocs) : au-delà, l'enclos est un champ. */
 export const ENCLOSURE_SCAN = 48;
+/** Écart de hauteur cherché pour une clôture d'enclos (pente) (blocs). */
+export const ENCLOSURE_SLOPE = 8;
 /** Sols naturels où une Grignote peut apparaître. */
 const NATURAL_GROUND = new Set<number>([BlockId.Grass, BlockId.Dirt, BlockId.Sand, BlockId.Snow, BlockId.Stone]);
 
@@ -321,9 +323,10 @@ export class CreatureSim {
   }
 
   /**
-   * Lieu entouré de clôtures : dans chacune des quatre directions, une clôture à hauteur des pattes (ou juste
-   * en dessous, sur une pente) avant ENCLOSURE_SCAN blocs. Approché, mais sans faux négatif pour un enclos fermé
-   * (quatre côtés) ; un champ bordé d'une seule haie de clôtures n'est pas pris pour un enclos.
+   * Lieu entouré de clôtures : dans chacune des quatre directions, une clôture avant ENCLOSURE_SCAN blocs, à
+   * ENCLOSURE_SLOPE blocs au plus au-dessus ou au-dessous (un enclos sur une pente). Approché : un enclos sur une
+   * pente plus raide, ou plus grand que la portée, n'est pas vu ; un champ bordé d'une seule haie n'est pas pris
+   * pour un enclos.
    */
   fencedIn(x: number, y: number, z: number): boolean {
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
@@ -332,7 +335,7 @@ export class CreatureSim {
         const cx = x + dx * d;
         const cz = z + dz * d;
         if (!this.world.inBounds(cx, 0, cz)) break;
-        for (let yy = y - 2; yy <= y + 2; yy++) if (this.world.get(cx, yy, cz) === BlockId.Fence) found = true;
+        for (let yy = y - ENCLOSURE_SLOPE; yy <= y + ENCLOSURE_SLOPE; yy++) if (this.world.get(cx, yy, cz) === BlockId.Fence) found = true;
       }
       if (!found) return false;
     }

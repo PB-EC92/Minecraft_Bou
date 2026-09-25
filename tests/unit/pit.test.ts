@@ -20,11 +20,20 @@ describe("enfant coincé (conseil de Pixel, J7)", () => {
     expect(pitState(w, 16.5, 2, 16.5)).toBe("climb");
   });
 
-  it("une marche d'un bloc mais sans place au-dessus : ne compte pas comme une sortie", () => {
+  it("une marche d'un bloc mais sans place au-dessus : pas une sortie, ni en marchant ni en grimpant", () => {
     const w = flat();
     w.set(16, 3, 16, BlockId.Air);
     for (const [x, z] of [[17, 16], [15, 16], [16, 17], [16, 15]] as const) w.set(x, 5, z, BlockId.Stone);
-    expect(pitState(w, 16.5, 3, 16.5)).toBe("climb");
+    expect(pitState(w, 16.5, 3, 16.5)).toBe("closed");
+  });
+
+  it("abri 1 × 1 fermé, murs de trois blocs, toit posé sur les murs : il faut casser (relecture J7)", () => {
+    const w = flat();
+    for (const [x, z] of [[17, 16], [15, 16], [16, 17], [16, 15]] as const) for (let y = 4; y < 7; y++) w.set(x, y, z, BlockId.Planks);
+    w.set(16, 7, 16, BlockId.Planks);
+    expect(pitState(w, 16.5, 4, 16.5)).toBe("closed");
+    w.set(16, 7, 16, BlockId.Air); // sans toit : on grimpe par-dessus les murs
+    expect(pitState(w, 16.5, 4, 16.5)).toBe("climb");
   });
 
   it("enfermé (quatre murs et un toit) : il faut casser un bloc", () => {

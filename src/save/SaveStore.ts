@@ -1,4 +1,5 @@
 import { AVATARS } from "../game/avatars";
+import { GAME_NAME } from "../game/identity";
 import {
   KEYS,
   parseExport,
@@ -87,18 +88,31 @@ export class SaveStore {
     const profiles = this.loadProfiles();
     if (!profiles) return null;
     const worlds: Record<string, WorldSave> = {};
+    const backups: Record<string, WorldSave> = {};
     for (const p of profiles) {
       this.worlds(p.id).forEach((w, s) => {
         if (w) worlds[KEYS.world(p.id, s)] = w;
+        // Copie de secours (sauvegarde d'une autre version, J4) : exportée aussi, comme le dit le message à l'adulte (J7).
+        const bk = `${KEYS.world(p.id, s)}:secours`;
+        const b = parseWorldSave(this.readJson(bk));
+        if (b) backups[bk] = b;
       });
     }
-    return { app: "cubes", version: SAVE_VERSION, exportedAt: now, profiles, settings: this.loadSettings(), worlds };
+    return {
+      app: "cubes",
+      version: SAVE_VERSION,
+      exportedAt: now,
+      profiles,
+      settings: this.loadSettings(),
+      worlds,
+      ...(Object.keys(backups).length > 0 ? { backups } : {}),
+    };
   }
 
   /**
    * Remplace tout par le contenu d'un fichier d'export (texte JSON). Les mondes
    * absents du fichier sont effacés. Renvoie une erreur lisible si le fichier
-   * n'est pas une sauvegarde de Cubes. Tout ou rien (J7) : si une écriture
+   * n'est pas une sauvegarde du jeu. Tout ou rien (J7) : si une écriture
    * échoue en cours de route (stockage plein), l'état d'avant est remis.
    */
   importAll(text: string): WriteResult {
@@ -106,15 +120,22 @@ export class SaveStore {
     try {
       raw = JSON.parse(text);
     } catch {
-      return { ok: false, error: "Ce fichier n'est pas une sauvegarde de Cubes (format illisible)." };
+      return { ok: false, error: `Ce fichier n'est pas une sauvegarde de ${GAME_NAME} (format illisible).` };
     }
     const file = parseExport(raw, AVATARS.length);
-    if (!file) return { ok: false, error: "Ce fichier n'est pas une sauvegarde de Cubes." };
+    if (!file) return { ok: false, error: `Ce fichier n'est pas une sauvegarde de ${GAME_NAME}.` };
     const keys = [KEYS.profiles, KEYS.settings, ...file.profiles.flatMap((p) => Array.from({ length: WORLD_SLOTS }, (_, s) => KEYS.world(p.id, s)))];
-    const before = this.snapshot(keys);
+    const backupKeys = Object.keys(file.backups ?? {});
+    const before = this.snapshot([...keys, ...backupKeys]);
     const done = (r: WriteResult): WriteResult => {
-      if (!r.ok) this.restore(before);
-      return r;
+      if (r.ok) return r;
+      const restored = this.restore(before);
+      return {
+        ok: false,
+        error: restored
+          ? `${r.error} Rien n'a été changé.`
+          : `${r.error} L'état d'avant n'a pas pu être remis entièrement : réimporter un fichier d'export dès que possible.`,
+      };
     };
     const r = this.saveProfiles(file.profiles);
     if (!r.ok) return done(r);
@@ -125,9 +146,14 @@ export class SaveStore {
         const w = file.worlds[KEYS.world(p.id, s)];
         if (w) {
           const wr = this.saveWorld(p.id, s, w);
-          if (!wr.ok) return done({ ok: false, error: `${wr.error} Rien n'a été changé.` });
+          if (!wr.ok) return done(wr);
         } else this.deleteWorld(p.id, s);
       }
+    }
+    // Copies de secours du fichier : ajoutées (celles du navigateur absentes du fichier sont gardées).
+    for (const [k, b] of Object.entries(file.backups ?? {})) {
+      const br = this.write(k, b);
+      if (!br.ok) return done(br);
     }
     return { ok: true };
   }
@@ -145,23 +171,29 @@ export class SaveStore {
     return m;
   }
 
-  /** Remet ces clés comme avant : d'abord tout effacer (place libérée), puis réécrire les anciennes valeurs. */
-  private restore(before: Map<string, string | null>): void {
-    for (const k of before.keys()) {
+  /**
+   * Remet ces clés comme avant ; vrai si tout est revenu. Jamais une clé qui existait n'est effacée : d'abord les
+   * clés créées par l'import sont retirées (place libérée), puis les anciennes valeurs réécrites par-dessus.
+   */
+  private restore(before: Map<string, string | null>): boolean {
+    let ok = true;
+    for (const [k, v] of before) {
+      if (v !== null) continue;
       try {
         this.storage?.removeItem(k);
       } catch {
-        // Stockage bloqué : rien de plus à faire.
+        ok = false;
       }
     }
     for (const [k, v] of before) {
       if (v === null) continue;
       try {
-        this.storage?.setItem(k, v);
+        if (this.storage?.getItem(k) !== v) this.storage?.setItem(k, v);
       } catch {
-        // Ne devrait pas arriver : ces valeurs tenaient avant l'import.
+        ok = false;
       }
     }
+    return ok;
   }
 
   private readJson(key: string): unknown {

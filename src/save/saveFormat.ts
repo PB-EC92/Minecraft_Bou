@@ -81,6 +81,8 @@ export interface ExportFile {
   settings: Settings;
   /** Mondes par clé de stockage (KEYS.world). */
   worlds: Record<string, WorldSave>;
+  /** Copies de secours par clé de stockage (KEYS.world + « :secours ») (J7 ; absentes des exports plus anciens). */
+  backups?: Record<string, WorldSave>;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -169,13 +171,14 @@ export function parseExport(raw: unknown, avatarCount: number): ExportFile | nul
   const profiles = parseProfiles(raw.profiles, avatarCount);
   if (!profiles) return null;
   const worlds: Record<string, WorldSave> = {};
-  if (isObj(raw.worlds)) {
-    for (const p of profiles) {
-      for (let s = 0; s < WORLD_SLOTS; s++) {
-        const k = KEYS.world(p.id, s);
-        const w = parseWorldSave(raw.worlds[k]);
-        if (w) worlds[k] = w;
-      }
+  const backups: Record<string, WorldSave> = {};
+  for (const p of profiles) {
+    for (let s = 0; s < WORLD_SLOTS; s++) {
+      const k = KEYS.world(p.id, s);
+      const w = isObj(raw.worlds) ? parseWorldSave(raw.worlds[k]) : null;
+      if (w) worlds[k] = w;
+      const b = isObj(raw.backups) ? parseWorldSave(raw.backups[`${k}:secours`]) : null;
+      if (b) backups[`${k}:secours`] = b;
     }
   }
   return {
@@ -185,6 +188,7 @@ export function parseExport(raw: unknown, avatarCount: number): ExportFile | nul
     profiles,
     settings: parseSettings(raw.settings),
     worlds,
+    ...(Object.keys(backups).length > 0 ? { backups } : {}),
   };
 }
 

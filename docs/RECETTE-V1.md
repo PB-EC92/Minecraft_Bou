@@ -12,13 +12,13 @@ Légende : **livré** ; **partiel** (livré avec une réserve) ; **absent** ; **
 | Casser et poser une dizaine de types de blocs | livré | `blocks.ts`, `Game.breakBlock`, `Game.placeBlock` | fumée « souris capturée : garder le clic gauche casse… », « au doigt : … mode Poser » ; `breaking.test` | Prairie : herbe, terre, pierre, sable, tronc, feuilles, 2 fleurs, lampe, clôture, arc-en-ciel ; neige ou cactus selon le monde. Planches introuvables par l'enfant, pas de verre (§4) |
 | Inventaire simple | livré | `inventory.ts` (9 cases, une par type, 99 au plus) | `inventory.test` ; fumée « sac plein », « maximum de 99 » | Vider une case = poser tous ses blocs (décision de Pierre, §5) |
 | Sauvegarde automatique | livré | `Game.saveNow` (30 s, page masquée ou fermée, bouton maison, chaque étape) | fumée « le monde est retrouvé après rechargement », « bouton accueil » ; `save.test` | Écart avec le monde régénéré |
-| Export / import | livré, **Pierre** | `HomeScreen`, `SaveStore` (import tout ou rien au J7) | fumée « mode parent : … exporter puis importer » ; `save.test` « import tout ou rien » | Téléchargement et sélecteur de fichier sous Firefox jamais vérifiés |
+| Export / import | livré, **Pierre** | `HomeScreen`, `SaveStore` (import tout ou rien, copies de secours exportées, J7) | fumée « mode parent : … exporter puis importer » ; `save.test` « import tout ou rien » | Téléchargement et sélecteur de fichier sous Firefox jamais vérifiés |
 | Deux profils | livré | `saveFormat` (2 profils × 3 mondes) | fumée « premier lancement » | Profils créés par l'adulte |
 | Choix du type de monde | livré | `terrain.ts`, accueil | fumée « monde « … » : généré… » ; `terrain.test` | Prairie, île, montagne, désert |
 | Vue à la troisième personne | livré | `thirdPerson.ts`, `Avatar` | fumée « troisième personne » ; `save.test` « caméra à la troisième personne » (mur en escalier en diagonale au J7) | 6 personnages originaux |
 | Lance-bulles | livré | `creatures.bubble`, `Bubbles` | fumée « Grignotes : … une bulle le fait rendre » | Touche B, bouton au doigt |
 | Mission 1 : lecture de la consigne | livré | `missions.ts`, `Narrator` | fumée « compagnon Pixel et mission 1 » ; `missions.test` | Voix active par défaut pour le lecteur débutant |
-| Mission 1 : comptage 6 bois + 4 pierres | livré | `missions.ts`, bandeau « 3 / 6 » avec l'icône du bloc (J7) | `missions.test` ; fumée « mission 1 de bout en bout » (compte dit à l'objectif) | J7 : « Six troncs ! Bravo ! » dit à voix haute ; conseil « Creuse : la pierre est dessous ! » quand l'étape stagne (la pierre n'est en surface qu'en montagne) |
+| Mission 1 : comptage 6 bois + 4 pierres | livré | `missions.ts`, bandeau « 3 / 6 » avec l'icône du bloc cherché (J7) | `missions.test` ; fumée « mission 1 de bout en bout » (compte dit à l'objectif) | J7 : le compte réel est dit à voix haute (« Six troncs ! Bravo ! ») ; conseil « Creuse : la pierre est dessous ! » quand l'étape stagne (la pierre n'est en surface qu'en montagne) ; sac plein, conseil concret (« Pose tes 2 fleurs rouges ! ») |
 | Mission 1 : abri | livré | `shelter.ts`, conseils de Pixel | `shelter.test` ; fumée « mission 1 de bout en bout » | Le toit reste la difficulté attendue (**Pierre**) |
 | Mission 1 : créatures la nuit | livré | `creatures.ts` | `creatures.test` ; fumée « Grignotes : la nuit… » | La nuit tombe environ 7,5 min après la création du monde (§5) |
 | Mission 1 : la lampe éloigne les créatures | livré | dernière étape, temps accéléré, replis | fumée « mission 1 de bout en bout », « sans Grignotes » | Réponse suggérée d'avance au lecteur autonome (§5) |
@@ -28,7 +28,7 @@ Légende : **livré** ; **partiel** (livré avec une réserve) ; **absent** ; **
 | Textes en deux variantes | livré | `texts.ts` (`ChildText`) | `counting.test`, `missions.test` | J7 : les deux derniers messages à une variante (monde ouvert ailleurs, plein écran refusé) en ont deux. Libellés identiques voulus : « Un abri », « Nouveau » |
 | Tutoriel | livré | mission 0 | `missions.test` ; fumée « tutoriel » | Une fois par enfant |
 | Jour et nuit | livré | `dayNight.ts` (12 min, nuit jamais noire) | `dayNight.test` ; fumée « la nuit tombe » | Mesuré : signal à 7,1 min, nuit à 7,5 min, 3 min de nuit (1 min en « courte ») |
-| PC clavier et souris | livré | `Keyboard`, `MouseLook` | fumée (profil pc) | Edge jamais testé |
+| PC clavier et souris | livré | `Keyboard`, `MouseLook` | fumée (profil pc) | Edge jamais testé ; plein écran par F11 (le bouton est dans le panneau Tests, masqué pour l'enfant) |
 | Convertible tactile | livré, **Pierre** | `TouchControls`, `fov.ts` | fumée `@tactile` (portrait et paysage, Chromium) | Protocoles J3 à J6 du convertible encore vides |
 | Un seul fichier, hors ligne | livré | `vite.config.ts`, `dist/cubes.html` (704 ko) | fumée « le jeu démarre en file:// » (J7 : aucune requête en dehors du fichier) | Vérifié aussi navigateur hors ligne par l'audit |
 

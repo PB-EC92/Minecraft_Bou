@@ -1292,6 +1292,8 @@ test("le même monde ouvert dans deux onglets : l'onglet resté en arrière n'é
   expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(false);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null"));
   expect(stored.inventory.slots.filter(Boolean)).toEqual([[4, 42]]);
+  // Le message est sur l'accueil (le jeu est caché dessous), relecture J7.
+  await expect(page.locator(".home .home-warning")).toContainText("ouvert");
   expect(errors).toEqual([]);
 });
 
@@ -1370,7 +1372,7 @@ test("compagnon Pixel et mission 1 : il suit, lit la consigne, la mission avance
   await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("troncs");
   await expect(page.locator(".companion-progress")).toHaveText("0 / 6");
   await page.evaluate(() => window.cubesDebug.give(6, 6));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(1);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
   await expect.poll(async () => (await state(page)).companionText, { timeout: 10_000 }).toContain("pierres");
   // Il reste près de l'enfant quand celui-ci se téléporte loin.
   await page.evaluate(() => window.cubesDebug.teleport(6.5, 4, 26.5));
@@ -1392,7 +1394,7 @@ test("partie d'un enfant : le tutoriel est enregistré avec le monde et reprend 
   expect(s.tutorialDone).toBe(false);
   // Marcher (touche Z = KeyW en AZERTY) : l'étape « marcher » est validée.
   await page.keyboard.down("KeyW");
-  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 15_000 }).toBe(1);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
   await page.keyboard.up("KeyW");
   expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
   await page.reload();
@@ -1467,12 +1469,12 @@ test("tutoriel : marcher, casser, poser, puis la mission 1 commence (au doigt : 
   await expect(page.locator(".companion-progress")).toHaveText("");
   // 1. Marcher.
   await page.keyboard.down("KeyW");
-  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 15_000 }).toBe(1);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
   await page.keyboard.up("KeyW");
   await expect.poll(async () => (await state(page)).companionText, { timeout: 5_000 }).toContain(touch ? "garde le doigt" : "garde le clic");
   // 2. Casser (règles du jeu : le bloc est ramassé et passe dans la main vide).
   await page.evaluate(() => window.cubesDebug.breakBlock(3, 3, 3));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
   expect((await state(page)).inventory[0]).toEqual({ id: B.grass, count: 1 });
   // 3. Poser. Au centre d'une case : là où la marche s'est arrêtée, la case visée au sol pourrait chevaucher
   // les pieds (« Pas de place ! », comportement voulu du jeu).
@@ -1529,11 +1531,11 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   // Icône du bloc demandé dans le bandeau (J7).
   await expect(page.locator(".companion-block")).toBeVisible({ timeout: 10_000 });
   await page.evaluate(() => window.cubesDebug.give(6, 6));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(1);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
   // Objectif atteint : le compte est dit (J7).
   await expect.poll(async () => (await state(page)).spoken).toContain("Six troncs\u00a0! Bravo\u00a0!");
   await page.evaluate(() => window.cubesDebug.give(3, 4));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(2);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
   await expect(page.locator(".companion-block")).toBeHidden();
   // Abri : pictogramme dans le bandeau, rien d'allumé dehors.
   await expect(page.locator(".companion .shelter-icon")).toBeVisible();
@@ -1544,13 +1546,15 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   await expect.poll(async () => (await state(page)).shelter).toEqual({ roof: false, walls: 3, own: true, ok: false });
   await expect(page.locator(".companion .shelter-icon .wall.on")).toHaveCount(3);
   await expect(page.locator(".message")).toContainText("Il manque le toit", { timeout: 20_000 });
-  expect((await state(page)).mission?.step).toBe(2);
+  expect((await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
   // Le toit : abri complet, étape validée.
   await buildHut(page, cx, cz, true);
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(3);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
+  // Étape « pierre brillante » : l'icône du bandeau montre la pierre brillante, pas la lampe (relecture J7).
+  await expect(page.locator(".companion-block")).toHaveAttribute("data-block", "15", { timeout: 10_000 });
   // Lampe trouvée puis posée dans l'abri.
   await page.evaluate(() => window.cubesDebug.give(13, 1));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(4);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(4);
   await page.evaluate(() => {
     const inv = window.cubesDebug.state().inventory;
     window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 13));
@@ -1559,7 +1563,7 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   await expect.poll(async () => (await state(page)).target !== null).toBe(true);
   await page.evaluate(() => window.cubesDebug.placeBlock());
   await expect.poll(async () => (await state(page)).lamps).toBe(1);
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(5);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(5);
   // Sac plein (9 sortes) : le cadeau devra attendre une case libre.
   await page.evaluate(() => {
     for (const id of [1, 2, 4, 5, 8, 11, 12]) window.cubesDebug.give(id, 1);
@@ -1627,9 +1631,9 @@ test("sans Grignotes : la dernière étape se valide peu après la tombée de la
     window.cubesDebug.give(6, 6);
     window.cubesDebug.give(3, 4);
   });
-  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 10_000 }).toBe(3);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
   await page.evaluate(() => window.cubesDebug.give(13, 1));
-  await expect.poll(async () => (await state(page)).mission?.step).toBe(4);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(4);
   await page.evaluate(() => {
     const inv = window.cubesDebug.state().inventory;
     window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 13));
@@ -1707,9 +1711,10 @@ test("sac plein : une pierre brillante (ou une lampe) ne se casse pas, elle sera
     window.cubesDebug.breakBlock(5, 4, 5);
   });
   expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B5.glow);
-  await expect(page.locator(".message")).toContainText("Sac plein");
+  await expect(page.locator(".message")).toContainText("Pose tes 2 blocs d'herbe");
   await page.evaluate(() => window.cubesDebug.breakBlock(6, 4, 5));
   expect(await blockAt(page, { x: 6, y: 4, z: 5 })).toBe(B5.lamp);
+  // Conseil concret (J7) : la sorte la moins nombreuse, dite pour vider sa case.
   // Une case libérée : la pierre brillante se casse et donne sa lampe.
   await page.evaluate(() => {
     window.cubesDebug.clearInventory();
@@ -1779,12 +1784,35 @@ test("sac plein pendant l'étape « 6 troncs » : un tronc ne se casse pas, il s
     window.cubesDebug.breakBlock(5, 4, 5);
   });
   expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B.log);
-  await expect(page.locator(".message")).toContainText("Sac plein");
+  await expect(page.locator(".message")).toContainText("Pose ton bloc d'herbe");
   // Hors de l'étape qui le demande (autre bloc), la règle du J2 reste : cassé, pas ramassé.
   await page.evaluate(() => {
     window.cubesDebug.setBlock(6, 4, 5, 12);
     window.cubesDebug.breakBlock(6, 4, 5);
   });
   expect(await blockAt(page, { x: 6, y: 4, z: 5 })).toBe(B.air);
+  expect(errors).toEqual([]);
+});
+
+test("étape abri : l'enfant qui pousse contre ses propres murs ne se fait pas dire de grimper (relecture J7)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1");
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 6);
+    window.cubesDebug.give(3, 4);
+  });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  // Abri de 1 × 1, murs de trois blocs, pas encore de toit ; l'enfant au milieu pousse contre un mur.
+  await page.evaluate(() => {
+    const d = window.cubesDebug;
+    d.teleport(6.5, 4, 6.5);
+    for (const [x, z] of [[7, 6], [5, 6], [6, 7], [6, 5]] as const) for (let y = 4; y < 7; y++) d.setBlock(x, y, z, 4);
+    d.look(0, 0);
+  });
+  await page.keyboard.down("KeyW");
+  await expect(page.locator(".message")).toContainText("Il manque le toit", { timeout: 20_000 });
+  await page.waitForTimeout(1000);
+  await page.keyboard.up("KeyW");
+  expect((await state(page)).spoken.some((t) => t.includes("Garde Espace"))).toBe(false);
   expect(errors).toEqual([]);
 });

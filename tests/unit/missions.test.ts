@@ -171,6 +171,8 @@ describe("moteur de missions", () => {
       expect(h.debutant + h.autonome).not.toMatch(/\d/);
     }
     expect(MISSION_1.steps[1]!.hint!.debutant).toContain("Creuse");
+    // Icône du bandeau : on cherche une pierre brillante (elle donne la lampe), relecture J7.
+    expect(MISSION_1.steps[3]!.icon).toBe(BlockId.GlowStone);
     expect(MISSION_1.reward).toEqual({ block: BlockId.Rainbow, count: 5 });
   });
 });

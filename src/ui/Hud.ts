@@ -219,7 +219,7 @@ export class Hud {
     this.voiceSelect.setAttribute("aria-label", "Voix");
     this.panel.appendChild(this.voiceSelect);
     this.voiceText = document.createElement("textarea");
-    this.voiceText.value = "Bonjour ! Je suis ton compagnon. Bienvenue dans Cubes. Ramasse six bois et quatre pierres.";
+    this.voiceText.value = `Bonjour ! Je suis ton compagnon. Bienvenue dans ${GAME_NAME}. Ramasse six bois et quatre pierres.`;
     this.panel.appendChild(this.voiceText);
     const rowVoice = this.row();
     this.speakButton = this.button("Tester la voix");

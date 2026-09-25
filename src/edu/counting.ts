@@ -236,6 +236,21 @@ export function goalReachedText(id: BlockId, n: number): { text: ChildText; spok
   };
 }
 
+/**
+ * Sac plein (J7) : quelle case vider, concrètement (« Pose tes 2 fleurs rouges ! »). id, n : la sorte proposée
+ * et son nombre dans le sac (voir Game.fullBagAdvice).
+ */
+export function emptySlotText(id: BlockId, n: number): { text: ChildText; spoken: ChildText } {
+  const noun = countNoun(id);
+  const them = (spoken: boolean) =>
+    n <= 1 ? `${noun.feminine ? "ta" : "ton"} ${noun.one}` : `tes ${spoken ? numberWords(n, noun.feminine) : String(n)} ${noun.many}`;
+  const make = (spoken: boolean): ChildText => ({
+    debutant: `Pose ${them(spoken)}${NBSP}!`,
+    autonome: `Ton sac est plein${NBSP}: pose ${them(spoken)} pour libérer une case.`,
+  });
+  return { text: make(false), spoken: make(true) };
+}
+
 /** Cadeau de fin de mission (J6) : « Cadeau : 5 blocs arc-en-ciel ! » ; forme dite en lettres (« cinq blocs arc-en-ciel »). */
 export function rewardText(id: BlockId, n: number): { text: ChildText; spoken: ChildText } {
   return {

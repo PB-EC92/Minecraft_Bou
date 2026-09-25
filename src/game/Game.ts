@@ -7,12 +7,12 @@ import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, goalReachedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
+import { emptiedText, emptySlotText, goalReachedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
 import { BRAVO, MISSION_1, MissionRunner, nextMission, resumeMission, stepText, TUTORIAL, type MissionDef, type MissionView } from "../edu/missions";
 import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
 import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
 import { pitState } from "../engine/pit";
-import { Narrator, type TellOptions } from "../edu/Narrator";
+import { Narrator, speechMs, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
   BOTTOM_LAYER,
@@ -73,7 +73,7 @@ import { tileIcon } from "../render/textures";
 import { isInventoryBlockId } from "../engine/inventory";
 import { avatarDef } from "./avatars";
 import { thirdPersonCamera } from "./thirdPerson";
-import { companionGoal, stepCompanion, type CompanionState } from "./companion";
+import { companionGoal, landingSpot, stepCompanion, type CompanionState } from "./companion";
 import { showFatalError } from "../ui/fatal";
 import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
@@ -635,10 +635,11 @@ export class Game {
       this.placeMessageBelowCompanion();
     }
     if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
-    const iconId = goal && (goal.kind === "collect" || goal.kind === "place") && goal.block !== "any" ? goal.block : null;
+    const iconId = step?.icon ?? (goal && (goal.kind === "collect" || goal.kind === "place") && goal.block !== "any" ? goal.block : null);
     if (iconId !== this.companionIconId) {
       this.companionIconId = iconId;
       this.companionIcon.style.display = iconId === null ? "none" : "";
+      this.companionIcon.dataset.block = iconId === null ? "" : String(iconId);
       const g = this.companionIcon.getContext("2d");
       if (g && iconId !== null) {
         g.imageSmoothingEnabled = false;
@@ -663,7 +664,13 @@ export class Game {
 
   /** Panneau « Tests » et ligne d'infos : toujours en mode adresse (adulte, tests), sinon selon le mode parent (J7). */
   private applyDevTools(): void {
-    this.hud.setDevTools(this.urlMode || this.settings.devTools);
+    const on = this.urlMode || this.settings.devTools;
+    this.hud.setDevTools(on);
+    // Panneau masqué : pas de « Temps ×20 » resté actif que l'enfant ne pourrait ni voir ni arrêter.
+    if (!on && this.timeScale !== 1) {
+      this.timeScale = 1;
+      this.hud.setFastTime(false);
+    }
   }
 
   private companionOn(): boolean {
@@ -842,7 +849,9 @@ export class Game {
       if (!this.session) return;
       if (e.key === null || e.key === KEYS.world(this.session.profile.id, this.session.slot)) {
         this.goHome(false);
-        this.tell(OPENED_ELSEWHERE, { ms: 5000 });
+        // Sur l'accueil (le message du jeu serait caché dessous), et lu à voix haute.
+        this.home?.notice(pick(OPENED_ELSEWHERE, this.narrator.level));
+        this.narrator.say(OPENED_ELSEWHERE, { important: true });
       }
     });
   }
@@ -903,22 +912,29 @@ export class Game {
         if (goal?.kind === "shelter") this.shelterHint(now);
         if (goal?.kind === "watch") this.updateWatch(now, dt * 1000);
         this.stallHint(now);
-        const ev = m.update(this.missionView);
+        // Une étape à la fois, et pas avant que la consigne de la précédente ait été dite : chaque « bravo » a son moment.
+        const ev = this.announceStepAt === null ? m.update(this.missionView) : null;
         if (ev?.kind === "step") {
           this.sounds.play("bravo");
-          // Objectif « ramasser » atteint : le compte est dit (« Six troncs ! Bravo ! ») ; sinon « Bravo ! ».
+          // Objectif « ramasser » atteint : le compte réel est dit (« Six troncs ! Bravo ! ») ; sinon « Bravo ! ».
           const done = m.def.steps[ev.index - 1]?.goal;
+          let said = pick(BRAVO, this.narrator.level);
           if (done?.kind === "collect") {
-            const t = goalReachedText(done.block, done.count);
+            const t = goalReachedText(done.block, Math.max(done.count, this.inventory.count(done.block)));
             this.tell(t.text, { spoken: t.spoken, ms: 2000, important: true });
+            said = pick(t.spoken, this.narrator.level);
           } else this.tell(BRAVO, { ms: 1500, important: true });
           this.onStepStart(now);
-          this.announceStepAt = now + 1600;
+          // La consigne suivante attend la fin de la phrase (sinon la voix la couperait).
+          this.announceStepAt = now + Math.max(1600, this.narrator.voice ? speechMs(said) + 300 : 0);
           this.saveNow();
         } else if (ev?.kind === "done") this.onMissionDone(m.def, now);
         if (this.announceStepAt !== null && now >= this.announceStepAt) {
           this.announceStepAt = null;
-          this.announceStep();
+          // Étape déjà atteinte (7 pierres dans le sac en arrivant à « ramasse 4 pierres ») : pas de consigne, le
+          // « bravo » arrive à l'image suivante.
+          const p = m.progress(this.missionView);
+          if (!(p && p.have >= p.need)) this.announceStep();
         }
         if (this.nextMissionAt && now >= this.nextMissionAt.at) this.startMission(undefined, this.nextMissionAt.def);
         if (this.celebrationAt !== null && now >= this.celebrationAt) {
@@ -934,13 +950,19 @@ export class Game {
     if (showFox) {
       const goal = companionGoal(this.player, this.player.yaw);
       const p = { x: this.player.x, y: this.player.y, z: this.player.z };
-      this.companion = this.companion ?? { x: goal.x, y: p.y, z: goal.z, yaw: this.player.yaw, moving: false };
-      this.companion = stepCompanion(this.companion, goal, p, this.world, dt);
-      const c = this.companion;
-      this.fox.update(c.x, c.y, c.z, c.yaw, c.moving, dt);
-      this.fox.setBrightness(bright);
+      // Première apparition (monde chargé) : sur la terre ferme, jamais dans l'eau ; sinon il attend (J7).
+      if (!this.companion) {
+        const spot = landingSpot(this.world, goal, p);
+        if (spot) this.companion = { x: spot.x, y: spot.y, z: spot.z, yaw: this.player.yaw, moving: false };
+      }
+      if (this.companion) {
+        this.companion = stepCompanion(this.companion, goal, p, this.world, dt);
+        const c = this.companion;
+        this.fox.update(c.x, c.y, c.z, c.yaw, c.moving, dt);
+        this.fox.setBrightness(bright);
+      }
     }
-    this.fox.group.visible = showFox;
+    this.fox.group.visible = showFox && this.companion !== null;
     this.refreshCompanionPanel();
   }
 
@@ -973,7 +995,31 @@ export class Game {
     }
     if (now - this.stepProgressAt < STALL_HINT_MS || now - this.lastStallHintAt < STALL_HINT_EVERY_MS) return;
     this.lastStallHintAt = now;
+    // Sac plein et bloc demandé qui n'y entrerait pas : le vrai conseil est de vider une case, pas de chercher.
+    const g = step.goal;
+    if (g.kind === "collect" && !this.inventory.canAdd(g.block)) {
+      this.tellFullBag(4500, g.block);
+      return;
+    }
     this.tell(step.hint, { ms: 4500, important: true });
+  }
+
+  /**
+   * Sac plein (J7) : dit quelle case vider, concrètement (« Pose tes 2 fleurs rouges ! ») : la sorte la moins
+   * nombreuse, hors lampe, cadeau et bloc demandé par l'étape. Sans proposition, le message générique.
+   */
+  private tellFullBag(ms: number, keep: BlockId | null = null): void {
+    let best: { id: BlockId; count: number } | null = null;
+    for (const st of this.inventory.slots()) {
+      if (!st || st.id === BlockId.Lamp || st.id === BlockId.Rainbow || st.id === keep) continue;
+      if (!best || st.count < best.count) best = st;
+    }
+    if (!best) {
+      this.tell(FULL_BAG_KEEP, { ms, dedupe: true });
+      return;
+    }
+    const t = emptySlotText(best.id, best.count);
+    this.tell(t.text, { spoken: t.spoken, ms, important: true, dedupe: true });
   }
 
   /**
@@ -1037,6 +1083,11 @@ export class Game {
    */
   private updateStuck(pushing: boolean, now: number): void {
     const p = this.player;
+    // Pendant l'étape abri, l'enfant qui pousse contre ses propres murs construit : c'est le conseil d'abri qui parle.
+    if (this.mission?.current()?.goal.kind === "shelter" && this.shelterNow?.own) {
+      this.stuckSince = null;
+      return;
+    }
     // Temps réel, et non temps de jeu : c'est ce que vit l'enfant, même si les images sont lentes.
     const state = pushing && !p.inWater && !p.climbing && p.onGround ? pitState(this.world, p.x, p.y, p.z) : "open";
     if (state === "open") {
@@ -1467,7 +1518,8 @@ export class Game {
         holding = false;
         if (this.fullToldFor !== press) {
           this.fullToldFor = press;
-          this.deny(FULL_BAG_KEEP);
+          this.sounds.play("deny");
+          this.tellFullBag(2500, dropsOf(id).main);
         }
       } else if (brokeThisPress && t.y < Math.floor(this.player.y + 0.001)) {
         // Un bloc déjà cassé pendant cet appui : on ne creuse plus plus bas que ses pieds, dans aucune
@@ -1525,7 +1577,8 @@ export class Game {
       return;
     }
     if (this.wouldLose(id)) {
-      this.deny(FULL_BAG_KEEP);
+      this.sounds.play("deny");
+      this.tellFullBag(2500, dropsOf(id).main);
       return;
     }
     if (!w.set(x, y, z, BlockId.Air)) return;

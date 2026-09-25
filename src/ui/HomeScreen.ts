@@ -60,6 +60,13 @@ export class HomeScreen {
     else this.showSetup(true);
   }
 
+  /** Avertissement en haut de l'écran affiché (J7 : « Ton monde est ouvert ailleurs ») ; disparaît au changement d'écran. */
+  notice(text: string): void {
+    const n = this.div("home-warning");
+    n.textContent = text;
+    this.content.prepend(n);
+  }
+
   hide(): void {
     this.root.hidden = true;
     this.cancelHold();

@@ -12,6 +12,7 @@ import {
   returnedText,
   rewardText,
   goalReachedText,
+  emptySlotText,
   shouldSpeakPickup,
   stolenText,
   spokenQuantity,
@@ -193,6 +194,18 @@ describe("noms comptables", () => {
     expect(countNoun(BlockId.Snow)).toEqual({ one: "bloc de neige", many: "blocs de neige", feminine: false });
     expect(countNoun(BlockId.Cactus)).toEqual({ one: "cactus", many: "cactus", feminine: false });
     expect(countNoun(BlockId.Rainbow)).toEqual({ one: "bloc arc-en-ciel", many: "blocs arc-en-ciel", feminine: false });
+  });
+
+  it("sac plein (J7) : quelle case vider, concrètement ; en lettres à la voix", () => {
+    expect(plainText(emptySlotText(BlockId.FlowerRed, 2).text)).toEqual({
+      debutant: "Pose tes 2 fleurs rouges !",
+      autonome: "Ton sac est plein : pose tes 2 fleurs rouges pour libérer une case.",
+    });
+    expect(plain(emptySlotText(BlockId.FlowerRed, 2).spoken.debutant)).toBe("Pose tes deux fleurs rouges !");
+    expect(plain(emptySlotText(BlockId.Grass, 1).text.debutant)).toBe("Pose ton bloc d'herbe !");
+    expect(plain(emptySlotText(BlockId.Sand, 1).text.debutant)).toBe("Pose ton bloc de sable !");
+    expect(plain(emptySlotText(BlockId.Leaves, 1).text.debutant)).toBe("Pose ton bloc de feuilles !");
+    expect(plain(emptySlotText(BlockId.FlowerYellow, 1).text.debutant)).toBe("Pose ta fleur jaune !");
   });
 
   it("objectif atteint (J7) : le compte est dit, en lettres accordées", () => {

@@ -61,7 +61,7 @@ export function stepCompanion(
 }
 
 /** Place de réapparition : la sienne si elle a du sol, sinon la première case de terre ferme autour de l'enfant (3 blocs au plus). */
-function landingSpot(world: World, goal: { x: number; z: number }, player: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null {
+export function landingSpot(world: World, goal: { x: number; z: number }, player: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null {
   const py = Math.floor(player.y);
   const y = groundNear(world, Math.floor(goal.x), Math.floor(goal.z), py);
   if (y !== null) return { x: goal.x, y, z: goal.z };

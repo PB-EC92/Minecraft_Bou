@@ -46,6 +46,8 @@ export interface StepDef extends StepText {
   label: string;
   /** Conseil de Pixel quand l'étape n'avance plus depuis un moment (J7 : « creuse, la pierre est dessous »). */
   hint?: ChildText;
+  /** Bloc montré dans le bandeau de Pixel, s'il diffère de celui de l'objectif (J7 : on cherche une pierre brillante, on obtient une lampe). */
+  icon?: BlockId;
 }
 
 /** Ligne du récapitulatif de l'écran de félicitations : un bloc et son nombre, ou l'abri. */
@@ -151,7 +153,7 @@ export const MISSION_1: MissionDef = {
       label: "ramasser 6 troncs",
       hint: {
         debutant: `Cherche un arbre${NBSP}!`,
-        autonome: `Les troncs sont le bois des arbres${NBSP}: approche-toi d'un arbre, vise le tronc et garde l'appui. Dans le désert, les arbres sont rares${NBSP}: va plus loin.`,
+        autonome: `Les troncs sont le bois des arbres${NBSP}: approche-toi d'un arbre, vise le tronc et garde l'appui. S'il n'y a pas d'arbre près de toi, va plus loin.`,
       },
     },
     {
@@ -162,7 +164,7 @@ export const MISSION_1: MissionDef = {
       // Recette J7 : hors des montagnes, la pierre n'est jamais en surface (sous 4 à 5 blocs d'herbe, de terre ou de sable).
       hint: {
         debutant: `Creuse${NBSP}: la pierre est dessous${NBSP}!`,
-        autonome: `La pierre grise est cachée sous l'herbe et la terre${NBSP}: creuse vers le bas pour la trouver.`,
+        autonome: `La pierre grise est souvent cachée sous la terre ou le sable${NBSP}: creuse vers le bas pour la trouver.`,
       },
     },
     {
@@ -180,6 +182,7 @@ export const MISSION_1: MissionDef = {
         autonome: `Trouve une pierre brillante et casse-la${NBSP}: elle donne une lampe.`,
       },
       label: "trouver une lampe (pierre brillante)",
+      icon: BlockId.GlowStone,
       hint: {
         debutant: `Cherche des cristaux bleus${NBSP}!`,
         autonome: `Une pierre brillante est grise avec des cristaux bleus, posée au sol. Promène-toi pour en trouver une.`,

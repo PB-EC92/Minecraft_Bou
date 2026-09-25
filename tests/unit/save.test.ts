@@ -353,4 +353,41 @@ describe("import tout ou rien (J7)", () => {
     expect(store.loadWorld("p1", 2)).toBeNull();
     expect(store.loadProfiles()?.[0]?.name).toBe("Léa");
   });
+
+  it("stockage devenu inutilisable pendant l'import : aucune clé qui existait n'est effacée, l'adulte est prévenu (relecture J7)", async () => {
+    const { SaveStore } = await import("../../src/save/SaveStore");
+    let broken = false;
+    let writes = 0;
+    const { storage, m } = memoryStorage(() => broken && ++writes > 2); // deux écritures passent, puis plus rien
+    const store = new SaveStore(storage);
+    store.saveProfiles(defaultProfiles());
+    store.saveWorld("p1", 0, parseWorldSave(world(11))!);
+    store.saveWorld("p2", 1, parseWorldSave(world(12))!);
+    broken = true;
+    const file = { app: "cubes", version: 1, exportedAt: 2, profiles: [{ name: "Léa" }, { name: "Tom" }], settings: {}, worlds: { "cubes:monde:p1:0": world(21) } };
+    const r = store.importAll(JSON.stringify(file));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("pas pu être remis");
+    // Les mondes d'avant sont toujours là (l'ancienne restauration commençait par tout effacer).
+    expect(JSON.parse(m.get("cubes:monde:p1:0")!).seed).toBe(11);
+    expect(JSON.parse(m.get("cubes:monde:p2:1")!).seed).toBe(12);
+  });
+
+  it("copies de secours : exportées puis réimportées (le message à l'adulte le promet, relecture J7)", async () => {
+    const { SaveStore } = await import("../../src/save/SaveStore");
+    const a = new SaveStore(memoryStorage().storage);
+    a.saveProfiles(defaultProfiles());
+    a.saveWorld("p1", 0, parseWorldSave(world(11))!);
+    a.backupWorld("p1", 0, parseWorldSave(world(99))!);
+    const exported = a.exportAll(5)!;
+    expect(exported.backups?.["cubes:monde:p1:0:secours"]?.seed).toBe(99);
+    const { storage, m } = memoryStorage();
+    const b = new SaveStore(storage);
+    expect(b.importAll(JSON.stringify(exported)).ok).toBe(true);
+    expect(JSON.parse(m.get("cubes:monde:p1:0:secours")!).seed).toBe(99);
+    // Un export plus ancien, sans copies de secours, reste lisible.
+    const old = { ...exported };
+    delete old.backups;
+    expect(parseExport(JSON.parse(JSON.stringify(old)), AVATARS.length)?.backups).toBeUndefined();
+  });
 });

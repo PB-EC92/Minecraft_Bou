@@ -116,6 +116,15 @@ describe("les Grignotes", () => {
     for (let i = 0; i < 96; i++) w2.set(i, 4, 30, BlockId.Fence);
     expect(new CreatureSim(w2, 1).fencedIn(48, 4, 48)).toBe(false);
     expect(sim.fencedIn(48, 4, 48)).toBe(true);
+    // Sur une pente : une clôture 5 blocs plus haut que le lieu d'apparition compte aussi (relecture J7).
+    const w3 = flat();
+    for (let i = 28; i <= 68; i++) {
+      w3.set(i, 9, 28, BlockId.Fence);
+      w3.set(i, 4, 68, BlockId.Fence);
+      w3.set(28, 4, i, BlockId.Fence);
+      w3.set(68, 4, i, BlockId.Fence);
+    }
+    expect(new CreatureSim(w3, 1).fencedIn(48, 4, 48)).toBe(true);
   });
 
   it("les bulles font fuir les Grignotes visées ; celle qui portait un bloc le rend", () => {
