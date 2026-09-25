@@ -1546,7 +1546,7 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   await expect.poll(async () => (await state(page)).shelter).toEqual({ roof: false, walls: 3, own: true, ok: false });
   await expect(page.locator(".companion .shelter-icon .wall.on")).toHaveCount(3);
   await expect(page.locator(".message")).toContainText("Il manque le toit", { timeout: 20_000 });
-  expect((await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  expect((await state(page)).mission?.step).toBe(2);
   // Le toit : abri complet, étape validée.
   await buildHut(page, cx, cz, true);
   await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
