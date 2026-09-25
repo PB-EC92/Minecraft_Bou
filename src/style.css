@@ -247,6 +247,11 @@ canvas.game {
   right: 10px;
   top: 10px;
 }
+/* Masqués pendant les parties des enfants (J7, réglage du mode parent). */
+.info[hidden],
+.panel-toggle[hidden] {
+  display: none;
+}
 
 .panel {
   position: absolute;
@@ -742,6 +747,16 @@ canvas.game {
 }
 .home-btn {
   right: 146px;
+}
+/* Sans le bouton « Tests » (parties des enfants, J7) : les boutons ronds se décalent vers le bord. */
+.hud.no-devtools .view-btn {
+  right: 12px;
+}
+.hud.no-devtools .home-btn {
+  right: 72px;
+}
+.hud.no-devtools .bubble-btn {
+  right: 132px;
 }
 /* Profil dont l'enfant n'a pas encore choisi de personnage : silhouette grisée. */
 .profile-card.no-avatar canvas {

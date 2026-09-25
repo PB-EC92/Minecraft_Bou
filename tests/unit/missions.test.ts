@@ -200,4 +200,20 @@ describe("compagnon Pixel", () => {
     for (let i = 0; i < 40; i++) c = stepCompanion(c, { x: 17, z: 16.5 }, player, world, 0.05);
     expect(c.x).toBeLessThan(14);
   });
+
+  it("l'enfant nage au large : Pixel ne réapparaît pas dans l'eau, il attend ; près de la rive, il réapparaît sur la terre (J7)", () => {
+    const world = w();
+    for (let x = 4; x < 28; x++) for (let z = 4; z < 28; z++) world.set(x, 3, z, BlockId.Water);
+    const far = { x: 1.5, y: 4, z: 1.5, yaw: 0, moving: false };
+    const swimmer = { x: 16.5, y: 3.4, z: 16.5 };
+    const c = stepCompanion(far, companionGoal(swimmer, 0), swimmer, world, 0.05);
+    expect({ x: c.x, y: c.y, z: c.z }).toEqual({ x: far.x, y: far.y, z: far.z });
+    const nearShore = { x: 5.5, y: 3.4, z: 16.5 };
+    const goal = companionGoal(nearShore, 0); // regard vers −Z : sa place est dans l'eau
+    expect(world.get(Math.floor(goal.x), 3, Math.floor(goal.z))).toBe(BlockId.Water);
+    const c2 = stepCompanion(far, goal, nearShore, world, 0.05);
+    expect(world.get(Math.floor(c2.x), Math.floor(c2.y) - 1, Math.floor(c2.z))).not.toBe(BlockId.Water);
+    expect(world.get(Math.floor(c2.x), Math.floor(c2.y), Math.floor(c2.z))).toBe(BlockId.Air);
+    expect(Math.hypot(c2.x - nearShore.x, c2.z - nearShore.z)).toBeLessThanOrEqual(3 * Math.SQRT2 + 0.01);
+  });
 });

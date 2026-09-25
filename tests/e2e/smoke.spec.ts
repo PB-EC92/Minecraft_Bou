@@ -67,6 +67,7 @@ const B = { air: 0, grass: 1, dirt: 2, stone: 3, planks: 4, sand: 5, log: 6, lea
 declare global {
   interface Window {
     cubesDebug: {
+      version: string;
       state(): DebugState;
       setHour(h: number): void;
       look(yawDeg: number, pitchDeg: number): void;
@@ -134,7 +135,8 @@ interface Info {
 
 async function readInfo(page: Page): Promise<Info> {
   await page.waitForTimeout(300); // l'affichage se met à jour 4 fois par seconde
-  const text = await page.locator(".info").innerText();
+  // textContent : la ligne est masquée sur les écrans des enfants (J7), mais toujours tenue à jour.
+  const text = (await page.locator(".info").textContent()) ?? "";
   const num = (re: RegExp) => Number(re.exec(text)?.[1] ?? NaN);
   const m = /pos (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/.exec(text);
   const r = /regard (-?\d+)° (-?\d+)°/.exec(text);
@@ -263,7 +265,12 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   // Le monde se construit derrière l'accueil.
   await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").innerText()).toMatch(/J6$/);
+  expect(await page.locator(".info").textContent()).toMatch(/1\.0-rc$/);
+  expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.0-rc");
+  await expect(page).toHaveTitle("Cubes");
+  // J7 : ni panneau Tests ni infos techniques hors du mode adresse (réglage du mode parent, décoché par défaut).
+  await expect(page.locator(".info")).toBeHidden();
+  await expect(page.locator(".panel-toggle")).toBeHidden();
   // Sans #monde=… dans l'adresse : un rechargement doit ramener à l'accueil.
   expect(page.url()).not.toContain("#");
   await page.screenshot({ path: testInfo.outputPath("depart.png") });
@@ -316,7 +323,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : J6");
+  await expect(diag).toContainText("Version : 1.0-rc");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
@@ -1080,10 +1087,14 @@ async function press(_page: Page, locator: ReturnType<Page["locator"]>, info: Te
   else await locator.click();
 }
 
-/** Premier lancement complet : l'adulte règle les prénoms, Léa choisit l'avatar 2 et crée une île dans l'emplacement 1. */
-async function firstLaunch(page: Page, info: TestInfo): Promise<void> {
+/**
+ * Premier lancement complet : l'adulte règle les prénoms, Léa choisit l'avatar 2 et crée une île dans l'emplacement 1.
+ * devTools : l'adulte coche aussi « panneau Tests visible » (masqué par défaut pendant les parties, J7).
+ */
+async function firstLaunch(page: Page, info: TestInfo, devTools = false): Promise<void> {
   await page.getByLabel("Prénom du joueur 1").fill("Léa");
   await page.getByLabel("Prénom du joueur 2").fill("Tom");
+  if (devTools) await page.getByLabel("Panneau Tests visible").check();
   await press(page, page.getByRole("button", { name: "C'est parti !" }), info);
   await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
   await expect(page.locator(".profile-card")).toHaveText(["Léa", "Tom"]);
@@ -1246,7 +1257,7 @@ test("troisième personne : touche V ou bouton œil, le personnage se voit, la c
 test("pendant la partie d'un enfant, « Nouveau monde » du panneau Tests n'écrase pas son monde", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   const errors = await openGame(page, "");
-  await firstLaunch(page, testInfo);
+  await firstLaunch(page, testInfo, true);
   const seed = (await state(page)).seed;
   await page.getByRole("button", { name: "Tests" }).click();
   await page.getByRole("button", { name: "Nouveau monde" }).click();
@@ -1695,5 +1706,54 @@ test("sac plein : une pierre brillante (ou une lampe) ne se casse pas, elle sera
   });
   expect(await blockAt(page, { x: 5, y: 4, z: 5 })).toBe(B.air);
   expect(invCount(await state(page), B5.lamp)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+// ---------- J7 : version 1.0-rc ----------
+
+test("écran des enfants : ni panneau Tests ni infos techniques ; le mode parent peut les réafficher", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  await firstLaunch(page, testInfo);
+  await expect(page.locator(".panel-toggle")).toBeHidden();
+  await expect(page.locator(".info")).toBeHidden();
+  await expect(page.locator(".home-btn")).toBeVisible();
+  // Les boutons ronds se rangent contre le bord (pas de trou à la place de « Tests »).
+  const vp = page.viewportSize()!;
+  const eye = (await page.locator(".view-btn").boundingBox())!;
+  expect(vp.width - (eye.x + eye.width)).toBeLessThan(20);
+  // Mode parent : l'adulte réaffiche le panneau.
+  await page.locator(".home-btn").click();
+  const gear = page.locator(".parent-gear");
+  const box = (await gear.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+  await page.mouse.up();
+  await page.getByLabel("Panneau Tests visible").check();
+  await page.getByRole("button", { name: "Enregistrer et fermer" }).click();
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
+  await expect(page.locator(".panel-toggle")).toBeVisible();
+  await expect(page.locator(".info")).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:reglages") ?? "null")?.devTools)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("coincé au fond d'un puits : le jeu explique comment grimper (au doigt : Sauter) @tactile", async ({ page }, testInfo) => {
+  const touch = isTouch(testInfo);
+  const errors = await openGame(page);
+  // Puits de deux blocs de profondeur, juste sous l'enfant.
+  await page.evaluate(() => {
+    window.cubesDebug.setBlock(5, 3, 5, 0);
+    window.cubesDebug.setBlock(5, 2, 5, 0);
+    window.cubesDebug.teleport(5.5, 2, 5.5);
+    window.cubesDebug.look(0, 0);
+  });
+  await expect.poll(async () => (await state(page)).player.onGround).toBe(true);
+  await page.keyboard.down("KeyW"); // pousse contre la paroi, sans sauter
+  await expect(page.locator(".message")).toContainText(touch ? "Garde Sauter contre le mur" : "Garde Espace contre le mur", { timeout: 15_000 });
+  await page.keyboard.up("KeyW");
   expect(errors).toEqual([]);
 });

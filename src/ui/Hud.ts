@@ -1,4 +1,5 @@
 import { blockDef, type BlockId } from "../engine/blocks";
+import { GAME_NAME } from "../game/identity";
 import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
@@ -136,7 +137,7 @@ export class Hud {
     this.root.appendChild(this.panelToggle);
 
     this.panel = this.div("panel");
-    this.panel.appendChild(this.title(`Prototype ${version} — tests techniques`));
+    this.panel.appendChild(this.title(`${GAME_NAME} ${version} — réglages de test`));
 
     const rowScreen = this.row();
     this.fullscreenButton = this.button("Plein écran");
@@ -343,6 +344,14 @@ export class Hud {
     c.height = base.height;
     c.getContext("2d")?.drawImage(base, 0, 0);
     return c;
+  }
+
+  /** Panneau « Tests » et ligne d'infos techniques : pour l'adulte, masqués pendant les parties des enfants (J7). */
+  setDevTools(on: boolean): void {
+    this.info.hidden = !on;
+    this.panelToggle.hidden = !on;
+    this.root.classList.toggle("no-devtools", !on);
+    if (!on) this.panel.classList.remove("open");
   }
 
   setInfo(text: string): void {

@@ -98,7 +98,8 @@ export class SaveStore {
   /**
    * Remplace tout par le contenu d'un fichier d'export (texte JSON). Les mondes
    * absents du fichier sont effacés. Renvoie une erreur lisible si le fichier
-   * n'est pas une sauvegarde de Cubes.
+   * n'est pas une sauvegarde de Cubes. Tout ou rien (J7) : si une écriture
+   * échoue en cours de route (stockage plein), l'état d'avant est remis.
    */
   importAll(text: string): WriteResult {
     let raw: unknown;
@@ -109,19 +110,58 @@ export class SaveStore {
     }
     const file = parseExport(raw, AVATARS.length);
     if (!file) return { ok: false, error: "Ce fichier n'est pas une sauvegarde de Cubes." };
+    const keys = [KEYS.profiles, KEYS.settings, ...file.profiles.flatMap((p) => Array.from({ length: WORLD_SLOTS }, (_, s) => KEYS.world(p.id, s)))];
+    const before = this.snapshot(keys);
+    const done = (r: WriteResult): WriteResult => {
+      if (!r.ok) this.restore(before);
+      return r;
+    };
     const r = this.saveProfiles(file.profiles);
-    if (!r.ok) return r;
-    this.saveSettings(file.settings);
+    if (!r.ok) return done(r);
+    const sr = this.saveSettings(file.settings);
+    if (!sr.ok) return done(sr);
     for (const p of file.profiles) {
       for (let s = 0; s < WORLD_SLOTS; s++) {
         const w = file.worlds[KEYS.world(p.id, s)];
         if (w) {
           const wr = this.saveWorld(p.id, s, w);
-          if (!wr.ok) return wr;
+          if (!wr.ok) return done({ ok: false, error: `${wr.error} Rien n'a été changé.` });
         } else this.deleteWorld(p.id, s);
       }
     }
     return { ok: true };
+  }
+
+  /** Valeurs brutes de ces clés (null = absente). */
+  private snapshot(keys: readonly string[]): Map<string, string | null> {
+    const m = new Map<string, string | null>();
+    for (const k of keys) {
+      try {
+        m.set(k, this.storage?.getItem(k) ?? null);
+      } catch {
+        m.set(k, null);
+      }
+    }
+    return m;
+  }
+
+  /** Remet ces clés comme avant : d'abord tout effacer (place libérée), puis réécrire les anciennes valeurs. */
+  private restore(before: Map<string, string | null>): void {
+    for (const k of before.keys()) {
+      try {
+        this.storage?.removeItem(k);
+      } catch {
+        // Stockage bloqué : rien de plus à faire.
+      }
+    }
+    for (const [k, v] of before) {
+      if (v === null) continue;
+      try {
+        this.storage?.setItem(k, v);
+      } catch {
+        // Ne devrait pas arriver : ces valeurs tenaient avant l'import.
+      }
+    }
   }
 
   private readJson(key: string): unknown {

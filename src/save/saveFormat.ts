@@ -45,9 +45,11 @@ export interface Settings {
   night: NightLength;
   /** Grignotes actives (J5). */
   creatures: boolean;
+  /** Panneau « Tests » et ligne d'infos techniques affichés pendant les parties des enfants (J7 ; masqués par défaut). */
+  devTools: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { night: "normale", creatures: true };
+export const DEFAULT_SETTINGS: Settings = { night: "normale", creatures: true, devTools: false };
 
 export interface WorldSave {
   version: number;
@@ -126,7 +128,8 @@ export function parseSettings(raw: unknown): Settings {
   if (!isObj(raw)) return { ...DEFAULT_SETTINGS };
   const night = NIGHT_LENGTHS.some((n) => n.id === raw.night) ? (raw.night as NightLength) : DEFAULT_SETTINGS.night;
   const creatures = typeof raw.creatures === "boolean" ? raw.creatures : DEFAULT_SETTINGS.creatures;
-  return { night, creatures };
+  const devTools = typeof raw.devTools === "boolean" ? raw.devTools : DEFAULT_SETTINGS.devTools;
+  return { night, creatures, devTools };
 }
 
 /** Monde lu, ou null si la donnée est inutilisable. */

@@ -154,9 +154,12 @@ describe("profils, réglages, mondes enregistrés", () => {
   });
 
   it("réglages : nuit normale par défaut", () => {
-    expect(parseSettings(null)).toEqual({ night: "normale", creatures: true });
-    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte", creatures: true });
-    expect(parseSettings({ night: "jamais", creatures: false })).toEqual({ night: "normale", creatures: false });
+    expect(parseSettings(null)).toEqual({ night: "normale", creatures: true, devTools: false });
+    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte", creatures: true, devTools: false });
+    expect(parseSettings({ night: "jamais", creatures: false })).toEqual({ night: "normale", creatures: false, devTools: false });
+    // J7 : panneau Tests masqué pendant les parties des enfants, sauf choix de l'adulte.
+    expect(parseSettings({ devTools: true }).devTools).toBe(true);
+    expect(parseSettings({ devTools: "oui" }).devTools).toBe(false);
   });
 
   const world = {
@@ -282,9 +285,72 @@ describe("caméra à la troisième personne", () => {
     expect(c.y).toBeLessThan(6);
     expect(c.distance).toBeGreaterThan(3);
   });
+  it("mur en escalier vu en diagonale : la caméra ne se faufile pas entre deux blocs qui se touchent par un coin (J7)", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    for (let k = 2; k < 30; k++) for (let y = 4; y < 9; y++) w.set(k, y, k, 3); // blocs (k, k) : un mur en diagonale
+    const eye = { x: 9, y: 5.6, z: 13 }; // d'un côté du mur (x < z) ; en reculant, le rayon passe par le coin (11, 11)
+    const c = thirdPersonCamera(w, eye, (3 * Math.PI) / 4, 0);
+    expect(c.x).toBeLessThan(c.z); // reste du même côté
+    expect(c.distance).toBeLessThan(2.9);
+    expect(c.distance).toBeGreaterThan(1.5);
+  });
   it("regard vers le haut : la caméra passe sous le regard sans entrer dans le sol", () => {
     const w = World.createFlat(32, 16, 32, 4);
     const c = thirdPersonCamera(w, { x: 16, y: 5.6, z: 16 }, 0, 1.2);
     expect(c.y).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("import tout ou rien (J7)", () => {
+  /** Stockage en mémoire ; failOn : clé dont l'écriture échoue (stockage plein). */
+  function memoryStorage(failOn: (key: string) => boolean = () => false) {
+    const m = new Map<string, string>();
+    const storage = {
+      get length() {
+        return m.size;
+      },
+      clear: () => m.clear(),
+      getItem: (k: string) => m.get(k) ?? null,
+      key: (i: number) => [...m.keys()][i] ?? null,
+      removeItem: (k: string) => void m.delete(k),
+      setItem: (k: string, v: string) => {
+        if (failOn(k)) throw new Error("QuotaExceededError");
+        m.set(k, v);
+      },
+    } as Storage;
+    return { storage, m };
+  }
+
+  const world = (seed: number) => ({
+    version: 1, gen: 2, type: "ile", seed, edits: "", player: { x: 1, y: 2, z: 3, yaw: 0, pitch: 0 },
+    inventory: { slots: [] }, phase: 0.2, savedAt: 1,
+  });
+
+  it("une écriture qui échoue au milieu : profils, réglages et mondes reviennent à l'état d'avant", async () => {
+    const { SaveStore } = await import("../../src/save/SaveStore");
+    let failing = false;
+    const { storage, m } = memoryStorage((k) => failing && k === "cubes:monde:p2:0");
+    const store = new SaveStore(storage);
+    store.saveProfiles(defaultProfiles());
+    store.saveSettings({ night: "courte", creatures: false, devTools: false });
+    store.saveWorld("p1", 0, parseWorldSave(world(11))!);
+    store.saveWorld("p1", 2, parseWorldSave(world(12))!);
+    const before = new Map(m);
+    const file = {
+      app: "cubes", version: 1, exportedAt: 2,
+      profiles: [{ name: "Léa", level: "debutant", avatar: 1 }, { name: "Tom", level: "autonome", avatar: 2 }],
+      settings: { night: "normale", creatures: true },
+      worlds: { "cubes:monde:p1:0": world(21), "cubes:monde:p2:0": world(22) },
+    };
+    failing = true;
+    const r = store.importAll(JSON.stringify(file));
+    expect(r.ok).toBe(false);
+    expect(new Map(m)).toEqual(before);
+    // Sans échec, l'import remplace tout (le monde 3 de Léa, absent du fichier, est effacé).
+    failing = false;
+    expect(store.importAll(JSON.stringify(file)).ok).toBe(true);
+    expect(store.loadWorld("p1", 0)?.seed).toBe(21);
+    expect(store.loadWorld("p1", 2)).toBeNull();
+    expect(store.loadProfiles()?.[0]?.name).toBe("Léa");
   });
 });

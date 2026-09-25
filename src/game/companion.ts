@@ -4,7 +4,8 @@ import type { World } from "../engine/World";
 /**
  * Déplacement du compagnon Pixel (J5, pur) : il trottine devant l'enfant, un
  * peu sur sa gauche (en vue normale, l'enfant le voit ; arrêté, il le regarde), monte les marches d'un bloc, et réapparaît près de lui s'il
- * est resté trop loin (jamais bloqué derrière un mur ou de l'eau).
+ * est resté trop loin (jamais bloqué derrière un mur ou de l'eau). Il ne réapparaît que sur la terre ferme (J7) :
+ * sans sol à sa place ni autour de l'enfant (qui nage au large), il attend sur la rive.
  */
 /** Distance devant l'enfant (blocs). */
 export const COMPANION_AHEAD = 2.6;
@@ -44,9 +45,9 @@ export function stepCompanion(
   const dz = goal.z - c.z;
   const d = Math.hypot(dx, dz);
   if (d > COMPANION_TELEPORT || Math.abs(c.y - player.y) > 4) {
-    const y = groundNear(world, Math.floor(goal.x), Math.floor(goal.z), Math.floor(player.y));
-    if (y !== null) return { x: goal.x, y, z: goal.z, yaw: Math.atan2(-dx, -dz), moving: false };
-    return { x: player.x, y: player.y, z: player.z, yaw: c.yaw, moving: false };
+    const spot = landingSpot(world, goal, player);
+    if (spot) return { x: spot.x, y: spot.y, z: spot.z, yaw: Math.atan2(-(player.x - spot.x), -(player.z - spot.z)), moving: false };
+    return { ...c, moving: false };
   }
   // Arrivé : il se tourne vers l'enfant.
   if (d < CLOSE) return { ...c, yaw: Math.atan2(-(player.x - c.x), -(player.z - c.z)), moving: false };
@@ -57,6 +58,25 @@ export function stepCompanion(
   const y = groundNear(world, Math.floor(nx), Math.floor(nz), Math.floor(c.y));
   if (y === null || y > Math.floor(c.y) + 1) return { ...c, yaw, moving: false };
   return { x: nx, y, z: nz, yaw, moving: true };
+}
+
+/** Place de réapparition : la sienne si elle a du sol, sinon la première case de terre ferme autour de l'enfant (3 blocs au plus). */
+function landingSpot(world: World, goal: { x: number; z: number }, player: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null {
+  const py = Math.floor(player.y);
+  const y = groundNear(world, Math.floor(goal.x), Math.floor(goal.z), py);
+  if (y !== null) return { x: goal.x, y, z: goal.z };
+  const px = Math.floor(player.x);
+  const pz = Math.floor(player.z);
+  for (let r = 1; r <= 3; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const gy = groundNear(world, px + dx, pz + dz, py);
+        if (gy !== null) return { x: px + dx + 0.5, y: gy, z: pz + dz + 0.5 };
+      }
+    }
+  }
+  return null;
 }
 
 function groundNear(world: World, x: number, z: number, y: number): number | null {

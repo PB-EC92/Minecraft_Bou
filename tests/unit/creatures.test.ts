@@ -94,6 +94,30 @@ describe("les Grignotes", () => {
     for (const g of sim.creatures) expect(g.x > 43 && g.x < 54 && g.z > 43 && g.z < 54).toBe(false);
   });
 
+  it("un grand enclos de clôtures (40 blocs de côté) : aucune Grignote n'y naît (J7)", () => {
+    const w = flat();
+    for (let i = 28; i <= 68; i++) {
+      w.set(i, 4, 28, BlockId.Fence);
+      w.set(i, 4, 68, BlockId.Fence);
+      w.set(28, 4, i, BlockId.Fence);
+      w.set(68, 4, i, BlockId.Fence);
+    }
+    const sim = new CreatureSim(w, 3);
+    const c = ctx({ night: true });
+    const inside = (k: Creature) => k.x > 28 && k.x < 69 && k.z > 28 && k.z < 69;
+    let seen = 0;
+    for (let t = 0; t < 60_000; t += 100) {
+      for (const e of sim.update(100, c)) if (e.kind === "spawn") seen++;
+      for (const k of sim.creatures) expect(inside(k)).toBe(false);
+    }
+    expect(seen).toBeGreaterThan(0); // elles naissent bien, dehors
+    // Une seule haie (un côté) : ce n'est pas un enclos.
+    const w2 = flat();
+    for (let i = 0; i < 96; i++) w2.set(i, 4, 30, BlockId.Fence);
+    expect(new CreatureSim(w2, 1).fencedIn(48, 4, 48)).toBe(false);
+    expect(sim.fencedIn(48, 4, 48)).toBe(true);
+  });
+
   it("les bulles font fuir les Grignotes visées ; celle qui portait un bloc le rend", () => {
     const sim = new CreatureSim(flat(), 5);
     const c = ctx({ night: true });

@@ -282,3 +282,23 @@ export function bravoTitle(name: string | null): ChildText {
   return { debutant: `Bravo${who}${NBSP}!`, autonome: `Bravo${who}, mission réussie${NBSP}!` };
 }
 
+
+/* ---------- Enfant coincé (J7) : Pixel explique comment sortir ---------- */
+
+/** Au fond d'un trou, au clavier : l'escalade de secours (garder Espace en avançant contre la paroi). */
+export const PIT_CLIMB: ChildText = {
+  debutant: `Garde Espace contre le mur${NBSP}!`,
+  autonome: `Pour sortir d'un trou, avance contre le mur en gardant la touche Espace enfoncée${NBSP}: tu vas grimper.`,
+};
+
+/** Au fond d'un trou, au doigt : pousser le rond vers la paroi et garder le doigt sur Sauter. */
+export const PIT_CLIMB_TOUCH: ChildText = {
+  debutant: `Garde Sauter contre le mur${NBSP}!`,
+  autonome: `Pour sortir d'un trou, pousse le rond vers le mur et garde le doigt sur Sauter${NBSP}: tu vas grimper.`,
+};
+
+/** Enfermé (murs et toit tout autour) : casser un bloc pour sortir. */
+export const WALLED_IN: ChildText = {
+  debutant: `Casse un mur pour sortir${NBSP}!`,
+  autonome: `Tout est fermé autour de toi${NBSP}: casse un bloc du mur pour sortir.`,
+};

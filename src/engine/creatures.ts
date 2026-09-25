@@ -35,6 +35,8 @@ const APPROACH_SPEED = 2.2;
 const FLEE_SPEED = 3.4;
 /** Au-delà, une Grignote est retirée (et une autre apparaîtra plus près si besoin). */
 const DESPAWN_DISTANCE = 40;
+/** Portée de la recherche de clôtures autour d'un lieu d'apparition (blocs) : au-delà, l'enclos est un champ. */
+export const ENCLOSURE_SCAN = 48;
 /** Sols naturels où une Grignote peut apparaître. */
 const NATURAL_GROUND = new Set<number>([BlockId.Grass, BlockId.Dirt, BlockId.Sand, BlockId.Snow, BlockId.Stone]);
 
@@ -186,6 +188,8 @@ export class CreatureSim {
       // Jamais sur un toit ni une construction (elles viennent de la nature), ni plus haut que l'enfant.
       if (y > ctx.player.y + 2 || !NATURAL_GROUND.has(this.world.get(x, y - 1, z))) continue;
       if (this.nearLamp(x + 0.5, z + 0.5, ctx.lamps)) continue;
+      // Jamais à l'intérieur d'un enclos de clôtures, même grand (J7) : elles viennent toujours de dehors.
+      if (this.fencedIn(x, y, z)) continue;
       const c: Creature = {
         id: this.nextId++,
         x: x + 0.5,
@@ -314,6 +318,25 @@ export class CreatureSim {
       }
     }
     return y;
+  }
+
+  /**
+   * Lieu entouré de clôtures : dans chacune des quatre directions, une clôture à hauteur des pattes (ou juste
+   * en dessous, sur une pente) avant ENCLOSURE_SCAN blocs. Approché, mais sans faux négatif pour un enclos fermé
+   * (quatre côtés) ; un champ bordé d'une seule haie de clôtures n'est pas pris pour un enclos.
+   */
+  fencedIn(x: number, y: number, z: number): boolean {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      let found = false;
+      for (let d = 1; d <= ENCLOSURE_SCAN && !found; d++) {
+        const cx = x + dx * d;
+        const cz = z + dz * d;
+        if (!this.world.inBounds(cx, 0, cz)) break;
+        for (let yy = y - 2; yy <= y + 2; yy++) if (this.world.get(cx, yy, cz) === BlockId.Fence) found = true;
+      }
+      if (!found) return false;
+    }
+    return true;
   }
 
   /** Rien de plein entre la Grignote et le joueur, à mi-hauteur de la Grignote. */

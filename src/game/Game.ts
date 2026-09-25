@@ -11,6 +11,7 @@ import { emptiedText, maxStackText, pickupSpeech, pickupText, quantity, returned
 import { BRAVO, MISSION_1, MissionRunner, nextMission, resumeMission, stepText, TUTORIAL, type MissionDef, type MissionView } from "../edu/missions";
 import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
 import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
+import { pitState } from "../engine/pit";
 import { Narrator, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
@@ -33,7 +34,10 @@ import {
   BACK_TO_LAMP,
   bravoTitle,
   FULL_BAG_KEEP,
+  PIT_CLIMB,
+  PIT_CLIMB_TOUCH,
   PLACE_LAMP_AGAIN,
+  WALLED_IN,
   SPOKEN_TIPS,
   REWARD_WAITING,
   SAVED,
@@ -73,9 +77,10 @@ import { HOUR_PRESETS, Hud } from "../ui/Hud";
 import { Player } from "./Player";
 import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "./renderDistance";
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
+import { GAME_NAME, VERSION } from "./identity";
 
 const REACH = 6;
-export const VERSION = "J6";
+export { VERSION } from "./identity";
 /** Sauvegarde automatique pendant une partie (ms). */
 const AUTOSAVE_MS = 30_000;
 /** Rayon autour du joueur qui doit être construit avant de retirer l'écran de chargement (blocs). */
@@ -106,6 +111,9 @@ const SHELTER_HINT_EVERY_MS = 12_000;
 const LAMP_HINT_EVERY_MS = 12_000;
 /** Délai entre la fin d'une mission et la suite (mission suivante, écran de félicitations) (ms). */
 const NEXT_MISSION_DELAY_MS = 3200;
+/** Enfant coincé (J7) : après ce temps passé à pousser contre les parois, Pixel explique comment sortir ; pas plus souvent que. */
+const STUCK_HINT_AFTER_MS = 4000;
+const STUCK_HINT_EVERY_MS = 20_000;
 const CELEBRATION_DELAY_MS = 4000;
 
 interface PixelRequest {
@@ -252,6 +260,9 @@ export class Game {
   /** Cadeau pas encore entré dans le sac (sac plein) ; enregistré avec le monde. */
   private rewardPending: { block: BlockId; count: number } | null = null;
   private rewardSeenInventory = -1;
+  /** Temps passé à pousser en vain contre les parois d'un trou ou d'un abri fermé, et dernier conseil (J7). */
+  private stuckMs = 0;
+  private lastStuckHintAt = -Infinity;
   /** Position de l'image précédente (pas du tutoriel). */
   private prevX = 0;
   private prevZ = 0;
@@ -266,6 +277,7 @@ export class Game {
     this.urlMission = opts.mission !== undefined;
     // Mode adresse (tests, vérifications de l'adulte) : réglages par défaut, pas ceux du mode parent.
     this.settings = this.urlMode ? { ...DEFAULT_SETTINGS } : this.store.loadSettings();
+    document.title = GAME_NAME;
     this.gen = generateWorld(opts.type ?? "prairie", opts.seed ?? randomSeed());
     this.world = this.gen.world;
     this.baseData = this.world.data.slice();
@@ -332,6 +344,7 @@ export class Game {
     this.exposeDebug();
 
     this.updateHint();
+    this.applyDevTools();
     this.hud.setDistance(this.view.renderDistance);
     this.syncGameControls();
     this.refreshInventory();
@@ -340,7 +353,7 @@ export class Game {
     this.watchActivation();
     this.watchSaves();
     if (this.urlMode) {
-      this.hud.showMessage(`Bienvenue dans Cubes (prototype ${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
+      this.hud.showMessage(`Bienvenue dans ${GAME_NAME} (${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
       if (opts.mission !== undefined) this.startMission(undefined, opts.mission === 0 ? TUTORIAL : MISSION_1);
     } else {
       // Accueil : qui joue, quel monde. Le jeu attend derrière, en pause.
@@ -351,7 +364,10 @@ export class Game {
         speak: (text, profile) => {
           if (profile.voice) this.speakWhenAllowed(pick(text, profile.level));
         },
-        settingsChanged: (s) => (this.settings = s),
+        settingsChanged: (s) => {
+          this.settings = s;
+          this.applyDevTools();
+        },
       });
       this.home.show();
     }
@@ -612,6 +628,11 @@ export class Game {
   private placeMessageBelowCompanion(): void {
     const bottom = this.companionPanel.hidden ? 0 : Math.ceil(this.companionPanel.getBoundingClientRect().bottom);
     this.hud.root.style.setProperty("--companion-bottom", `${bottom}px`);
+  }
+
+  /** Panneau « Tests » et ligne d'infos : toujours en mode adresse (adulte, tests), sinon selon le mode parent (J7). */
+  private applyDevTools(): void {
+    this.hud.setDevTools(this.urlMode || this.settings.devTools);
   }
 
   private companionOn(): boolean {
@@ -940,6 +961,30 @@ export class Game {
       this.lastLampHintAt = now;
       this.tell(BACK_TO_LAMP, { ms: 3000, dedupe: true });
     }
+  }
+
+  /**
+   * Enfant coincé (J7) : il pousse depuis un moment contre les parois d'un trou (ou d'un abri fermé) sans en
+   * sortir. Pixel (ou le message, sans compagnon) dit comment faire : grimper en gardant Sauter contre la paroi,
+   * ou casser un bloc si tout est fermé, toit compris. Rien pendant l'escalade elle-même.
+   */
+  private updateStuck(pushing: boolean, dtMs: number): void {
+    const p = this.player;
+    if (!pushing || p.inWater || p.climbing || !p.onGround) {
+      this.stuckMs = 0;
+      return;
+    }
+    const state = pitState(this.world, p.x, p.y, p.z);
+    if (state === "open") {
+      this.stuckMs = 0;
+      return;
+    }
+    this.stuckMs += dtMs;
+    const now = performance.now();
+    if (this.stuckMs < STUCK_HINT_AFTER_MS || now - this.lastStuckHintAt < STUCK_HINT_EVERY_MS) return;
+    this.lastStuckHintAt = now;
+    this.stuckMs = 0;
+    this.tell(state === "closed" ? WALLED_IN : this.touchUi ? PIT_CLIMB_TOUCH : PIT_CLIMB, { ms: 4000, dedupe: true });
   }
 
   /** Le temps file pendant la dernière étape de la mission 1, jusqu'à la nuit. */
@@ -1673,6 +1718,7 @@ export class Game {
       // Pas du tutoriel (J6) : un déplacement d'un bloc ou plus en une image est une téléportation, pas un pas.
       const moved = Math.hypot(this.player.x - this.prevX, this.player.z - this.prevZ);
       if (moved < 1) this.mission?.noteWalked(moved);
+      this.updateStuck(Math.hypot(kx + this.touch.moveX, kz + this.touch.moveZ) > 0.1, dt * 1000);
     }
     this.prevX = this.player.x;
     this.prevZ = this.player.z;

@@ -292,6 +292,16 @@ export class HomeScreen {
     creaturesLabel.append(creatures, " Grignotes actives (la nuit, elles chipent un bloc ; une lampe les éloigne)");
     form.appendChild(creaturesLabel);
 
+    section("Tests");
+    const devLabel = document.createElement("label");
+    devLabel.className = "check";
+    const devTools = document.createElement("input");
+    devTools.type = "checkbox";
+    devTools.checked = settings.devTools;
+    devTools.setAttribute("aria-label", "Panneau Tests visible");
+    devLabel.append(devTools, " Afficher le panneau « Tests » et les infos techniques pendant les parties (pour l'adulte)");
+    form.appendChild(devLabel);
+
     const status = this.div("parent-status");
 
     if (!first) {
@@ -372,7 +382,7 @@ export class HomeScreen {
         tutorialDone: p.tutorialDone,
       }));
       const r = this.store.saveProfiles(next);
-      const s: Settings = { night: night.value as NightLength, creatures: creatures.checked };
+      const s: Settings = { night: night.value as NightLength, creatures: creatures.checked, devTools: devTools.checked };
       this.store.saveSettings(s);
       this.cb.settingsChanged(s);
       this.profiles = next;
