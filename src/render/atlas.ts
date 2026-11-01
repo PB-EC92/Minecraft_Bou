@@ -1,11 +1,17 @@
 /**
  * Disposition de l'atlas de textures (calcul pur, sans DOM ni Three.js, pour
- * être testé en Node). Grille de 8 × 4 tuiles de 16 × 16 px ; tuile n° k en
- * colonne k % 8, ligne ⌊k / 8⌋ (ligne 0 en haut de l'image).
+ * être testé en Node). Grille de 8 × 8 tuiles de 16 × 16 px (64 tuiles, image
+ * de 128 × 128 px) ; tuile n° k en colonne k % 8, ligne ⌊k / 8⌋ (ligne 0 en
+ * haut de l'image).
+ *
+ * V2 lot 1 : la grille passe de 8 × 4 à 8 × 8 pour le verre (tuile 19) et les
+ * 26 lettres (tuiles 20 à 45). Le nombre de colonnes ne change pas : les tuiles
+ * 0 à 18 gardent leur place dans l'image (tileOrigin) ; seules leurs valeurs v
+ * (tileUv) changent, puisque l'image est deux fois plus haute.
  */
 export const TILE_SIZE = 16;
 export const ATLAS_COLS = 8;
-export const ATLAS_ROWS = 4;
+export const ATLAS_ROWS = 8;
 export const ATLAS_WIDTH = TILE_SIZE * ATLAS_COLS;
 export const ATLAS_HEIGHT = TILE_SIZE * ATLAS_ROWS;
 

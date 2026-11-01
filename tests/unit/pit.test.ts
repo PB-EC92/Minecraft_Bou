@@ -36,6 +36,15 @@ describe("enfant coincé (conseil de Pixel, J7)", () => {
     expect(pitState(w, 16.5, 4, 16.5)).toBe("climb");
   });
 
+  it("boîte de verre 1 × 1 fermée (V2 lot 1) : on voit dehors, mais il faut casser une vitre ; sans toit, on grimpe", () => {
+    const w = flat();
+    for (const [x, z] of [[17, 16], [15, 16], [16, 17], [16, 15]] as const) for (let y = 4; y < 6; y++) w.set(x, y, z, BlockId.Glass);
+    w.set(16, 6, 16, BlockId.Glass);
+    expect(pitState(w, 16.5, 4, 16.5)).toBe("closed");
+    w.set(16, 6, 16, BlockId.Air);
+    expect(pitState(w, 16.5, 4, 16.5)).toBe("climb");
+  });
+
   it("enfermé (quatre murs et un toit) : il faut casser un bloc", () => {
     const w = flat();
     for (const [x, z] of [[17, 16], [15, 16], [16, 17], [16, 15]] as const) for (let y = 4; y < 6; y++) w.set(x, y, z, BlockId.Planks);

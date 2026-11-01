@@ -4,13 +4,22 @@ import { tileUv } from "./atlas";
 
 /**
  * Maillage d'une section de 16³ blocs (calcul pur, sans Three.js : testé en
- * Node). Trois couches, chacune dessinée avec son matériau :
+ * Node). Quatre couches, chacune dessinée avec son matériau :
  * - opaque : cubes pleins (faces au contact d'un bloc non opaque seulement) ;
  * - cutout : plantes en croix (fleurs), texture à trous ;
- * - water : eau semi-transparente (faces au contact de l'air seulement).
+ * - water : eau semi-transparente (faces au contact de l'air seulement) ;
+ * - glass : verre (V2 lot 1), cube transparent dessiné comme les cubes, mais
+ *   dans sa propre couche ; ses faces sont cachées contre un bloc opaque ou
+ *   contre un autre verre (vitre continue). Le verre n'est pas opaque : les
+ *   faces de ses voisins restent dessinées (on les voit à travers) et il ne
+ *   fait pas d'ombre (l'occlusion ambiante ne compte que les opaques).
  *
  * Les faces tournées vers l'extérieur du monde ne sont pas produites : on ne
  * peut pas sortir du monde, elles ne seraient jamais vues.
+ *
+ * Orientation des textures : sur les 4 faces latérales, u croît vers la droite
+ * du spectateur placé devant la face (vecteur (−n) × haut) et v vers le haut.
+ * Une lettre (côtés des blocs-lettres) n'est donc jamais vue en miroir.
  *
  * Ombrage sans lumière : un facteur fixe par orientation de face et une
  * occlusion ambiante par sommet (coins sombres là où les blocs se touchent).
@@ -31,6 +40,8 @@ export interface SectionMesh {
   opaque: MeshData | null;
   cutout: MeshData | null;
   water: MeshData | null;
+  glass: MeshData | null;
+  /** Somme des faces des quatre couches. */
   faces: number;
 }
 
@@ -201,9 +212,47 @@ class Builder {
 const opaqueB = new Builder();
 const cutoutB = new Builder();
 const waterB = new Builder();
+const glassB = new Builder();
+const ghostB = new Builder();
 
 /** Tuiles pré-calculées : UV[bloc][face]. */
 const UVS: (readonly [number, number, number, number])[][] = BLOCKS.map((d: BlockDef) => FACES.map((f) => tileUv(d.tiles[f.which])));
+
+const EMPTY_MESH = (): MeshData => ({
+  positions: new Float32Array(0),
+  uvs: new Float32Array(0),
+  colors: new Uint8Array(0),
+  indices: new Uint16Array(0),
+  faces: 0,
+});
+
+/**
+ * Cubes « fantômes » (V2 lot 1, mission 2) : les cases claires où poser les
+ * lettres. Six faces par cube, avec les mêmes faces et les mêmes tuiles que le
+ * bloc (même orientation : la lettre se lit comme sur le bloc posé), en gris
+ * 255 sans ombrage ni occlusion, positions absolues dans le monde. Ce ne sont
+ * pas des blocs du monde : rien n'est caché, la visée ne les voit pas.
+ * Identifiant hors registre : cube ignoré.
+ */
+export function ghostCubes(cells: readonly { x: number; y: number; z: number; id: BlockId }[]): MeshData {
+  ghostB.reset();
+  const p = new Array<number>(12);
+  for (const c of cells) {
+    const uvs = UVS[c.id];
+    if (!uvs || c.id === BlockId.Air) continue;
+    for (let f = 0; f < 6; f++) {
+      const face = FACES[f]!;
+      for (let i = 0; i < 4; i++) {
+        const v = face.v[i]!;
+        p[i * 3] = c.x + v[0];
+        p[i * 3 + 1] = c.y + v[1];
+        p[i * 3 + 2] = c.z + v[2];
+      }
+      ghostB.quad(p, uvs[f]!, 255, 255, 255, 255, false);
+    }
+  }
+  return ghostB.finish() ?? EMPTY_MESH();
+}
 
 export function meshSection(world: World, sx: number, sy: number, sz: number): SectionMesh {
   const S = SECTION_SIZE;
@@ -229,6 +278,7 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
   opaqueB.reset();
   cutoutB.reset();
   waterB.reset();
+  glassB.reset();
   const p = new Array<number>(12);
   const ao = [0, 0, 0, 0];
 
@@ -243,14 +293,20 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
         const ly = y - y0;
         const lz = z - z0;
 
-        if (def.shape === "cube") {
+        if (def.shape === "cube" || def.shape === "glass") {
+          // Cubes opaques et verre : même règle de faces et même ombrage ; le verre va dans sa propre couche.
+          const glass = def.shape === "glass";
+          const out = glass ? glassB : opaqueB;
           for (let f = 0; f < 6; f++) {
             const face = FACES[f]!;
             const nx = x + face.n[0];
             const nz = z + face.n[2];
             // Face tournée vers l'extérieur du monde : jamais visible (on ne peut pas sortir).
             if (nx < 0 || nz < 0 || nx >= W || nz >= D) continue;
-            if (isOpaqueId(at(nx, y + face.n[1], nz))) continue;
+            const nb = at(nx, y + face.n[1], nz);
+            // Cachée contre un bloc opaque ; le verre cache aussi ses faces contre le même verre (vitre continue).
+            if (isOpaqueId(nb) || (glass && nb === id)) continue;
+            // Occlusion ambiante : op() ne compte que les opaques (le verre ne fait pas d'ombre).
             const offs = AO_OFFSETS[f]!;
             for (let i = 0; i < 4; i++) {
               const o = offs[i]!;
@@ -267,7 +323,7 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
               p[i * 3 + 2] = lz + v[2];
             }
             const L = LIGHT[f]!;
-            opaqueB.quad(p, UVS[id]![f]!, L[ao[0]!]!, L[ao[1]!]!, L[ao[2]!]!, L[ao[3]!]!, ao[0]! + ao[2]! < ao[1]! + ao[3]!);
+            out.quad(p, UVS[id]![f]!, L[ao[0]!]!, L[ao[1]!]!, L[ao[2]!]!, L[ao[3]!]!, ao[0]! + ao[2]! < ao[1]! + ao[3]!);
           }
         } else if (def.shape === "liquid") {
           const top = at(x, y + 1, z) === id ? 1 : WATER_SURFACE;
@@ -288,7 +344,7 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
             const l = WATER_LIGHT[f]!;
             waterB.quad(p, UVS[id]![f]!, l, l, l, l, false);
           }
-        } else {
+        } else if (def.shape === "cross") {
           // Plante en croix
           const uv = UVS[id]![0]!;
           for (const q of CROSS) {
@@ -308,5 +364,12 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
   const opaque = opaqueB.finish();
   const cutout = cutoutB.finish();
   const water = waterB.finish();
-  return { opaque, cutout, water, faces: (opaque?.faces ?? 0) + (cutout?.faces ?? 0) + (water?.faces ?? 0) };
+  const glass = glassB.finish();
+  return {
+    opaque,
+    cutout,
+    water,
+    glass,
+    faces: (opaque?.faces ?? 0) + (cutout?.faces ?? 0) + (water?.faces ?? 0) + (glass?.faces ?? 0),
+  };
 }

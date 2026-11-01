@@ -6,10 +6,12 @@ export interface ChunkMaterials {
   opaque: THREE.Material;
   cutout: THREE.Material;
   water: THREE.Material;
+  /** Verre (V2 lot 1) : transparent, sans écriture de profondeur, dessiné après l'eau. */
+  glass: THREE.Material;
 }
 
 type Layer = keyof ChunkMaterials;
-const LAYERS: Layer[] = ["opaque", "cutout", "water"];
+const LAYERS: Layer[] = ["opaque", "cutout", "water", "glass"];
 
 interface Section {
   sx: number;
@@ -181,7 +183,12 @@ export class ChunkRenderer {
     m.matrixAutoUpdate = false;
     m.updateMatrix();
     m.name = `${layer} ${s.sx},${s.sy},${s.sz}`;
+    // Couches transparentes : l'eau, puis le verre (on voit l'eau d'un aquarium derrière sa vitre). Three.js trie
+    // la liste transparente par renderOrder, puis par distance au centre de la sphère de la section (fixée plus
+    // haut) : les sections de verre vont de la plus lointaine à la plus proche. À l'intérieur d'une section, pas de
+    // tri par face : l'ordre du maillage est fixe, rien ne clignote (défaut accepté, voir docs/V2-LOT1.md).
     if (layer === "water") m.renderOrder = 1;
+    else if (layer === "glass") m.renderOrder = 2;
     s.meshes[layer] = m;
     this.group.add(m);
   }
