@@ -289,7 +289,10 @@ describe("materialOf", () => {
     [BlockId.Fence]: "wood",
     [BlockId.GlowStone]: "stone",
     [BlockId.Rainbow]: "stone",
+    // V2 lot 1 : le verre sonne comme la pierre (jamais de bruit de vitre brisée), les lettres comme le bois.
+    [BlockId.Glass]: "stone",
   };
+  for (let k = 0; k < 26; k++) expected[BlockId.LetterA + k] = "wood";
 
   it("couvre tous les blocs du registre avec la bonne matière", () => {
     for (const def of BLOCKS) {
@@ -312,8 +315,10 @@ describe("recettes de sons", () => {
     for (const material of [...MATERIALS, undefined]) combos.push({ name, material });
   }
 
-  it("liste les dix sons et les cinq matières", () => {
-    expect([...SOUND_NAMES].sort()).toEqual(["bravo", "break", "breakTick", "bubbles", "deny", "giggle", "night", "pickup", "place", "select"]);
+  it("liste les douze sons et les cinq matières", () => {
+    expect([...SOUND_NAMES].sort()).toEqual(
+      ["bravo", "break", "breakTick", "bubbles", "craft", "deny", "discard", "giggle", "night", "pickup", "place", "select"].sort(),
+    );
     expect([...MATERIALS].sort()).toEqual(["plant", "sand", "soft", "stone", "wood"]);
   });
 
@@ -408,6 +413,40 @@ describe("recettes de sons", () => {
       expect(l.gain).toBeLessThanOrEqual(0.3);
       expect(l.attack).toBeGreaterThanOrEqual(0.01);
     }
+  });
+
+  it("fabrication (V2 lot 1) : « toc-toc-ding », trois couches, au plus 0,4 s, différent du ramassage et du bravo", () => {
+    const layers = recipe("craft");
+    expect(layers.length).toBe(3);
+    expect(recipeDuration(layers)).toBeLessThanOrEqual(0.4);
+    // Deux coups graves, puis une note claire qui arrive en dernier.
+    const [a, b, ding] = layers;
+    expect(a).toMatchObject({ kind: "tone", wave: "triangle" });
+    expect(b).toMatchObject({ kind: "tone", wave: "triangle" });
+    expect(ding).toMatchObject({ kind: "tone", wave: "sine" });
+    expect(b!.delay).toBeGreaterThan(a!.delay);
+    expect(ding!.delay).toBeGreaterThan(b!.delay);
+    expect(a!.freq).toBeLessThan(400);
+    expect(b!.freq).toBeLessThan(400);
+    expect(ding!.freq).toBeGreaterThan(1000);
+    expect(ding!.gain).toBeLessThanOrEqual(0.2);
+    expect(layers).not.toEqual(recipe("pickup"));
+    expect(layers).not.toEqual(recipe("bravo"));
+  });
+
+  it("case vidée (V2 lot 1) : « pouf » doux, au plus 0,3 s, bruit qui descend et note qui tombe", () => {
+    const layers = recipe("discard");
+    expect(recipeDuration(layers)).toBeLessThanOrEqual(0.3);
+    const noise = layers.find((l) => l.kind === "noise");
+    const tone = layers.find((l) => l.kind === "tone");
+    expect(noise).toBeDefined();
+    expect(tone).toBeDefined();
+    expect(noise!.freqEnd).toBeLessThan(noise!.freq);
+    expect(tone!.freqEnd).toBeLessThan(tone!.freq);
+    expect(tone!.gain).toBeLessThanOrEqual(0.2);
+    // Ni « toc » de pose ni casse : un son à part.
+    expect(layers).not.toEqual(recipe("place"));
+    expect(layers).not.toEqual(recipe("break"));
   });
 
   it("sélection : un clic très bref", () => {

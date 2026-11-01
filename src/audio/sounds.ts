@@ -27,16 +27,41 @@
  * - aucune méthode publique ne lève d'exception : un souci audio ne doit
  *   jamais casser le jeu.
  */
-import { BlockId } from "../engine/blocks";
+import { BlockId, isLetterId } from "../engine/blocks";
 
 /** Noms des sons joués par le jeu. */
-export type SoundName = "breakTick" | "break" | "place" | "pickup" | "deny" | "select" | "giggle" | "bubbles" | "night" | "bravo";
+export type SoundName =
+  | "breakTick"
+  | "break"
+  | "place"
+  | "pickup"
+  | "deny"
+  | "select"
+  | "giggle"
+  | "bubbles"
+  | "night"
+  | "bravo"
+  | "craft"
+  | "discard";
 
 /** Famille de matière d'un bloc : change la couleur des sons de casse. */
 export type Material = "soft" | "stone" | "wood" | "plant" | "sand";
 
 /** Tous les noms de sons (panneau de tests, boucles de vérification). */
-export const SOUND_NAMES: readonly SoundName[] = ["breakTick", "break", "place", "pickup", "deny", "select", "giggle", "bubbles", "night", "bravo"];
+export const SOUND_NAMES: readonly SoundName[] = [
+  "breakTick",
+  "break",
+  "place",
+  "pickup",
+  "deny",
+  "select",
+  "giggle",
+  "bubbles",
+  "night",
+  "bravo",
+  "craft",
+  "discard",
+];
 
 /** Toutes les matières. */
 export const MATERIALS: readonly Material[] = ["soft", "stone", "wood", "plant", "sand"];
@@ -52,11 +77,12 @@ export const MAX_VOICES = 8;
 export const UNLOCK_EVENTS: readonly string[] = ["pointerdown", "keydown", "touchstart", "pointerup", "touchend"];
 
 /**
- * Matière d'un bloc : herbe et terre → soft ; pierre, pierre brillante et arc-en-ciel → stone ; planches,
- * tronc, cactus → wood ; pierre brillante, arc-en-ciel → stone ; feuilles et fleurs → plant ; sable et neige → sand ;
- * tout autre identifiant (air, eau, inconnu) → soft.
+ * Matière d'un bloc : herbe et terre → soft ; pierre, pierre brillante, arc-en-ciel et verre → stone (jamais de
+ * bruit de vitre brisée) ; planches, tronc, cactus, lampe, clôture et blocs-lettres → wood ; feuilles et fleurs →
+ * plant ; sable et neige → sand ; tout autre identifiant (air, eau, inconnu) → soft.
  */
 export function materialOf(id: BlockId): Material {
+  if (isLetterId(id)) return "wood";
   switch (id) {
     case BlockId.Grass:
     case BlockId.Dirt:
@@ -64,6 +90,7 @@ export function materialOf(id: BlockId): Material {
     case BlockId.Stone:
     case BlockId.GlowStone:
     case BlockId.Rainbow:
+    case BlockId.Glass:
       return "stone";
     case BlockId.Planks:
     case BlockId.Log:
@@ -220,6 +247,22 @@ export function recipe(name: SoundName, material: Material = "soft"): Layer[] {
         { kind: "tone", wave: "triangle", freq: 659, delay: 0.08, attack: 0.006, duration: 0.09, gain: 0.14 },
         { kind: "tone", wave: "triangle", freq: 784, delay: 0.16, attack: 0.006, duration: 0.09, gain: 0.13 },
         { kind: "tone", wave: "sine", freq: 1047, delay: 0.24, attack: 0.008, duration: 0.16, gain: 0.12 },
+      ];
+    case "craft":
+      // V2 lot 1 — fabrication réussie : « toc-toc-ding » de 0,34 s (deux coups de marteau, puis une note claire).
+      // Gains de départ NON mesurés : à régler par la mesure en dB A du J2 (voir plus haut).
+      return [
+        { kind: "tone", wave: "triangle", freq: 240, freqEnd: 150, delay: 0, attack: 0.004, duration: 0.06, gain: 0.3 },
+        { kind: "tone", wave: "triangle", freq: 260, freqEnd: 160, delay: 0.09, attack: 0.004, duration: 0.06, gain: 0.3 },
+        { kind: "tone", wave: "sine", freq: 1319, delay: 0.18, attack: 0.008, duration: 0.16, gain: 0.12 },
+      ];
+    case "discard":
+      // V2 lot 1 — case vidée par un appui long : « pouf » doux (bruit qui descend, note qui tombe).
+      // Gains de départ NON mesurés : à régler par la mesure en dB A du J2 (cible d'environ −36 dB A pour le pouf,
+      // entre la pose et la casse).
+      return [
+        { kind: "noise", freq: 1600, freqEnd: 400, q: 0.7, delay: 0, attack: 0.01, duration: 0.28, gain: 0.35 },
+        { kind: "tone", wave: "sine", freq: 494, freqEnd: 247, delay: 0.03, attack: 0.01, duration: 0.22, gain: 0.1 },
       ];
     default:
       return [];

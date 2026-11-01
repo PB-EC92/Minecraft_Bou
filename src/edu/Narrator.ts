@@ -18,6 +18,10 @@ import { pick, type ChildText, type ReadingLevel } from "./texts";
  *   avant REPEAT_MS (ex. « Pas de place ! »). Un compte, lui, est toujours
  *   lu : « deux blocs d'herbe » peut redevenir vrai après une pose.
  *
+ * Dictée (V2 lot 1, mission 2) : les mots dictés au lecteur autonome sont lus
+ * même voix coupée (décision 13 de Pierre), s'il existe une voix française
+ * (canSpeak) ; sinon le jeu passe à la copie. Voir dictate.
+ *
  * Dépendances injectées (affichage, voix, horloge, minuterie) : testable en Node.
  */
 
@@ -42,6 +46,8 @@ export interface NarratorDeps {
   now(): number;
   setTimer(fn: () => void, ms: number): number;
   clearTimer(id: number): void;
+  /** Une voix française est disponible pour lire (dictée de la mission 2). Absent : faux. */
+  canSpeak?(): boolean;
 }
 
 export interface TellOptions {
@@ -74,6 +80,8 @@ export class Narrator {
   voice = true;
   private pending: number | null = null;
   private pendingSay: Say | null = null;
+  /** Dictée en attente de la fin d'une consigne importante (minuterie). */
+  private pendingDictation: number | null = null;
   /** Fin estimée de la consigne importante en cours de lecture. */
   private busyUntil = -Infinity;
   private lastSpoken = "";
@@ -92,22 +100,40 @@ export class Narrator {
     this.deps.show(shown, Math.max(opts.ms ?? 2500, readingMs(shown, this.level)));
     if (!this.voice || opts.voice === false) return;
     const say: Say = { text: pick(opts.spoken ?? text, this.level), dedupe: opts.dedupe === true, important: opts.important === true };
-    this.cancelPending();
-    if (opts.voiceDelayMs && opts.voiceDelayMs > 0) this.schedule(say, opts.voiceDelayMs);
-    else this.speakNow(say);
+    this.speakOrSchedule(say, opts.voiceDelayMs);
   }
 
   /**
-   * Lit sans afficher (J6 : l'écran de félicitations montre déjà le texte). Même règles que tell :
-   * voix coupée → rien ; consigne importante en cours → pas de coupure, sauf si celle-ci l'est aussi.
+   * Lit sans afficher (J6 : l'écran de félicitations montre déjà le texte ; V2 lot 1 : le panneau de fabrication
+   * affiche le sien). Même règles que tell : voix coupée → rien ; consigne importante en cours → pas de coupure,
+   * sauf si celle-ci l'est aussi ; voiceDelayMs > 0 → lecture différée, remplacée par la suivante.
    */
-  say(text: ChildText, opts: { important?: boolean; dedupe?: boolean } = {}): void {
+  say(text: ChildText, opts: { important?: boolean; dedupe?: boolean; voiceDelayMs?: number } = {}): void {
     if (!this.voice) return;
-    this.cancelPending();
-    this.speakNow({ text: pick(text, this.level), dedupe: opts.dedupe === true, important: opts.important === true });
+    this.speakOrSchedule({ text: pick(text, this.level), dedupe: opts.dedupe === true, important: opts.important === true }, opts.voiceDelayMs);
   }
 
-  /** Vrai si une lecture différée attend. */
+  /**
+   * Dictée de la mission 2 (V2 lot 1) : lit le texte tel quel (déjà choisi pour le lecteur autonome), MÊME si la
+   * voix est coupée (décision 13 de Pierre), sans anti-répétition, comme une consigne importante (rien ne la coupe
+   * pendant sa lecture). Si une consigne importante est en cours, la dictée attend sa fin sans la couper ; une seule
+   * dictée attend, remplacée par la suivante ; cancelPending l'annule.
+   * Renvoie faux, sans rien faire, s'il n'y a pas de voix pour lire (canSpeak absent ou faux) : le jeu montre alors
+   * le mot à copier.
+   */
+  dictate(text: string): boolean {
+    if (!this.deps.canSpeak?.()) return false;
+    this.cancelDictation();
+    this.dictateWhenFree(text);
+    return true;
+  }
+
+  /** Vrai pendant la lecture estimée d'une consigne importante (ou d'une dictée). */
+  get busy(): boolean {
+    return this.deps.now() < this.busyUntil;
+  }
+
+  /** Vrai si une lecture différée attend (hors dictée). */
   get hasPending(): boolean {
     return this.pending !== null;
   }
@@ -120,12 +146,46 @@ export class Narrator {
     this.schedule(say, ms);
   }
 
-  /** Annule une lecture différée en attente (ex. changement de monde). */
+  /** Annule une lecture différée en attente et une dictée en attente (ex. changement de monde). */
   cancelPending(): void {
+    this.cancelDelayed();
+    this.cancelDictation();
+  }
+
+  /** Une nouvelle lecture remplace la lecture différée en attente (pas la dictée, qui attend son tour). */
+  private speakOrSchedule(say: Say, delayMs: number | undefined): void {
+    this.cancelDelayed();
+    if (delayMs !== undefined && delayMs > 0) this.schedule(say, delayMs);
+    else this.speakNow(say);
+  }
+
+  private cancelDelayed(): void {
     if (this.pending === null) return;
     this.deps.clearTimer(this.pending);
     this.pending = null;
     this.pendingSay = null;
+  }
+
+  private cancelDictation(): void {
+    if (this.pendingDictation === null) return;
+    this.deps.clearTimer(this.pendingDictation);
+    this.pendingDictation = null;
+  }
+
+  /** Lit la dictée tout de suite, ou à la fin de la consigne importante en cours (vérifié de nouveau à l'échéance). */
+  private dictateWhenFree(text: string): void {
+    const t = this.deps.now();
+    if (t < this.busyUntil) {
+      this.pendingDictation = this.deps.setTimer(() => {
+        this.pendingDictation = null;
+        this.dictateWhenFree(text);
+      }, this.busyUntil - t);
+      return;
+    }
+    this.busyUntil = t + speechMs(text);
+    this.lastSpoken = text;
+    this.lastSpokenAt = t;
+    this.deps.speak(text);
   }
 
   private schedule(say: Say, ms: number): void {

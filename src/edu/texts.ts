@@ -82,10 +82,19 @@ export const EMPTY_HAND: ChildText = {
   autonome: `Cette case est vide${NBSP}: casse des blocs pour les ramasser.`,
 };
 
-/** Sac plein : 9 types de blocs déjà ramassés, plus de case libre. */
+/**
+ * Sac plein : 9 types de blocs déjà ramassés, plus de case libre. Au clavier (V2 lot 1) : garder la touche d'une
+ * case enfoncée la vide (appui long). Au doigt : FULL_BAG_TOUCH.
+ */
 export const FULL_BAG: ChildText = {
   debutant: `Ton sac est plein${NBSP}!`,
-  autonome: `Ton sac est plein${NBSP}: pose tous les blocs d'une case pour la vider.`,
+  autonome: `Ton sac est plein${NBSP}: garde la touche d'une case (1 à 9) enfoncée pour la vider.`,
+};
+
+/** Sac plein, au doigt (V2 lot 1) : garder le doigt sur une case la vide (appui long). */
+export const FULL_BAG_TOUCH: ChildText = {
+  debutant: `Ton sac est plein${NBSP}!`,
+  autonome: `Ton sac est plein${NBSP}: garde le doigt sur une case pour la vider.`,
 };
 
 /** Fleur posée sans bloc plein dessous (voir Game.placeBlock). */
@@ -207,7 +216,14 @@ export const VIEW_FIRST: ChildText = {
 
 /* ---------- Nuit, créatures, compagnon (J5) ---------- */
 
+/** La nuit arrive (décision 6 de Pierre, V2 lot 1) : aucun indice sur la lampe tant que l'enfant ne l'a pas vue agir. */
 export const NIGHT_COMING: ChildText = {
+  debutant: `La nuit arrive${NBSP}!`,
+  autonome: `La nuit arrive${NBSP}: les Grignotes vont bientôt sortir.`,
+};
+
+/** La nuit arrive, une fois la lampe découverte (voir Game.lampRevealed) : l'ancien texte, avec l'indice. */
+export const NIGHT_COMING_LAMP: ChildText = {
   debutant: `La nuit arrive${NBSP}!`,
   autonome: `La nuit arrive${NBSP}: les Grignotes vont sortir. Une lampe les éloigne.`,
 };
@@ -241,21 +257,16 @@ export const SHELTER_NOT_OWN: ChildText = {
   autonome: `Cet abri s'est fait tout seul${NBSP}: construis le tien avec les blocs de ton sac.`,
 };
 
-/**
- * Forme dite (lecteur débutant) du conseil « Il manque le toit » : l'astuce du toit, trop longue pour
- * l'écran d'un lecteur de CP (voir SHELTER_NO_ROOF), est dite à voix haute.
- */
-export const SPOKEN_TIPS: { readonly noRoof: ChildText } = {
-  noRoof: {
-    debutant: `Il manque le toit${NBSP}! Fais des murs de trois blocs de haut, puis pose le toit depuis l'intérieur.`,
-    autonome: `Il manque un toit au-dessus de ta tête. Astuce${NBSP}: avec des murs de trois blocs de haut, on pose le toit depuis l'intérieur.`,
-  },
-};
-
-/** Pierre brillante, lampe ou bloc arc-en-ciel visés sac plein : on ne les casse pas (ils seraient perdus). */
+/** Pierre brillante, lampe ou bloc arc-en-ciel visés sac plein : on ne les casse pas (ils seraient perdus). Au clavier. */
 export const FULL_BAG_KEEP: ChildText = {
   debutant: `Sac plein${NBSP}: vide une case${NBSP}!`,
-  autonome: `Ton sac est plein${NBSP}: pose tous les blocs d'une case pour faire de la place, puis recommence.`,
+  autonome: `Ton sac est plein${NBSP}: garde la touche d'une case (1 à 9) enfoncée pour la vider, puis recommence.`,
+};
+
+/** Même cas que FULL_BAG_KEEP, au doigt (V2 lot 1). */
+export const FULL_BAG_KEEP_TOUCH: ChildText = {
+  debutant: `Sac plein${NBSP}: vide une case${NBSP}!`,
+  autonome: `Ton sac est plein${NBSP}: garde le doigt sur une case pour la vider, puis recommence.`,
 };
 
 /** Dernière étape de la mission 1, la nuit : l'enfant a repris sa lampe (elle est dans son sac). */
@@ -270,10 +281,121 @@ export const BACK_TO_LAMP: ChildText = {
   autonome: `Reviens près de ta lampe pour voir ce que font les Grignotes.`,
 };
 
-/** Cadeau de fin de mission qui attend une case libre (sac plein). */
+/** Cadeau de fin de mission qui attend une case libre (sac plein). Au clavier. */
 export const REWARD_WAITING: ChildText = {
   debutant: `Vide une case du sac${NBSP}!`,
-  autonome: `Ton cadeau t'attend${NBSP}: pose tous les blocs d'une case pour lui faire de la place.`,
+  autonome: `Ton cadeau t'attend${NBSP}: garde la touche d'une case (1 à 9) enfoncée pour la vider.`,
+};
+
+/** Même cas que REWARD_WAITING, au doigt (V2 lot 1). */
+export const REWARD_WAITING_TOUCH: ChildText = {
+  debutant: `Vide une case du sac${NBSP}!`,
+  autonome: `Ton cadeau t'attend${NBSP}: garde le doigt sur une case pour la vider.`,
+};
+
+/* ---------- Verre et fabrication (V2 lot 1) ---------- */
+
+/** Premier bloc de verre posé (une fois par chargement de la page). */
+export const GLASS_SEE_THROUGH: ChildText = {
+  debutant: `On voit à travers${NBSP}!`,
+  autonome: `Le verre est transparent${NBSP}: on voit à travers, mais on ne peut pas passer.`,
+};
+
+/** Panneau de fabrication ouvert, au doigt. */
+export const CRAFT_OPEN_TOUCH: ChildText = {
+  debutant: `Touche une carte${NBSP}!`,
+  autonome: `Touche une carte pour fabriquer. Touche-la encore pour en refaire.`,
+};
+
+/** Panneau de fabrication ouvert, à la souris. */
+export const CRAFT_OPEN_MOUSE: ChildText = {
+  debutant: `Clique sur une carte${NBSP}!`,
+  autonome: `Clique sur une carte pour fabriquer. F ou Échap ferme le panneau.`,
+};
+
+/** Panneau ouvert sans aucune recette possible. */
+export const CRAFT_NOTHING: ChildText = {
+  debutant: `Il manque des blocs${NBSP}!`,
+  autonome: `Il te manque des blocs${NBSP}: casse un tronc d'arbre ou ramasse du sable, puis reviens.`,
+};
+
+/** Premier verre fabriqué : le savais-tu ? */
+export const CRAFT_GLASS_FACT: ChildText = {
+  debutant: `Le sable devient du verre${NBSP}!`,
+  autonome: `Le savais-tu${NBSP}? Le verre se fabrique avec du sable chauffé très fort.`,
+};
+
+/** Fabrication refusée, sac plein, au doigt : la case qui bouge est celle à vider. */
+export const CRAFT_FULL_TOUCH: ChildText = {
+  debutant: `Sac plein${NBSP}: vide une case${NBSP}!`,
+  autonome: `Ton sac est plein${NBSP}: garde le doigt sur la case qui bouge pour la vider, puis fabrique.`,
+};
+
+/** Fabrication refusée, sac plein, à la souris. */
+export const CRAFT_FULL_MOUSE: ChildText = {
+  debutant: `Sac plein${NBSP}: vide une case${NBSP}!`,
+  autonome: `Ton sac est plein${NBSP}: garde le clic sur la case qui bouge pour la vider, puis fabrique.`,
+};
+
+/**
+ * Formes dites (lecteur débutant) de conseils trop longs pour l'écran d'un lecteur de CP : l'écran garde la
+ * forme courte, la voix explique. Pour le lecteur autonome, la forme dite est celle de l'écran. Aucun chiffre
+ * dans les formes dites du débutant (la voix lirait mal « 1 à 9 »).
+ * - noRoof : astuce du toit (voir SHELTER_NO_ROOF) ;
+ * - fullBagTouch, fullBagKeys : sac plein, au doigt ou au clavier (FULL_BAG_TOUCH, FULL_BAG) ;
+ * - rewardTouch, rewardKeys : cadeau qui attend une case (REWARD_WAITING_TOUCH, REWARD_WAITING) ;
+ * - craftNothing, craftFullTouch, craftFullMouse : fabrication (CRAFT_NOTHING, CRAFT_FULL_TOUCH, CRAFT_FULL_MOUSE).
+ */
+export const SPOKEN_TIPS: {
+  readonly noRoof: ChildText;
+  readonly fullBagTouch: ChildText;
+  readonly fullBagKeys: ChildText;
+  readonly rewardTouch: ChildText;
+  readonly rewardKeys: ChildText;
+  readonly craftNothing: ChildText;
+  readonly craftFullTouch: ChildText;
+  readonly craftFullMouse: ChildText;
+} = {
+  noRoof: {
+    debutant: `Il manque le toit${NBSP}! Fais des murs de trois blocs de haut, puis pose le toit depuis l'intérieur.`,
+    autonome: SHELTER_NO_ROOF.autonome,
+  },
+  fullBagTouch: {
+    debutant: `Ton sac est plein${NBSP}! Garde le doigt sur une case pour la vider.`,
+    autonome: FULL_BAG_TOUCH.autonome,
+  },
+  fullBagKeys: {
+    debutant: `Ton sac est plein${NBSP}! Pour vider une case, garde sa touche enfoncée.`,
+    autonome: FULL_BAG.autonome,
+  },
+  rewardTouch: {
+    debutant: `Ton cadeau t'attend${NBSP}! Garde le doigt sur une case pour la vider.`,
+    autonome: REWARD_WAITING_TOUCH.autonome,
+  },
+  rewardKeys: {
+    debutant: `Ton cadeau t'attend${NBSP}! Pour vider une case, garde sa touche enfoncée.`,
+    autonome: REWARD_WAITING.autonome,
+  },
+  craftNothing: {
+    debutant: `Il manque des blocs${NBSP}! Casse un tronc d'arbre, ou ramasse du sable.`,
+    autonome: CRAFT_NOTHING.autonome,
+  },
+  craftFullTouch: {
+    debutant: `Sac plein${NBSP}! Garde le doigt sur la case qui bouge pour la vider.`,
+    autonome: CRAFT_FULL_TOUCH.autonome,
+  },
+  craftFullMouse: {
+    debutant: `Sac plein${NBSP}! Garde le clic sur la case qui bouge pour la vider.`,
+    autonome: CRAFT_FULL_MOUSE.autonome,
+  },
+};
+
+/**
+ * Suffixes de l'aide d'écran (V2 lot 1), ajoutés par le jeu à HINTS quand la fabrication est disponible. Un objet,
+ * pas une ChildText isolée : ce n'est pas une phrase (pas de ponctuation finale).
+ */
+export const HINT_EXTRAS: { readonly craft: ChildText } = {
+  craft: { debutant: `F${NBSP}: fabriquer`, autonome: `F${NBSP}: fabriquer` },
 };
 
 /** Titre de l'écran de félicitations (prénom de l'enfant, ou rien en mode adresse). */
