@@ -1,8 +1,10 @@
 import { AVATARS } from "../game/avatars";
 import { GAME_NAME } from "../game/identity";
 import {
+  defaultProfiles,
   KEYS,
   parseExport,
+  parseLastExport,
   parseProfiles,
   parseSettings,
   parseWorldSave,
@@ -83,6 +85,27 @@ export class SaveStore {
     return Array.from({ length: WORLD_SLOTS }, (_, s) => this.loadWorld(profileId, s));
   }
 
+  /**
+   * Nombre de mondes enregistrés des deux profils (ceux des profils lus, ou p1 et p2 avant le premier réglage),
+   * copies de secours exclues : sert au rappel d'export du mode parent (V2).
+   */
+  worldCount(): number {
+    let n = 0;
+    for (const p of this.loadProfiles() ?? defaultProfiles()) for (const w of this.worlds(p.id)) if (w) n++;
+    return n;
+  }
+
+  /** Date du dernier export (ms), null si jamais exporté (ou donnée abîmée) (V2). */
+  lastExportAt(): number | null {
+    return parseLastExport(this.readJson(KEYS.lastExport));
+  }
+
+  /** Retient la date d'un export (V2). Une date qui n'est pas un nombre fini > 0 est refusée. */
+  markExported(at: number): WriteResult {
+    if (!(Number.isFinite(at) && at > 0)) return { ok: false, error: "Date d'export invalide." };
+    return this.write(KEYS.lastExport, { at });
+  }
+
   /** Tout ce qui est enregistré, pour le fichier d'export. */
   exportAll(now: number): ExportFile | null {
     const profiles = this.loadProfiles();
@@ -114,8 +137,14 @@ export class SaveStore {
    * absents du fichier sont effacés. Renvoie une erreur lisible si le fichier
    * n'est pas une sauvegarde du jeu. Tout ou rien (J7) : si une écriture
    * échoue en cours de route (stockage plein), l'état d'avant est remis.
+   *
+   * Après un import réussi (V2), la date du fichier (`exportedAt`, jamais
+   * après `now`) devient la date du dernier export si elle est plus récente
+   * que celle retenue : les mondes importés sont protégés par ce fichier. Un
+   * échec de cette écriture est sans conséquence ; un import qui échoue ne
+   * touche pas la date.
    */
-  importAll(text: string): WriteResult {
+  importAll(text: string, now: number = Date.now()): WriteResult {
     let raw: unknown;
     try {
       raw = JSON.parse(text);
@@ -155,6 +184,10 @@ export class SaveStore {
       const br = this.write(k, b);
       if (!br.ok) return done(br);
     }
+    // Date du fichier, jamais dans le futur ; écriture sans conséquence si elle échoue (l'import a réussi).
+    const at = Math.min(file.exportedAt, now);
+    const known = this.lastExportAt();
+    if (at > 0 && (known === null || at > known)) this.markExported(at);
     return { ok: true };
   }
 

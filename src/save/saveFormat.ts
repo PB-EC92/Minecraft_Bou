@@ -1,7 +1,7 @@
-import type { NightLength } from "../engine/dayNight";
+import { wrapPhase, type NightLength } from "../engine/dayNight";
 import { isInventoryBlockId, type InventoryData } from "../engine/inventory";
 import { parseWorldType, type WorldTypeId } from "../engine/terrain";
-import { parseReadingLevel, type ReadingLevel } from "../edu/texts";
+import { NBSP, parseReadingLevel, type ReadingLevel } from "../edu/texts";
 
 /**
  * Formats de sauvegarde (J4, fonctions pures). Tout ce qui est lu (stockage
@@ -20,6 +20,8 @@ export const KEYS = {
   profiles: "cubes:profils",
   settings: "cubes:reglages",
   world: (profileId: string, slot: number) => `cubes:monde:${profileId}:${slot}`,
+  /** Date du dernier export (V2) : JSON `{ "at": ms }`. N'entre pas dans le fichier d'export (format inchangé). */
+  lastExport: "cubes:dernier-export",
 } as const;
 
 export interface Profile {
@@ -32,6 +34,11 @@ export interface Profile {
   avatar: number | null;
   /** Tutoriel (mission 0) fini dans un de ses mondes : les mondes suivants commencent à la mission 1 (J6). */
   tutorialDone: boolean;
+  /**
+   * Marteau de fabrication déjà découvert (V2) : il est alors visible dans tous les mondes du profil. Optionnel
+   * dans le type (absent = faux) ; parseProfiles et defaultProfiles l'écrivent toujours.
+   */
+  craftSeen?: boolean;
 }
 
 export type { NightLength };
@@ -97,8 +104,8 @@ export function cleanName(v: unknown, fallback: string): string {
 
 export function defaultProfiles(): Profile[] {
   return [
-    { id: "p1", name: "Joueur 1", level: "debutant", voice: true, avatar: null, tutorialDone: false },
-    { id: "p2", name: "Joueur 2", level: "autonome", voice: false, avatar: null, tutorialDone: false },
+    { id: "p1", name: "Joueur 1", level: "debutant", voice: true, avatar: null, tutorialDone: false, craftSeen: false },
+    { id: "p2", name: "Joueur 2", level: "autonome", voice: false, avatar: null, tutorialDone: false, craftSeen: false },
   ];
 }
 
@@ -121,6 +128,7 @@ export function parseProfiles(raw: unknown, avatarCount: number): Profile[] | nu
       voice: typeof p.voice === "boolean" ? p.voice : level === "debutant",
       avatar,
       tutorialDone: p.tutorialDone === true,
+      craftSeen: p.craftSeen === true,
     });
   }
   return out;
@@ -155,7 +163,8 @@ export function parseWorldSave(raw: unknown): WorldSave | null {
         Array.isArray(s) && isInventoryBlockId(s[0]) && num(s[1]) ? ([s[0], s[1]] as [number, number]) : null,
       ),
     },
-    phase: num(raw.phase) ? ((raw.phase % 1) + 1) % 1 : 0,
+    // À l'identique dans [0, 1) (V2 : l'ancienne forme ((p % 1) + 1) % 1 relisait 0,4 en 0,3999999999999999).
+    phase: num(raw.phase) ? wrapPhase(raw.phase) : 0,
     savedAt: num(raw.savedAt) ? raw.savedAt : 0,
     ...(isObj(raw.mission) ? { mission: raw.mission } : {}),
     ...(isObj(raw.reward) && isInventoryBlockId(raw.reward.block) && Number.isInteger(raw.reward.count) && (raw.reward.count as number) > 0
@@ -198,14 +207,84 @@ export function exportFileName(date: Date): string {
   return `cubes-sauvegarde-${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}.json`;
 }
 
+/** Nombre de jours de calendrier (heure locale) entre deux dates : 0 le même jour, 1 la veille… */
+function calendarDays(at: number, now: number): number {
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return Math.round((startOfDay(new Date(now)) - startOfDay(new Date(at))) / 86_400_000);
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
 /** Date courte d'une sauvegarde pour la vignette : « aujourd'hui », « hier » ou « 12/09 ». */
 export function savedLabel(savedAt: number, now: number): string {
   if (!(savedAt > 0)) return "";
-  const d = new Date(savedAt);
-  const today = new Date(now);
-  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000);
+  const days = calendarDays(savedAt, now);
   if (days === 0) return "aujourd'hui";
   if (days === 1) return "hier";
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const d = new Date(savedAt);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+}
+
+/** Au-delà de ce nombre de jours sans export, le mode parent rappelle d'exporter (V2, décision de Pierre 7). */
+export const EXPORT_REMINDER_DAYS = 7;
+
+/** Date du dernier export lue dans le stockage (`{ at }`, at nombre fini > 0), sinon null. Ne lève jamais. */
+export function parseLastExport(raw: unknown): number | null {
+  try {
+    if (!isObj(raw)) return null;
+    const at = raw.at;
+    return num(at) && at > 0 ? at : null;
+  } catch {
+    return null; // accesseur ou Proxy piégé
+  }
+}
+
+/** État de l'export pour le mode parent (V2). Textes pour l'adulte : une seule variante. */
+export interface ExportStatus {
+  /** Date du dernier export retenue (ramenée à `now` si elle est dans le futur), null si jamais. */
+  at: number | null;
+  /** Jours de calendrier depuis le dernier export (0 = aujourd'hui), null si jamais. */
+  days: number | null;
+  /** Rappel à montrer : des mondes existent et ils n'ont jamais été exportés, ou plus de 7 jours ont passé. */
+  due: boolean;
+  /** « Dernier export : … » avec la date (JJ/MM/AAAA, heure locale). */
+  label: string;
+  /** Texte du rappel, null si `due` est faux. */
+  reminder: string | null;
+}
+
+/**
+ * État de l'export : `at` date du dernier export (null = jamais), `now` maintenant, `worldCount` nombre de mondes
+ * enregistrés. Rappel s'il y a des mondes et qu'ils n'ont jamais été exportés, ou plus de EXPORT_REMINDER_DAYS
+ * jours plus tôt (exactement 7 jours ne suffit pas). Une date dans le futur (horloge reculée) compte pour maintenant.
+ */
+export function exportStatus(at: number | null, now: number, worldCount: number): ExportStatus {
+  const when = at !== null && Number.isFinite(at) && at > 0 ? Math.min(at, now) : null;
+  const due = worldCount > 0 && (when === null || now - when > EXPORT_REMINDER_DAYS * 86_400_000);
+  if (when === null) {
+    return {
+      at: null,
+      days: null,
+      due,
+      label: `Dernier export${NBSP}: jamais.`,
+      reminder: due
+        ? `Rappel${NBSP}: les mondes des enfants n'ont encore jamais été exportés. ` +
+          "Un fichier d'export les protège si le navigateur est vidé ou si le fichier du jeu change de place."
+        : null,
+    };
+  }
+  const days = calendarDays(when, now);
+  const d = new Date(when);
+  const date = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  const ago = days === 0 ? "aujourd'hui" : days === 1 ? "hier" : `il y a ${days} jours`;
+  return {
+    at: when,
+    days,
+    due,
+    label: `Dernier export${NBSP}: ${ago} (${date}).`,
+    reminder: due
+      ? `Rappel${NBSP}: dernier export ${ago}. ` +
+        "Un fichier d'export protège les mondes des enfants si le navigateur est vidé ou si le fichier du jeu change de place."
+      : null,
+  };
 }
