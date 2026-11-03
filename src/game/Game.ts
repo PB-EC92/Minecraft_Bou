@@ -1,5 +1,6 @@
 import { Sounds } from "../audio/sounds";
-import { BlockId, blockDef, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
+import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isPlantId, isSolidId } from "../engine/blocks";
+import { craft, craftPlans, planCraft, RECIPES, recipeById, type CraftReserve, type RecipeId } from "../engine/crafting";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { discardVerdict, Inventory, MAX_STACK, slotToEmpty, type AddResult, type DiscardVerdict } from "../engine/inventory";
@@ -37,6 +38,16 @@ import {
   type MissionView,
 } from "../edu/missions";
 import { MISSION_2_TOMORROW } from "../edu/wordTexts";
+import {
+  craftCardViews,
+  craftIntroText,
+  craftMoreBlocksText,
+  craftRefusalText,
+  craftText,
+  withFact,
+  type CraftCardView,
+  type SaidText,
+} from "../edu/craftTexts";
 import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
 import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
 import { pitState } from "../engine/pit";
@@ -44,11 +55,17 @@ import { Narrator, speechMs, type TellOptions } from "../edu/Narrator";
 import { Speech } from "../edu/speech";
 import {
   BOTTOM_LAYER,
+  CRAFT_GLASS_FACT,
+  CRAFT_NOTHING,
+  CRAFT_OPEN_MOUSE,
+  CRAFT_OPEN_TOUCH,
   EMPTY_HAND,
   FLOWER_IN_WATER,
   FLOWER_NEEDS_GROUND,
   FULL_BAG,
   FULL_BAG_TOUCH,
+  GLASS_SEE_THROUGH,
+  HINT_EXTRAS,
   HINTS,
   HOLD_TO_BREAK,
   IMAGE_BACK,
@@ -101,8 +118,9 @@ import { DEFAULT_SETTINGS, KEYS, SAVE_VERSION, type Profile, type Settings, type
 import { applyDiff, diffBlocks, fromBase64, toBase64 } from "../save/worldDiff";
 import { HomeScreen } from "../ui/HomeScreen";
 import { Celebration, type CelebrationLine } from "../ui/Celebration";
+import { CRAFT_ARM_MS, CraftPanel, type CraftStatusTone } from "../ui/CraftPanel";
 import { setShelterParts, shelterIcon } from "../ui/shelterIcon";
-import { tileIcon } from "../render/textures";
+import { blockIcon } from "../render/textures";
 import { isInventoryBlockId } from "../engine/inventory";
 import { avatarDef } from "./avatars";
 import { thirdPersonCamera } from "./thirdPerson";
@@ -165,6 +183,21 @@ const REWARD_WAITING_MS = 4500;
 const TOMORROW_AFTER_MS = 5000;
 /** Le message « demain » reste lu avant que la mission suivante ne commence (ms). */
 const TOMORROW_READ_MS = 3500;
+/** Fabrication (V2) : écart minimal entre deux fabrications (un toucher = une fabrication) (ms). */
+const CRAFT_REPEAT_MS = 250;
+/** Présentation du marteau par Pixel : au plus tôt ce délai après le début de l'étape abri (ms). */
+const CRAFT_INTRO_AFTER_MS = 15_000;
+/** Lecture différée du résultat d'une fabrication : en touchant vite, seul le dernier total est dit (ms). */
+const CRAFT_VOICE_DELAY_MS = PICKUP_VOICE_DELAY_MS;
+/** Conseil « fabrique des planches » à l'étape abri quand le sac compte moins de blocs que ce nombre. */
+const CRAFT_HINT_BLOCKS = 10;
+/** Marteau (dessin original, en traits, viewBox 24) : manche, tête, cerclage. */
+const HAMMER_PATHS = '<path d="M4.5 19.5 13 11"/><path d="m11 6 3-3 7 7-3 3z"/><path d="m12.5 7.5 4 4"/>';
+
+/** Résultat d'une fabrication demandée (carte touchée ou accès de test). */
+type CraftResult =
+  | { ok: true; outputSlot: number; before: number; after: number }
+  | { ok: false; reason: "unknown" | "unavailable" | "early" | "reserved" | "missing" | "max" | "full" };
 
 interface PixelRequest {
   fx: number;
@@ -334,6 +367,26 @@ export class Game {
   /** Date à laquelle Pixel dit qu'il faut attendre le matin (null : rien à dire). */
   private tomorrowAt: number | null = null;
 
+  // ---------- V2 lot 1 : verre et fabrication ----------
+  /** « On voit à travers ! » : dit à la première pose d'un bloc de verre, une fois par chargement de la page. */
+  private glassHintDone = false;
+  private readonly craftPanel: CraftPanel;
+  /** Marteau : rond du haut (souris) et bouton de la colonne tactile. */
+  private readonly craftButton: HTMLButtonElement;
+  private readonly craftTouchButton: HTMLButtonElement;
+  /** Pixel a présenté le marteau pendant cette partie ; consigne du panneau déjà lue à voix haute (par partie). */
+  private craftIntroTold = false;
+  private craftOpenTold = false;
+  private craftOpenedAt = 0;
+  private lastCraftAt = -Infinity;
+  /** Quelque chose a été fabriqué depuis l'ouverture du panneau (la partie est alors enregistrée à la fermeture). */
+  private craftedSinceOpen = false;
+  /** Version du sac affichée par les cartes, et cartes affichées. */
+  private craftShownVersion = -1;
+  private craftCards: CraftCardView[] = [];
+  /** Disponibilité du marteau à l'image précédente (l'aide d'écran en dépend). */
+  private craftWasAvailable: boolean | null = null;
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
@@ -391,19 +444,22 @@ export class Game {
       icon: this.companionIcon,
     } = this.buildCompanionPanel());
     this.celebration = new Celebration(root);
+    // Fabrication (V2) : au-dessus du jeu et du calque tactile, sous les félicitations.
+    this.craftPanel = new CraftPanel(root, (id) => blockIcon(this.view.atlasCanvas, id));
     this.bubbleButton = this.topButton("bubble-btn", "Bulles", '<circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.2"/><circle cx="18.5" cy="17" r="2"/>');
     // Au doigt, le même bouton rejoint la colonne des boutons tactiles (sous le pouce droit).
-    const touchCol = this.touch.root.querySelector(".touch-buttons");
-    const touchBubble = document.createElement("button");
-    touchBubble.type = "button";
-    touchBubble.className = "touch-btn bubble-touch";
-    touchBubble.textContent = "Bulles";
-    touchBubble.addEventListener("touchstart", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.throwBubbles();
-    });
-    touchCol?.appendChild(touchBubble);
+    this.touchColumnButton("bubble-touch", "Bulles", "Bulles", () => this.throwBubbles());
+    // Marteau (V2) : rond du haut, et en haut de la colonne tactile (sous le plein écran). Caché tant qu'il n'est
+    // pas disponible (voir craftAvailable).
+    this.craftButton = this.topButton("craft-btn", "Fabriquer", HAMMER_PATHS);
+    this.craftTouchButton = this.touchColumnButton(
+      "craft-touch",
+      "Fabriquer",
+      `<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${HAMMER_PATHS}</svg>`,
+      () => this.openCraft(),
+    );
+    this.craftButton.hidden = true;
+    this.craftTouchButton.hidden = true;
     this.homeButton = this.topButton("home-btn", "Accueil", '<path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h5v-5h3v5h5V10"/>');
     this.viewButton = this.topButton("view-btn", "Changer de vue", '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>');
     this.homeButton.hidden = true;
@@ -604,6 +660,9 @@ export class Game {
   /** Lance la partie d'un profil : monde enregistré, ou nouveau monde du type choisi. */
   private startSession(profile: Profile, slot: number, save: WorldSave | null, type: WorldTypeId | null): void {
     this.session = { profile, slot };
+    // Présentation du marteau et consigne du panneau : une fois par partie.
+    this.craftIntroTold = false;
+    this.craftOpenTold = false;
     this.narrator.setLevel(profile.level);
     this.narrator.voice = profile.voice;
     this.syncGameControls();
@@ -739,7 +798,7 @@ export class Game {
       if (g && iconId !== null) {
         g.imageSmoothingEnabled = false;
         g.clearRect(0, 0, 16, 16);
-        g.drawImage(tileIcon(this.view.atlasCanvas, blockDef(iconId).tiles.side), 0, 0);
+        g.drawImage(blockIcon(this.view.atlasCanvas, iconId), 0, 0);
       }
     }
     const sh = goal?.kind === "shelter";
@@ -929,10 +988,11 @@ export class Game {
 
   /**
    * Ferme sans bruit ce qui est posé sur le jeu et oublie ce qui attendait (V2) : retour à l'accueil, nouveau
-   * monde, monde rechargé, adresse changée, autre onglet. Appui long annulé ; mission en attente du matin et
-   * suite des félicitations oubliées (la reprise du monde les retrouve depuis la sauvegarde).
+   * monde, monde rechargé, adresse changée, autre onglet. Panneau de fabrication fermé, appui long annulé ; mission
+   * en attente du matin et suite des félicitations oubliées (la reprise du monde les retrouve depuis la sauvegarde).
    */
   private closeOverlays(): void {
+    this.closeCraft({ silent: true });
     this.cancelSlotHold();
     this.pendingMission = null;
     this.afterCelebration = null;
@@ -1089,6 +1149,7 @@ export class Game {
           this.showCelebration(m.def);
         }
         this.updatePendingMission(now, h);
+        this.maybeIntroduceCraft(now);
       }
       this.deliverReward(true);
     }
@@ -1152,7 +1213,8 @@ export class Game {
   private stallHint(now: number): void {
     const m = this.mission;
     const step = m?.current();
-    if (!m || !step?.hint || this.announceStepAt !== null) return;
+    if (!m || !step || this.announceStepAt !== null) return;
+    // L'avancement est suivi à chaque étape, conseil ou non (V2 : l'étape abri a un conseil calculé).
     const have = m.progress(this.missionView)?.have ?? 0;
     if (have !== this.stepHave) {
       this.stepHave = have;
@@ -1160,6 +1222,9 @@ export class Game {
       return;
     }
     if (now - this.stepProgressAt < STALL_HINT_MS || now - this.lastStallHintAt < STALL_HINT_EVERY_MS) return;
+    // Étape abri, sac presque vide et marteau découvert : fabriquer des planches (V2).
+    const craftHint = step.goal.kind === "shelter" ? this.craftMoreHint() : null;
+    if (!step.hint && !craftHint) return;
     this.lastStallHintAt = now;
     // Sac plein et bloc demandé qui n'y entrerait pas : le vrai conseil est de vider une case, pas de chercher.
     const g = step.goal;
@@ -1167,7 +1232,8 @@ export class Game {
       this.tellFullBag(4500, g.block);
       return;
     }
-    this.tell(step.hint, { ms: 4500, important: true });
+    if (craftHint) this.tell(craftHint.text, { spoken: craftHint.spoken, ms: 4500, important: true });
+    else if (step.hint) this.tell(step.hint, { ms: 4500, important: true });
   }
 
   /**
@@ -1315,9 +1381,12 @@ export class Game {
       this.deliverReward(false);
     }
     if (def.recap) {
-      // La découverte (logique) : dite par Pixel quand l'enfant a vu les Grignotes fuir la lampe.
-      if (this.watchSawScare) this.tell(LAMP_SCARES, { ms: 3500, important: true });
-      else this.tell(BRAVO, { ms: 1500, important: true });
+      // La découverte (logique) : dite par Pixel quand l'enfant a vu les Grignotes fuir la lampe (et pas redite aussitôt,
+      // voir flee-lamp).
+      if (this.watchSawScare) {
+        this.tell(LAMP_SCARES, { ms: 3500, important: true });
+        this.lampScareToldAt = now;
+      } else this.tell(BRAVO, { ms: 1500, important: true });
       this.celebrationAt = now + (this.watchSawScare ? CELEBRATION_DELAY_MS : 1600);
     } else this.tell(def.outro, { ms: 3000, important: true });
     this.watchSawScare = false;
@@ -1363,7 +1432,7 @@ export class Game {
     if (this.paused) return; // un autre écran est déjà posé sur le jeu
     const level = this.narrator.level;
     const title = bravoTitle(this.session?.profile.name ?? null);
-    const icon = (id: BlockId) => tileIcon(this.view.atlasCanvas, blockDef(id).tiles.side);
+    const icon = (id: BlockId) => blockIcon(this.view.atlasCanvas, id);
     const recap: CelebrationLine[] = (def.recap ?? []).map((item) => {
       if ("block" in item) return { icon: icon(item.block), text: capitalize(quantity(item.block, item.count)) };
       const house = shelterIcon(40);
@@ -1385,6 +1454,8 @@ export class Game {
         this.keyboard.clear();
         this.paused = false;
         const now = performance.now();
+        // Les Grignotes fuient encore la lampe : « Elles fuient la lampe ! », déjà dit, ne recouvre pas le message du cadeau.
+        this.lampScareToldAt = now;
         if (this.rewardPending) {
           this.tell(this.touchUi ? REWARD_WAITING_TOUCH : REWARD_WAITING, {
             spoken: this.touchUi ? SPOKEN_TIPS.rewardTouch : SPOKEN_TIPS.rewardKeys,
@@ -1419,6 +1490,232 @@ export class Game {
     return b;
   }
 
+  /**
+   * Bouton de la colonne tactile (sous le pouce droit) : ajouté à la fin, pour que le bouton Casser / Poser reste le
+   * premier (le CSS règle l'ordre affiché). Il agit dès que le doigt se pose, sans clic ni souris synthétisés.
+   * content : texte ou dessin SVG (HTML fixe, jamais une saisie).
+   */
+  private touchColumnButton(className: string, label: string, content: string, onTap: () => void): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `touch-btn ${className}`;
+    b.setAttribute("aria-label", label);
+    b.title = label;
+    b.innerHTML = content;
+    b.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onTap();
+      },
+      { passive: false },
+    );
+    this.touch.root.querySelector(".touch-buttons")?.appendChild(b);
+    return b;
+  }
+
+  // ---------- Fabrication (V2 lot 1) ----------
+
+  /**
+   * Le marteau est-il là ? Partie en cours (enfant ou mode adresse), pas pendant le tutoriel ; dans une partie
+   * d'enfant, seulement une fois découvert (profil) ou présenté par Pixel dans cette partie. En mode adresse,
+   * toujours (sauf #mission=0).
+   */
+  private craftAvailable(): boolean {
+    if (!this.urlMode && !this.session) return false;
+    if (this.mission?.def === TUTORIAL) return false;
+    return this.urlMode || this.session?.profile.craftSeen === true || this.craftIntroTold;
+  }
+
+  /** Ingrédient gardé pour la mission : le bloc de l'étape « ramasser » en cours, qu'on ne peut pas faire passer sous son nombre. */
+  private craftReserve(): CraftReserve | null {
+    if (!this.companionOn()) return null;
+    const goal = this.mission?.current()?.goal;
+    return goal?.kind === "collect" ? { block: goal.block, keep: goal.count } : null;
+  }
+
+  /** Cartes du panneau d'après le sac et la réserve (la version du sac est retenue pour les mettre à jour). */
+  private craftViews(): { views: CraftCardView[]; anyPossible: boolean } {
+    const slots = this.inventory.slots();
+    const plans = craftPlans(slots, { reserved: this.craftReserve() });
+    this.craftShownVersion = this.inventory.version;
+    this.craftCards = craftCardViews(plans, slots, this.narrator.level);
+    return { views: this.craftCards, anyPossible: plans.some((p) => p.ok) };
+  }
+
+  /**
+   * Ouvre le panneau de fabrication (marteau, touche F) : le jeu se fige dessous comme pour les félicitations. Refusé
+   * pendant une autre pause (accueil, félicitations) ou si le marteau n'est pas disponible. Renvoie vrai s'il s'ouvre.
+   */
+  private openCraft(): boolean {
+    if (this.paused || this.craftPanel.visible || !this.craftAvailable()) return false;
+    this.freezeForOverlay();
+    this.narrator.cancelPending();
+    this.hud.setCraftOpen(true);
+    this.hud.message.classList.remove("visible"); // la ligne d'état du panneau prend le relais
+    this.craftOpenedAt = performance.now();
+    this.craftedSinceOpen = false;
+    const { views, anyPossible } = this.craftViews();
+    const status = anyPossible ? (this.touchUi ? CRAFT_OPEN_TOUCH : CRAFT_OPEN_MOUSE) : CRAFT_NOTHING;
+    const level = this.narrator.level;
+    this.craftPanel.show(views, level, pick(status, level), {
+      pick: (id) => void this.doCraft(id),
+      close: () => this.closeCraft(),
+    });
+    this.sounds.play("select");
+    // Rien de possible : la voix dit où trouver des blocs ; sinon, la consigne n'est lue qu'à la première ouverture.
+    if (!anyPossible) this.narrator.say(SPOKEN_TIPS.craftNothing, { dedupe: true });
+    else if (!this.craftOpenTold) this.narrator.say(status, { dedupe: true });
+    this.craftOpenTold = true;
+    this.markCraftSeen();
+    this.syncCraftButtons();
+    return true;
+  }
+
+  /**
+   * Ferme le panneau (F, Échap, croix, voile) : le jeu reprend. silent : fermeture imposée par le jeu (accueil,
+   * autre monde), sans son ni message. Sinon, la partie est enregistrée si quelque chose a été fabriqué, et, souris
+   * libre au PC, « Clique pour jouer ».
+   */
+  private closeCraft(opts: { silent?: boolean } = {}): void {
+    if (!this.craftPanel.visible) return;
+    this.craftPanel.hide();
+    this.hud.setCraftOpen(false);
+    this.paused = false;
+    this.keyboard.clear();
+    this.touch.reset();
+    this.mouse.cancelPress();
+    this.updateHint();
+    if (opts.silent) return;
+    this.sounds.play("select");
+    if (this.craftedSinceOpen) this.saveNow();
+    if (!this.touchUi && !this.mouse.locked && !this.mouse.inFallback()) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
+  }
+
+  /**
+   * Une fabrication (carte touchée, ou accès de test : fromDebug, sans les délais du doigt). Tout ou rien : le sac
+   * change d'un coup, ou le jeu dit pourquoi (réserve de la mission, ingrédient qui manque, maximum, sac plein) et la
+   * carte tremble. Sac plein : la case à vider remue.
+   */
+  private doCraft(id: RecipeId, fromDebug = false): CraftResult {
+    const recipe = recipeById(id);
+    if (!recipe) return { ok: false, reason: "unknown" };
+    if (!this.craftAvailable()) return { ok: false, reason: "unavailable" };
+    const now = performance.now();
+    // Un toucher = une fabrication : pas dans les premiers instants du panneau, ni deux fois de suite trop vite.
+    if (!fromDebug && (now < this.craftOpenedAt + CRAFT_ARM_MS || now - this.lastCraftAt < CRAFT_REPEAT_MS)) {
+      return { ok: false, reason: "early" };
+    }
+    this.lastCraftAt = now;
+    const reserved = this.craftReserve();
+    const before = this.inventory.slots();
+    const plan = craft(this.inventory, recipe, { reserved });
+    let result: CraftResult;
+    if (plan.ok) {
+      const out = recipe.output.block;
+      const made = recipe.output.count;
+      this.sounds.play("craft");
+      const first = !this.collectedTypes.has(out);
+      this.collectedTypes.add(out);
+      this.hud.pulseSlot(plan.outputSlot);
+      if (!plan.sameSlot) this.hud.slotDelta(plan.inputSlot, `−${recipe.input.count}`);
+      this.hud.slotDelta(plan.outputSlot, `+${made}`);
+      // Main vide (la case de l'ingrédient s'est vidée, ou rien n'était tenu) : le résultat passe dans la main.
+      if (this.handEmpty()) this.setSlot(plan.outputSlot);
+      this.refreshInventory();
+      this.craftedSinceOpen = true;
+      let t: SaidText = craftText(out, plan.before, made);
+      if (out === BlockId.Glass && first) t = withFact(t, CRAFT_GLASS_FACT);
+      this.notify(t.text, { spoken: t.spoken, voiceDelayMs: CRAFT_VOICE_DELAY_MS, ms: 2500, tone: "ok" });
+      result = { ok: true, outputSlot: plan.outputSlot, before: plan.before, after: plan.after };
+    } else {
+      this.sounds.play("deny");
+      this.craftPanel.shake(id);
+      const r = craftRefusalText(plan, craftPlans(before, { reserved }), this.touchUi);
+      this.notify(r.text, { spoken: r.spoken, ms: 3000, dedupe: true, tone: "no" });
+      if (plan.reason === "full") {
+        // La case à vider remue : jamais la lampe, le cadeau, l'ingrédient, le résultat ni le bloc de l'étape.
+        const k = slotToEmpty(before, [recipe.input.block, recipe.output.block, ...this.keptBlocks()]);
+        if (k !== null) this.hud.wiggleSlot(k);
+        else {
+          this.notify(this.touchUi ? FULL_BAG_KEEP_TOUCH : FULL_BAG_KEEP, {
+            spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
+            ms: 3000,
+            dedupe: true,
+            tone: "no",
+          });
+        }
+      }
+      result = { ok: false, reason: plan.reason };
+    }
+    if (this.craftPanel.visible) this.craftPanel.update(this.craftViews().views);
+    return result;
+  }
+
+  /** Marteau découvert (première ouverture du panneau) : retenu dans le profil de l'enfant, pour tous ses mondes. */
+  private markCraftSeen(): void {
+    const s = this.session;
+    if (!s || s.profile.craftSeen === true) return;
+    s.profile.craftSeen = true;
+    const list = this.store.loadProfiles();
+    if (!list) return;
+    for (const p of list) if (p.id === s.profile.id) p.craftSeen = true;
+    this.store.saveProfiles(list);
+  }
+
+  /**
+   * À chaque image : marteaux montrés ou cachés, halo jusqu'à la découverte (partie d'enfant), aide d'écran quand
+   * la disponibilité change ; panneau ouvert, cartes à jour si le sac a changé (appui long sur une case…).
+   */
+  private syncCraftButtons(): void {
+    const available = this.craftAvailable();
+    if (this.craftButton.hidden === available) {
+      this.craftButton.hidden = !available;
+      this.craftTouchButton.hidden = !available;
+    }
+    const glow = available && this.session !== null && this.session.profile.craftSeen !== true;
+    this.craftButton.classList.toggle("new", glow);
+    this.craftTouchButton.classList.toggle("new", glow);
+    if (available !== this.craftWasAvailable) {
+      this.craftWasAvailable = available;
+      this.updateHint();
+    }
+    if (this.craftPanel.visible && this.inventory.version !== this.craftShownVersion) this.craftPanel.update(this.craftViews().views);
+  }
+
+  /**
+   * Présentation du marteau par Pixel, une fois par partie tant que l'enfant ne l'a pas découvert : à l'étape abri de
+   * la mission 1 (ou une fois toute la campagne finie), au moins 15 s après le début de l'étape, quand Pixel ne parle
+   * pas, qu'aucune consigne n'attend et qu'une recette est possible. Jamais au tutoriel, à la dernière étape, pendant
+   * l'attente du matin ni pendant la mission 2.
+   */
+  private maybeIntroduceCraft(now: number): void {
+    const s = this.session;
+    const m = this.mission;
+    if (!s || s.profile.craftSeen === true || this.craftIntroTold || !m || m.def === TUTORIAL || !this.companionOn()) return;
+    if (this.pendingMission || this.announceStepAt !== null || this.celebrationAt !== null || this.nextMissionAt !== null) return;
+    const shelterStep = m.current()?.goal.kind === "shelter";
+    const campaignOver = m.done && nextMission(m.def) === null;
+    if (!shelterStep && !campaignOver) return;
+    if (now - this.stepStartedAt < CRAFT_INTRO_AFTER_MS || this.narrator.busy) return;
+    const possible = craftPlans(this.inventory.slots(), { reserved: this.craftReserve() }).find((p) => p.ok);
+    if (!possible) return;
+    this.craftIntroTold = true;
+    this.sounds.play("select");
+    const intro = craftIntroText(possible.recipe, this.touchUi);
+    this.tell(intro.text, { spoken: intro.spoken, ms: 6000, important: true });
+    this.syncCraftButtons();
+  }
+
+  /** Conseil de l'étape abri quand le sac est presque vide (V2) : fabriquer des planches, si c'est possible. */
+  private craftMoreHint(): SaidText | null {
+    if (!this.craftAvailable() || this.inventory.totalBlocks() >= CRAFT_HINT_BLOCKS) return null;
+    const planks = RECIPES[0];
+    if (!planks || !planCraft(this.inventory.slots(), planks, { reserved: this.craftReserve() }).ok) return null;
+    return craftMoreBlocksText(this.touchUi);
+  }
+
   private updateHint(): void {
     const h = this.touchUi
       ? this.touch.mode === "place"
@@ -1427,7 +1724,10 @@ export class Game {
       : this.mouse.inFallback()
         ? HINTS.mouseFallback
         : HINTS.mouse;
-    this.hud.setHint(pick(h, this.narrator.level));
+    let hint = pick(h, this.narrator.level);
+    // Au clavier, la touche F une fois le marteau là (V2).
+    if (!this.touchUi && this.craftAvailable()) hint += ` · ${pick(HINT_EXTRAS.craft, this.narrator.level)}`;
+    this.hud.setHint(hint);
   }
 
   /** Premier vrai geste (le navigateur autorise alors la voix) : lit la phrase en attente ou la consigne d'accueil. */
@@ -1480,7 +1780,17 @@ export class Game {
 
   private wireInputs(): void {
     this.keyboard.onPressed((code) => {
+      // Panneau de fabrication ouvert : F et Échap le ferment, rien d'autre ne passe (V2).
+      if (this.craftPanel.visible) {
+        if (code === "KeyF" || code === "Escape") this.closeCraft();
+        return;
+      }
       if (this.paused) return;
+      // F : fabriquer (par position physique, règle 4), dès que le marteau est là.
+      if (code === "KeyF" && this.craftAvailable()) {
+        this.openCraft();
+        return;
+      }
       const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
       if (m) {
         const i = Number(m[1]) - 1;
@@ -1494,6 +1804,11 @@ export class Game {
     this.homeButton.addEventListener("click", () => this.goHome());
     this.viewButton.addEventListener("click", () => this.toggleView());
     this.bubbleButton.addEventListener("click", () => this.throwBubbles());
+    this.craftButton.addEventListener("click", () => {
+      // Sans focus resté sur le marteau : Espace (sauter) ou Entrée le rouvriraient après la fermeture.
+      this.craftButton.blur();
+      this.openCraft();
+    });
     this.hud.onSelectSlot((i) => this.setSlot(i, true));
     this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     // Aussi sur la barre : c'est là que l'enfant tourne la molette pour choisir (souris non capturée).
@@ -1685,6 +2000,14 @@ export class Game {
     this.hud.showSlotName(s ? this.hud.blockName(s.id) : "case vide");
   }
 
+  /**
+   * La main ne tient rien : le prochain bloc ramassé ou fabriqué y passe. (Mission 2 : la case ABC tenue n'est pas
+   * une main vide, à ajouter ici avec elle.)
+   */
+  private handEmpty(): boolean {
+    return !this.inventory.slot(this.selectedSlot);
+  }
+
   /** Texte du bloc tenu pour la ligne d'infos. */
   private heldLabel(): string {
     const s = this.inventory.slot(this.selectedSlot);
@@ -1702,11 +2025,19 @@ export class Game {
   }
 
   /**
-   * Message à l'enfant qui peut arriver pendant un écran posé sur le jeu (V2 : appui long, fabrication). Le
-   * panneau de fabrication montrera ces messages dans sa ligne d'état (tone : couleur) ; sinon, comme tell.
+   * Message à l'enfant qui peut arriver pendant un écran posé sur le jeu (V2 : appui long, fabrication). Panneau
+   * de fabrication ouvert : dans sa ligne d'état (tone : couleur), le message central étant caché sous le voile, et
+   * la voix par le narrateur (lecture différée comprise) ; sinon, comme tell.
    */
-  private notify(text: ChildText, opts: TellOptions & { tone?: "info" | "ok" | "no" } = {}): void {
-    this.tell(text, opts);
+  private notify(text: ChildText, opts: TellOptions & { tone?: CraftStatusTone } = {}): void {
+    const { tone, ...tellOpts } = opts;
+    if (!this.craftPanel.visible) {
+      this.tell(text, tellOpts);
+      return;
+    }
+    this.craftPanel.setStatus(pick(text, this.narrator.level), tone ?? "info");
+    if (tellOpts.voice === false) return;
+    this.narrator.say(tellOpts.spoken ?? text, { dedupe: tellOpts.dedupe === true, voiceDelayMs: tellOpts.voiceDelayMs });
   }
 
   /**
@@ -1884,7 +2215,7 @@ export class Game {
     this.sounds.play("pickup", id);
     this.hud.pulseSlot(r.slot);
     // Main vide : le bloc annoncé passe dans la main (premier ramassage, case épuisée…).
-    if (announce && !this.inventory.slot(this.selectedSlot)) this.setSlot(r.slot);
+    if (announce && this.handEmpty()) this.setSlot(r.slot);
     this.refreshInventory();
     if (announce) {
       // Voix au premier bloc d'un type et aux paliers (5, 10…) ; entre les deux, l'écran seul.
@@ -1920,13 +2251,13 @@ export class Game {
     }
     const id = stack.id;
     if (isPlantId(id)) {
-      // Une fleur se pose sur un bloc plein, dans l'air (pas dans l'eau).
+      // Une fleur se pose sur un bloc plein (le verre compris, V2), dans l'air (pas dans l'eau).
       const cell = w.get(x, y, z);
       if (cell === BlockId.Water) {
         this.deny(FLOWER_IN_WATER);
         return;
       }
-      if (!isOpaqueId(w.get(x, y - 1, z)) || !(cell === BlockId.Air || isPlantId(cell))) {
+      if (!isSolidId(w.get(x, y - 1, z)) || !(cell === BlockId.Air || isPlantId(cell))) {
         this.deny(FLOWER_NEEDS_GROUND);
         return;
       }
@@ -1946,6 +2277,11 @@ export class Game {
     this.refreshInventory();
     // Dit en dernier : c'est l'information utile (la main est vide, ou tient la fleur cueillie).
     if (emptied) this.tell(emptiedText(id), { ms: 2200 });
+    else if (id === BlockId.Glass && !this.glassHintDone) {
+      // Premier verre posé (V2) : une fois par chargement de la page ; si la pose vide la case, à la vitre suivante.
+      this.glassHintDone = true;
+      this.tell(GLASS_SEE_THROUGH, { ms: 3500 });
+    }
   }
 
   private testStorage(): void {
@@ -2050,7 +2386,17 @@ export class Game {
         eveningHeld: this.eveningHeld(),
         lampRevealed: this.lampIsRevealed(),
         pendingMission: this.pendingMission?.def.id ?? null,
+        /** Fabrication (V2) : marteau disponible, panneau ouvert, halo, ligne d'état, cartes, présentation faite. */
+        craft: {
+          available: this.craftAvailable(),
+          open: this.craftPanel.visible,
+          glow: this.craftButton.classList.contains("new"),
+          status: this.craftPanel.visible ? (this.craftPanel.root.querySelector(".craft-status")?.textContent ?? "") : "",
+          cards: this.craftPanel.visible ? this.craftCards.map((c) => ({ id: c.id, state: c.state })) : [],
+          intro: this.craftIntroTold,
+        },
         tutorialDone: this.session?.profile.tutorialDone ?? null,
+        craftSeen: this.session ? this.session.profile.craftSeen === true : null,
         companionText: this.companionPanel.hidden ? null : this.companionText.textContent,
         lamps: this.lamps.length,
         bubbles: this.bubbles.count,
@@ -2072,6 +2418,12 @@ export class Game {
       clearInventory: () => this.inventory.clear(),
       /** Vide la case i comme au bout d'un appui long (mêmes règles : lampe, cadeau, bloc de l'étape gardés) ; renvoie le verdict (V2). */
       emptySlot: (i: number) => this.emptySlotByHold(i),
+      /** Ouvre le panneau de fabrication comme le marteau (mêmes refus) ; vrai s'il s'est ouvert (V2). */
+      openCraft: () => this.openCraft(),
+      /** Ferme le panneau de fabrication comme la croix (V2). */
+      closeCraft: () => this.closeCraft(),
+      /** Fabrique une fois (« planches », « cloture », « verre ») avec les règles du jeu, réserve comprise, sans les délais du doigt (V2). */
+      craft: (id: string) => this.doCraft(id as RecipeId, true),
       /** Pose un bloc sans passer par le sac (préparer un scénario de test). */
       setBlock: (x: number, y: number, z: number, id: number) => {
         this.lampsDirty = true;
@@ -2167,10 +2519,12 @@ export class Game {
     if (this.target) this.view.setHighlight(this.target.x, this.target.y, this.target.z);
     else this.view.hideHighlight();
     if (!this.paused) this.updateBreaking(performance.now(), dt * 1000);
-    // Appui long sur une case (V2) : seulement en jeu ; une pause l'annule.
-    if (!this.paused) this.updateSlotHold(performance.now());
+    // Appui long sur une case (V2) : en jeu, et panneau de fabrication ouvert (vider une case pour fabriquer) ;
+    // toute autre pause l'annule.
+    if (!this.paused || this.craftPanel.visible) this.updateSlotHold(performance.now());
     else if (this.keyHold || this.hud.slotHold) this.cancelSlotHold();
     this.refreshInventory();
+    this.syncCraftButtons();
     if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
     this.updateLiving(performance.now(), dt);
 

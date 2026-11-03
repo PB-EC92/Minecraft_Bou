@@ -208,8 +208,9 @@ export class TouchControls {
     this.fullscreenButton.hidden = typeof document.fullscreenElement !== "undefined" && document.fullscreenElement !== null;
   }
 
+  /** Bouton, panneau, barre ou écran posé sur le jeu (V2 : fabrication, boîte à lettres, par défense en profondeur). */
   private isUiTarget(t: EventTarget | null): boolean {
-    return t instanceof Element && t.closest(".touch-btn, .btn, .panel, .hotbar, .companion") !== null;
+    return t instanceof Element && t.closest(".touch-btn, .btn, .panel, .hotbar, .companion, .craft, .letter-tray") !== null;
   }
 
   /** Centre et rayon du rond à l'écran (rayon nul s'il n'est pas affiché). */

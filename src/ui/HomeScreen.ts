@@ -406,6 +406,7 @@ export class HomeScreen {
         voice: voice.checked,
         avatar: p.avatar,
         tutorialDone: p.tutorialDone,
+        craftSeen: p.craftSeen === true,
       }));
       const r = this.store.saveProfiles(next);
       const s: Settings = { night: night.value as NightLength, creatures: creatures.checked, devTools: devTools.checked };
@@ -545,8 +546,8 @@ function capitalize(s: string): string {
 /** Profils de départ du premier réglage (lecteur débutant avec voix, lecteur autonome sans). */
 function defaultEditable(): Profile[] {
   return [
-    { id: "p1", name: "", level: "debutant", voice: true, avatar: null, tutorialDone: false },
-    { id: "p2", name: "", level: "autonome", voice: false, avatar: null, tutorialDone: false },
+    { id: "p1", name: "", level: "debutant", voice: true, avatar: null, tutorialDone: false, craftSeen: false },
+    { id: "p2", name: "", level: "autonome", voice: false, avatar: null, tutorialDone: false, craftSeen: false },
   ];
 }
 

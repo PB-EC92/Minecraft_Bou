@@ -102,7 +102,8 @@ canvas.game {
   opacity: 0.95;
 }
 
-.info {
+/* Ligne d'infos du HUD (« .hud > » : le panneau de fabrication donne aussi la classe « info » à sa ligne d'état, V2). */
+.hud > .info {
   position: absolute;
   left: 10px;
   top: 10px;
@@ -289,7 +290,7 @@ canvas.game {
   top: 10px;
 }
 /* Masqués pendant les parties des enfants (J7, réglage du mode parent). */
-.info[hidden],
+.hud > .info[hidden],
 .panel-toggle[hidden] {
   display: none;
 }
@@ -494,9 +495,9 @@ canvas.game {
   background: rgba(255, 210, 63, 0.85);
   color: #222;
 }
-/* Plein écran : plus petit, au-dessus des deux autres ; masqué une fois en plein écran. */
+/* Plein écran : plus petit, tout en haut de la colonne (au-dessus du marteau, V2) ; masqué une fois en plein écran. */
 .touch-btn.fullscreen-btn {
-  order: -1;
+  order: -2;
   width: 64px;
   height: 64px;
   display: flex;
@@ -841,7 +842,8 @@ canvas.game {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: min(560px, calc(100vw - 560px));
+  /* Au-dessus de 1100 px : à gauche des ronds du haut, marteau compris (V2 : 316 px du bord droit, plus 12 px). */
+  max-width: min(560px, calc(100vw - 660px));
   min-width: 260px;
   display: flex;
   align-items: center;
@@ -912,6 +914,291 @@ canvas.game {
 }
 .touch-btn.bubble-touch {
   background: rgba(60, 140, 200, 0.8);
+}
+
+/* ---------- Fabrication (V2 lot 1) ---------- */
+
+/* Marteau : rond du haut, à gauche de Bulles ; au doigt, en haut de la colonne, sous le plein écran. */
+.craft-btn {
+  right: 266px;
+}
+.hud.no-devtools .craft-btn {
+  right: 192px;
+}
+.touch-btn.craft-touch {
+  order: -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8762c;
+}
+.touch-btn.craft-touch[hidden] {
+  display: none;
+}
+/* Halo du marteau, de la présentation par Pixel à la première ouverture. */
+.craft-btn.new,
+.touch-btn.craft-touch.new {
+  animation: craft-glow 1.2s ease-in-out infinite;
+}
+@keyframes craft-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(255, 210, 63, 0.25);
+  }
+}
+
+/* Case à vider qui remue (fabrication refusée, sac plein) et pastilles « −1 » / « +2 » au-dessus des cases. */
+.slot.wiggle {
+  animation: slot-wiggle 0.4s ease-in-out;
+  border-color: var(--ui-accent);
+}
+@keyframes slot-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  16%,
+  50%,
+  84% {
+    transform: rotate(-6deg);
+  }
+  33%,
+  67% {
+    transform: rotate(6deg);
+  }
+}
+.slot-delta {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--ui-bg);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: slot-delta 0.9s ease-out forwards;
+}
+@keyframes slot-delta {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -14px);
+  }
+}
+
+/* Panneau ouvert : la barre (et l'anneau de l'appui long) passe au-dessus du voile, on peut vider une case. */
+.hud.craft-open .hotbar,
+.hud.craft-open .slot-hold {
+  z-index: 26;
+}
+
+.craft {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  touch-action: none;
+}
+.craft[hidden] {
+  display: none;
+}
+.craft-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 24, 32, 0.35);
+}
+/* Feuille juste au-dessus de la barre (qui reste visible et touchable). */
+.craft-sheet {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - var(--slot) - 96px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #fffaf0;
+  border: 4px solid #e8762c;
+  border-radius: 20px;
+  color: #2a1d18;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.craft-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b4521a;
+}
+.craft-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 26px;
+}
+.craft-close {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid #e8762c;
+  background: #fff;
+  color: #b4521a;
+  font: inherit;
+  font-size: 28px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.craft-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.craft-card {
+  flex: 1 1 260px;
+  min-height: 200px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  gap: 6px 8px;
+  padding: 10px 12px 12px;
+  background: #fff;
+  border: 3px solid #e8762c;
+  border-radius: 18px;
+  color: #2a1d18;
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+}
+.craft-card[data-state="ok"] {
+  border-color: #3c9a4a;
+}
+/* Carte impossible : grisée, mais touchable (le jeu dit pourquoi). */
+.craft-card:not([data-state="ok"]) {
+  opacity: 0.6;
+  filter: grayscale(0.5);
+}
+.craft-card:active,
+.craft-card.pressed {
+  transform: scale(0.96);
+}
+.craft-card.shake {
+  animation: craft-shake 0.1s linear 3;
+}
+@keyframes craft-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+.craft-badge {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.craft-badge-icon {
+  flex: none;
+}
+.craft-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.craft-side b {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.craft-side small {
+  font-size: 16px;
+  font-weight: 600;
+}
+.craft-icons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  max-width: 92px; /* deux icônes par ligne */
+}
+.craft-tile {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #5a524a;
+  border-radius: 6px;
+}
+.craft-tile canvas {
+  display: block;
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+}
+/* Ingrédient qui manque (ou gardé pour la mission) : en pointillés. */
+.craft-tile.ghost {
+  background: transparent;
+  border: 3px dashed #b4521a;
+}
+.craft-tile.ghost canvas {
+  width: 32px;
+  height: 32px;
+  opacity: 0.45;
+}
+.craft-times {
+  font-size: 20px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.craft-arrow {
+  color: #b4521a;
+}
+.craft-sentence {
+  grid-column: 1 / -1;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+}
+/* Ligne d'état : consigne, résultat (vert) ou raison d'un refus (orange). Deux lignes réservées. */
+.craft-status {
+  margin: 0;
+  min-height: 2.5em;
+  font-size: clamp(20px, 2.4vw, 24px);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+.craft-status.ok {
+  color: #2f7d32;
+}
+.craft-status.no {
+  color: #b4521a;
 }
 
 /* ---------- Tutoriel, abri, félicitations (J6) ---------- */
@@ -1097,6 +1384,17 @@ canvas.celebration-icon {
 @media (prefers-reduced-motion: reduce) {
   .confetti {
     display: none;
+  }
+  /* Fabrication (V2) : anneau jaune fixe au lieu du halo, aucune secousse ni rotation. */
+  .craft-btn.new,
+  .touch-btn.craft-touch.new {
+    animation: none;
+    box-shadow: 0 0 0 4px #ffd23f;
+  }
+  .craft-card.shake,
+  .slot.wiggle,
+  .slot-delta {
+    animation: none;
   }
   .celebration-card,
   .celebration-star svg {

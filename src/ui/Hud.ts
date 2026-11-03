@@ -3,12 +3,17 @@ import { GAME_NAME } from "../game/identity";
 import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
-import { tileIcon } from "../render/textures";
+import { blockIcon } from "../render/textures";
 import { slotHoldMoved, startSlotHold, type SlotHold, type SlotHoldSource } from "../input/slotHold";
 import { nearestSlot } from "./nearestSlot";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
 export const RENDER_DISTANCES = [32, 48, 64, 96, 128] as const;
+
+/** Durée de l'animation « case qui remue » (bordure jaune sous « réduire les animations ») (ms). */
+const WIGGLE_MS = 1500;
+/** Durée d'affichage d'une pastille « +2 » ou « −1 » au-dessus d'une case (ms). */
+const SLOT_DELTA_MS = 900;
 
 /** Heures proposées dans le panneau. */
 export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
@@ -27,6 +32,8 @@ export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
  * V2 lot 1 : appui long sur une case (souris libre ou doigt) pour la vider. La
  * barre suit l'appui (début, glissé, relâchement) ; le jeu lit `slotHold` à
  * chaque image, décide (blocs gardés) et règle l'anneau par setSlotHoldProgress.
+ * Fabrication : la barre passe au-dessus du voile du panneau (setCraftOpen), la
+ * case à vider remue (wiggleSlot), des pastilles « −1 » / « +2 » (slotDelta).
  */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -75,6 +82,8 @@ export class Hud {
   private holdIconId: BlockId | null = null;
   /** Case qui porte la classe .holding (-1 : aucune). */
   private holdShownSlot = -1;
+  /** Fin de l'animation « case qui remue » de chaque case (fabrication refusée, sac plein) (V2). */
+  private readonly wiggleTimers = new Map<number, number>();
 
   constructor(
     parent: HTMLElement,
@@ -398,6 +407,47 @@ export class Hud {
     el.classList.add("pulse");
   }
 
+  /**
+   * Case à vider, montrée du doigt (V2, fabrication refusée sac plein) : elle remue trois fois (bordure jaune
+   * fixe sous « réduire les animations »).
+   */
+  wiggleSlot(index: number): void {
+    const el = this.slots[index];
+    if (!el) return;
+    window.clearTimeout(this.wiggleTimers.get(index));
+    el.classList.remove("wiggle");
+    void el.offsetWidth; // relance l'animation
+    el.classList.add("wiggle");
+    this.wiggleTimers.set(
+      index,
+      window.setTimeout(() => {
+        el.classList.remove("wiggle");
+        this.wiggleTimers.delete(index);
+      }, WIGGLE_MS),
+    );
+  }
+
+  /**
+   * Petite pastille au-dessus d'une case (V2, fabrication) : « −1 » sur l'ingrédient, « +2 » sur le résultat. Enfant
+   * de la barre, pas de la case (qui coupe ce qui dépasse), retirée au bout de SLOT_DELTA_MS.
+   */
+  slotDelta(index: number, label: string): void {
+    const el = this.slots[index];
+    if (!el) return;
+    const d = document.createElement("span");
+    d.className = "slot-delta";
+    d.setAttribute("aria-hidden", "true");
+    d.textContent = label;
+    d.style.left = `${el.offsetLeft + el.offsetWidth / 2}px`;
+    this.hotbar.appendChild(d);
+    window.setTimeout(() => d.remove(), SLOT_DELTA_MS);
+  }
+
+  /** Panneau de fabrication ouvert (V2) : la barre (et l'anneau de l'appui long) passe au-dessus de son voile. */
+  setCraftOpen(on: boolean): void {
+    this.root.classList.toggle("craft-open", on);
+  }
+
   /** Nom du bloc tenu, affiché brièvement au-dessus de la barre (entraînement à la lecture). */
   showSlotName(text: string, durationMs = 1800): void {
     this.slotName.textContent = text;
@@ -470,7 +520,8 @@ export class Hud {
   private iconBase(id: BlockId): HTMLCanvasElement {
     let base = this.icons.get(id);
     if (!base) {
-      base = tileIcon(this.atlas, blockDef(id).tiles.side);
+      // Le verre est posé sur un fond de ciel : sur le fond gris de la case, une vitre paraîtrait grise (V2).
+      base = blockIcon(this.atlas, id);
       this.icons.set(id, base);
     }
     return base;

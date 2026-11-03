@@ -9,6 +9,12 @@ const url = pathToFileURL(dist).href;
 /** Profils tactiles : le convertible replié, en portrait (« tablette ») et en paysage (« tablette-paysage », cas @tactile seulement). */
 const isTouch = (info: TestInfo) => info.project.name.startsWith("tablette");
 
+/**
+ * Ligne d'infos du HUD. « .hud > » : la ligne d'état du panneau de fabrication (V2) porte aussi la classe « info »
+ * (son ton), et un sélecteur ambigu ferait échouer Playwright (mode strict).
+ */
+const INFO = ".hud > .info";
+
 /** Monde plat de test (celui du J0) : positions et blocs connus, pour des tests stables. */
 const FLAT = "#monde=plat&graine=1";
 
@@ -69,7 +75,14 @@ interface DebugState {
   lampRevealed: boolean;
   /** Mission suivante qui attend le matin (V2), ou null. */
   pendingMission: string | null;
+  /** Fabrication (V2) : marteau disponible, panneau ouvert, halo, ligne d'état, cartes, présentation faite. */
+  craft: { available: boolean; open: boolean; glow: boolean; status: string; cards: { id: string; state: string }[]; intro: boolean };
+  /** Marteau découvert par l'enfant (profil), null hors d'une partie d'enfant (V2). */
+  craftSeen: boolean | null;
 }
+
+/** Résultat de cubesDebug.craft (V2). */
+type CraftResult = { ok: true; outputSlot: number; before: number; after: number } | { ok: false; reason: string };
 
 /** Identifiants de blocs utiles aux tests (src/engine/blocks.ts). */
 const B = { air: 0, grass: 1, dirt: 2, stone: 3, planks: 4, sand: 5, log: 6, leaves: 8, flowerRed: 9, snow: 11, cactus: 12 } as const;
@@ -90,6 +103,9 @@ declare global {
       give(id: number, n?: number): { ok: boolean };
       clearInventory(): void;
       emptySlot(i: number): "ok" | "empty" | "keep-lamp" | "keep-gift" | "keep-goal";
+      openCraft(): boolean;
+      closeCraft(): void;
+      craft(id: string): CraftResult;
       fillInventory(): void;
       selectSlot(i: number): void;
       setBlock(x: number, y: number, z: number, id: number): boolean;
@@ -147,7 +163,7 @@ interface Info {
 async function readInfo(page: Page): Promise<Info> {
   await page.waitForTimeout(300); // l'affichage se met à jour 4 fois par seconde
   // textContent : la ligne est masquée sur les écrans des enfants (J7), mais toujours tenue à jour.
-  const text = (await page.locator(".info").textContent()) ?? "";
+  const text = (await page.locator(INFO).textContent()) ?? "";
   const num = (re: RegExp) => Number(re.exec(text)?.[1] ?? NaN);
   const m = /pos (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/.exec(text);
   const r = /regard (-?\d+)° (-?\d+)°/.exec(text);
@@ -279,11 +295,11 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   // Le monde se construit derrière l'accueil.
   await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").textContent()).toMatch(/1\.1-rc$/);
+  expect(await page.locator(INFO).textContent()).toMatch(/1\.1-rc$/);
   expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.1-rc");
   await expect(page).toHaveTitle("Cubes");
   // J7 : ni panneau Tests ni infos techniques hors du mode adresse (réglage du mode parent, décoché par défaut).
-  await expect(page.locator(".info")).toBeHidden();
+  await expect(page.locator(INFO)).toBeHidden();
   await expect(page.locator(".panel-toggle")).toBeHidden();
   // Sans #monde=… dans l'adresse : un rechargement doit ramener à l'accueil.
   expect(page.url()).not.toContain("#");
@@ -317,7 +333,7 @@ for (const [type, name] of [
     expect(s.faces).toBeGreaterThan(10_000);
     expect(s.player.onGround).toBe(true);
     expect(s.player.inWater).toBe(false);
-    expect(await page.locator(".info").innerText()).toContain(`${name} · graine 4242`);
+    expect(await page.locator(INFO).innerText()).toContain(`${name} · graine 4242`);
     // Le ciel est bleu, le sol est dessiné et différent du ciel
     expectSkyAndGround(await skyAndGround(page));
     await page.screenshot({ path: testInfo.outputPath(`${type}.png`) });
@@ -357,7 +373,7 @@ test("le panneau crée un nouveau monde du type et de la graine choisis", async 
   await page.getByLabel("Graine").fill("321");
   await page.getByRole("button", { name: "Nouveau monde" }).click();
   await page.waitForFunction(() => window.cubesDebug.state().type === "ile" && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
-  await expect(page.locator(".info")).toContainText("île · graine 321");
+  await expect(page.locator(INFO)).toContainText("île · graine 321");
   expect(page.url()).toMatch(/#monde=ile&graine=321$/);
   expect(errors).toEqual([]);
 });
@@ -424,16 +440,16 @@ test("le clavier déplace le joueur (position physique des touches)", async ({ p
 test("les touches 1 à 9 et la molette changent la case choisie", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "clavier : PC uniquement");
   await openGame(page);
-  await expect(page.locator(".info")).toContainText("bloc : (case vide)");
+  await expect(page.locator(INFO)).toContainText("bloc : (case vide)");
   await page.evaluate(() => window.cubesDebug.fillInventory());
   await page.keyboard.press("Digit3");
   await expect(page.locator(".slot").nth(2)).toHaveClass(/selected/);
-  await expect(page.locator(".info")).toContainText("bloc : pierre ×20");
+  await expect(page.locator(INFO)).toContainText("bloc : pierre ×20");
   await expect(page.locator(".slot-name")).toHaveText("pierre");
   await expect(page.locator(".slot-name")).toHaveClass(/visible/);
   await expect(page.locator(".slot").nth(2).locator(".count")).toHaveText("20");
   await page.keyboard.press("Digit9");
-  await expect(page.locator(".info")).toContainText("bloc : clôture");
+  await expect(page.locator(INFO)).toContainText("bloc : clôture");
   await page.mouse.move(640, 360);
   await page.mouse.wheel(0, 120); // molette vers le bas : case suivante (retour à la première)
   await expect(page.locator(".slot").nth(0)).toHaveClass(/selected/);
@@ -502,7 +518,7 @@ test("souris capturée : garder le clic gauche casse et ramasse, clic droit pose
   expect((await state(page)).inventory[0]!.id).toBe(B.grass);
   await expect(page.locator(".message")).toContainText(n === 1 ? "Un bloc d'herbe" : `${n} blocs d'herbe`);
   await expect(page.locator(".slot").nth(0).locator(".count")).toHaveText(String(n));
-  await expect(page.locator(".info")).toContainText(`bloc : herbe ×${n}`);
+  await expect(page.locator(INFO)).toContainText(`bloc : herbe ×${n}`);
   // Clic droit : un bloc d'herbe est posé dans la case visée (celle d'où vient le rayon), le sac en perd un.
   const t = (await state(page)).target!;
   const cell = { x: t.x + t.nx, y: t.y + t.ny, z: t.z + t.nz };
@@ -1335,6 +1351,13 @@ test("casser une pierre brillante donne une lampe ; un tronc ne donne qu'un tron
   s = await state(page);
   expect(invCount(s, B.log)).toBe(1);
   expect(invCount(s, B5.fence)).toBe(0); // décision 3 de Pierre
+  // La clôture se fabrique : 2 planches donnent une clôture (décision 8 de Pierre).
+  await page.evaluate(() => window.cubesDebug.give(4, 2));
+  expect(await page.evaluate(() => window.cubesDebug.craft("cloture"))).toMatchObject({ ok: true, before: 0, after: 1 });
+  s = await state(page);
+  expect(invCount(s, B5.fence)).toBe(1);
+  expect(invCount(s, B.planks)).toBe(0);
+  await expect(page.locator(".message")).toContainText("Une clôture");
   expect(errors).toEqual([]);
 });
 
@@ -1683,7 +1706,7 @@ test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour 
   const errors = await openGame(page, "");
   await page.evaluate(() => {
     localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
-      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true },
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
       { name: "Tom", level: "autonome", voice: false, avatar: 2 },
     ] }));
     localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
@@ -1718,10 +1741,12 @@ test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour 
     "Monde 1 (prairie) : mission 1 (l'abri) réussie, mission 2 (les mots) pas encore commencée",
     "Monde 2 (désert) : mission 1 (l'abri) : étape 1 sur 6 (ramasser 6 troncs)",
   ]);
-  // Enregistrer et fermer garde le tutoriel fait.
+  // Enregistrer et fermer garde le tutoriel fait et le marteau découvert (V2).
   await page.getByRole("button", { name: "Enregistrer et fermer" }).click();
   const profiles = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:profils") ?? "null"));
   expect(profiles.profiles[0].tutorialDone).toBe(true);
+  expect(profiles.profiles[0].craftSeen).toBe(true);
+  expect(profiles.profiles[1].craftSeen).toBe(false);
   s = await state(page);
   expect(s.home).toBe(true);
   expect(errors).toEqual([]);
@@ -1758,7 +1783,7 @@ test("écran des enfants : ni panneau Tests ni infos techniques ; le mode parent
   const errors = await openGame(page, "");
   await firstLaunch(page, testInfo);
   await expect(page.locator(".panel-toggle")).toBeHidden();
-  await expect(page.locator(".info")).toBeHidden();
+  await expect(page.locator(INFO)).toBeHidden();
   await expect(page.locator(".home-btn")).toBeVisible();
   // Les boutons ronds se rangent contre le bord (pas de trou à la place de « Tests »).
   const vp = page.viewportSize()!;
@@ -1778,7 +1803,7 @@ test("écran des enfants : ni panneau Tests ni infos techniques ; le mode parent
   await page.locator('.slot-card[data-slot="0"]').click();
   await page.waitForFunction(() => !window.cubesDebug.state().home, null, { timeout: 45_000 });
   await expect(page.locator(".panel-toggle")).toBeVisible();
-  await expect(page.locator(".info")).toBeVisible();
+  await expect(page.locator(INFO)).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:reglages") ?? "null")?.devTools)).toBe(true);
   expect(errors).toEqual([]);
 });
@@ -2244,5 +2269,382 @@ test("monde dont la mission 1 est finie, repris la nuit : la mission 2 attend le
   await expect.poll(async () => (await state(page)).pendingMission).toBe("mots");
   expect((await state(page)).timeBoost).toBe(true);
   await expect.poll(async () => (await state(page)).missionId, { timeout: 60_000 }).toBe("mots");
+  expect(errors).toEqual([]);
+});
+
+// ---------- V2 lot 1 : verre et fabrication ----------
+
+const B8 = { glass: 17 } as const;
+
+/** Rectangles qui se chevauchent (plus d'un pixel de recouvrement). */
+const overlaps = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
+  a.x + a.width > b.x + 1 && b.x + b.width > a.x + 1 && a.y + a.height > b.y + 1 && b.y + b.height > a.y + 1;
+
+test("fabrication au clavier : F ouvre le panneau (souris libérée, jeu en pause) ; 1 tronc donne 2 planches, puis « 2 + 2 = 4 » ; rien ne passe derrière ; Échap ferme", async ({ page }, testInfo) => {
+  test.skip(isTouch(testInfo), "clavier et souris : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(6, 2));
+  await lockAndLookDown(page);
+  const aimed = await aimedBlock(page);
+  // Mode adresse : le marteau est là, l'aide d'écran donne la touche.
+  await expect(page.locator(".craft-btn")).toBeVisible();
+  await expect(page.locator(".hint")).toContainText("F : fabriquer");
+  await page.keyboard.press("KeyF");
+  await expect(page.locator(".craft")).toBeVisible();
+  let s = await state(page);
+  expect(s.paused).toBe(true);
+  expect(s.craft.open).toBe(true);
+  expect(s.craft.cards).toEqual([
+    { id: "planches", state: "ok" },
+    { id: "cloture", state: "missing" },
+    { id: "verre", state: "missing" },
+  ]);
+  await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
+  await expect(page.locator(".craft-status")).toHaveText("Clique sur une carte !");
+  await page.screenshot({ path: testInfo.outputPath("fabrication-pc.png") });
+  // Carte planches (armée 400 ms après l'ouverture) : 1 tronc donne 2 planches ; encore : l'addition.
+  await page.waitForTimeout(500);
+  const planks = page.locator('.craft-card[data-recipe="planches"]');
+  await planks.click();
+  await expect.poll(async () => invCount(await state(page), B.planks)).toBe(2);
+  expect(invCount(await state(page), B.log)).toBe(1);
+  await expect(page.locator(".craft-status")).toHaveText("2 planches !");
+  await page.waitForTimeout(300);
+  await planks.click();
+  await expect.poll(async () => invCount(await state(page), B.planks)).toBe(4);
+  await expect(page.locator(".craft-status")).toHaveText("2 + 2 = 4 planches !");
+  await expect.poll(async () => (await state(page)).spoken).toContain("Deux plus deux, ça fait quatre planches !");
+  s = await state(page);
+  expect(s.craft.cards).toEqual([
+    { id: "planches", state: "missing" },
+    { id: "cloture", state: "ok" },
+    { id: "verre", state: "missing" },
+  ]);
+  // Plus de tronc : la carte tremble et la ligne d'état dit où en trouver ; le sac ne change pas.
+  await page.waitForTimeout(300);
+  await planks.click();
+  await expect(planks).toHaveClass(/shake/);
+  await expect(page.locator(".craft-status")).toHaveClass(/no/);
+  await expect(page.locator(".craft-status")).toContainText("tronc");
+  // Main vide (les troncs épuisés) : les planches y sont passées.
+  expect(s.slot).toBe(1);
+  // Clic droit et molette sur le panneau : rien derrière (pas de pose, pas de changement de case).
+  const sheet = (await page.locator(".craft-sheet").boundingBox())!;
+  await page.mouse.click(sheet.x + 30, sheet.y + 30, { button: "right" });
+  await page.mouse.wheel(0, 300);
+  s = await state(page);
+  expect(s.slot).toBe(1);
+  expect(invCount(s, B.planks)).toBe(4);
+  expect(s.paused).toBe(true);
+  // Échap ferme ; souris libre : « Clique pour jouer ».
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".craft")).toBeHidden();
+  s = await state(page);
+  expect(s.paused).toBe(false);
+  expect(s.craft.open).toBe(false);
+  await expect(page.locator(".message")).toContainText("Clique pour jouer");
+  expect(await blockAt(page, aimed)).toBe(aimed.id);
+  expect(errors).toEqual([]);
+});
+
+test("fabrication, sac plein : le dernier tronc devient des planches dans sa case ; avec 2 troncs, refus et la case à vider remue", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const kit = [B.grass, B.dirt, B.stone, B.sand, B.log, B.leaves, B.snow, B.cactus, B.flowerRed];
+  const fill = (logs: number) =>
+    page.evaluate(
+      ([ids, n]) => {
+        window.cubesDebug.clearInventory();
+        for (const id of ids) window.cubesDebug.give(id, id === 6 ? n : 3);
+      },
+      [kit, logs] as const,
+    );
+  await fill(1);
+  expect(await page.evaluate(() => window.cubesDebug.craft("planches"))).toEqual({ ok: true, outputSlot: 4, before: 0, after: 2 });
+  let s = await state(page);
+  expect(s.inventory[4]).toEqual({ id: B.planks, count: 2 });
+  expect(invCount(s, B.log)).toBe(0);
+  // Deux troncs : la case du tronc ne se vide pas, aucune case pour les planches.
+  await fill(2);
+  const before = (await state(page)).inventory;
+  const r = await page.evaluate(() => {
+    const res = window.cubesDebug.craft("planches");
+    const wiggle = Array.from(document.querySelectorAll(".hotbar .slot")).flatMap((el, i) => (el.classList.contains("wiggle") ? [i] : []));
+    return { res, wiggle };
+  });
+  expect(r.res).toEqual({ ok: false, reason: "full" });
+  // La plus petite pile qu'on peut vider : toutes à 3, la première (ni le tronc ni les planches).
+  expect(r.wiggle).toEqual([0]);
+  s = await state(page);
+  expect(s.inventory).toEqual(before);
+  await expect(page.locator(".message")).toContainText("Sac plein");
+  expect(errors).toEqual([]);
+});
+
+test("fabrication au doigt : le marteau de la colonne ouvre le panneau ; un doigt gardé 1,5 s sur une carte fabrique une fois ; le voile ferme ; rien n'est cassé ni posé, la vue ne tourne pas @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 3);
+    window.cubesDebug.look(0, -60);
+  });
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const aimed = await aimedBlock(page);
+  const before = await state(page);
+  const driver = await touchDriver(context, page);
+  const hammer = page.locator(".touch-btn.craft-touch");
+  await expect(hammer).toBeVisible();
+  await expect(hammer).toHaveAttribute("aria-label", "Fabriquer");
+  const hb = (await hammer.boundingBox())!;
+  await driver.tap(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await expect(page.locator(".craft")).toBeVisible();
+  expect((await state(page)).paused).toBe(true);
+  await expect(page.locator(".craft-status")).toHaveText("Touche une carte !");
+  // Doigt gardé longtemps sur la carte (comme pour casser) : une seule fabrication, au relâchement.
+  await page.waitForTimeout(500);
+  const card = (await page.locator('.craft-card[data-recipe="planches"]').boundingBox())!;
+  await driver.hold(card.x + card.width / 2, card.y + card.height / 2, () => page.waitForTimeout(1500));
+  let s = await state(page);
+  expect(invCount(s, B.planks)).toBe(2);
+  expect(invCount(s, B.log)).toBe(2);
+  // Un doigt qui glisse sur le panneau ne fabrique rien et ne tourne pas la vue.
+  const sheet = (await page.locator(".craft-sheet").boundingBox())!;
+  await driver.drag(sheet.x + sheet.width / 2, sheet.y + 20, sheet.y + sheet.height - 20);
+  s = await state(page);
+  expect(invCount(s, B.planks)).toBe(2);
+  expect(s.craft.open).toBe(true);
+  // Un toucher sur le voile ferme.
+  await driver.tap(sheet.x + sheet.width / 2, Math.max(20, sheet.y / 2));
+  await expect(page.locator(".craft")).toBeHidden();
+  s = await state(page);
+  expect(s.paused).toBe(false);
+  expect(s.player.yaw).toBeCloseTo(before.player.yaw, 5);
+  expect(s.player.pitch).toBeCloseTo(before.player.pitch, 5);
+  expect(s.touchMode).toBe("break");
+  expect(await blockAt(page, aimed)).toBe(aimed.id);
+  expect(invCount(s, B.planks)).toBe(2);
+  expect(invCount(s, B.log)).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test("fabrication, mise en page : la feuille au-dessus de la barre sans la couvrir, trois cartes assez grandes dans l'écran ; le marteau ne chevauche aucun bouton @tactile", async ({ page }, testInfo) => {
+  const errors = await openGame(page);
+  const vp = page.viewportSize()!;
+  // Le marteau et ses voisins, panneau fermé.
+  if (isTouch(testInfo)) {
+    const hammer = (await page.locator(".touch-btn.craft-touch").boundingBox())!;
+    const others = page.locator(".touch-btn:visible:not(.craft-touch)");
+    for (const b of await others.all()) expect(overlaps(hammer, (await b.boundingBox())!)).toBe(false);
+    // De haut en bas : plein écran, marteau, Casser.
+    const full = (await page.locator(".fullscreen-btn").boundingBox())!;
+    const mode = (await page.locator(".touch-btn").first().boundingBox())!;
+    expect(full.y + full.height).toBeLessThanOrEqual(hammer.y);
+    expect(hammer.y + hammer.height).toBeLessThanOrEqual(mode.y);
+    const bar = (await page.locator(".hotbar").boundingBox())!;
+    expect(overlaps(hammer, bar)).toBe(false);
+    expect(hammer.x + hammer.width).toBeLessThanOrEqual(vp.width);
+  }
+  const top = (await page.locator(".craft-btn").boundingBox())!;
+  for (const b of await page.locator(".top-btn:visible:not(.craft-btn), .panel-toggle").all()) {
+    expect(overlaps(top, (await b.boundingBox())!)).toBe(false);
+  }
+  // Panneau ouvert.
+  await page.evaluate(() => window.cubesDebug.give(6, 1));
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
+  const sheet = (await page.locator(".craft-sheet").boundingBox())!;
+  const bar = (await page.locator(".hotbar").boundingBox())!;
+  expect(sheet.y + sheet.height).toBeLessThanOrEqual(bar.y);
+  expect(sheet.y).toBeGreaterThanOrEqual(0);
+  const cards = page.locator(".craft-card");
+  await expect(cards).toHaveCount(3);
+  for (const c of await cards.all()) {
+    const b = (await c.boundingBox())!;
+    expect(b.width).toBeGreaterThanOrEqual(200);
+    expect(b.height).toBeGreaterThanOrEqual(160);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(vp.width);
+    expect(b.y + b.height).toBeLessThanOrEqual(vp.height);
+  }
+  // La barre reste au-dessus du voile (on peut y vider une case).
+  const z = await page.evaluate(() => {
+    const r = document.querySelector(".hotbar")!.getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest(".hotbar") !== null;
+  });
+  expect(z).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("fabrication.png") });
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  expect((await state(page)).paused).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test("fabrication pendant l'étape « 6 troncs » : les troncs de la mission sont gardés (rien ne bloque)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1");
+  await expect.poll(async () => (await state(page)).missionId).toBe("abri");
+  await page.evaluate(() => window.cubesDebug.give(6, 3));
+  expect(await page.evaluate(() => window.cubesDebug.craft("planches"))).toEqual({ ok: false, reason: "reserved" });
+  expect(invCount(await state(page), B.log)).toBe(3);
+  await expect(page.locator(".message")).toContainText("D'abord 6 troncs");
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  expect((await state(page)).craft.cards[0]).toEqual({ id: "planches", state: "reserved" });
+  await expect(page.locator('.craft-card[data-recipe="planches"] .craft-badge')).toContainText("3 / 6");
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  expect(errors).toEqual([]);
+});
+
+test("tutoriel : pas de marteau, la touche F ne fait rien", async ({ page }) => {
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=0");
+  await expect.poll(async () => (await state(page)).missionId).toBe("tuto");
+  await page.evaluate(() => window.cubesDebug.give(6, 2));
+  await expect(page.locator(".craft-btn")).toBeHidden();
+  await expect(page.locator(".touch-btn.craft-touch")).toBeHidden();
+  await page.keyboard.press("KeyF");
+  await page.waitForTimeout(300);
+  const s = await state(page);
+  expect(s.craft).toMatchObject({ available: false, open: false });
+  expect(s.paused).toBe(false);
+  expect(await page.evaluate(() => window.cubesDebug.craft("planches"))).toEqual({ ok: false, reason: "unavailable" });
+  await expect(page.locator(".hint")).not.toContainText("fabriquer");
+  expect(errors).toEqual([]);
+});
+
+test("découverte du marteau (partie d'enfant) : caché avant l'abri ; Pixel le présente à l'étape abri, il brille ; ouvert, il est retenu dans le profil, sans nouvelle présentation", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(150_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2, tutorialDone: true },
+    ] }));
+    // Monde plat : mission 1 à l'étape « 4 pierres », 6 troncs dans le sac.
+    localStorage.setItem("cubes:monde:p2:0", JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 8.5, y: 4, z: 8.5, yaw: 0, pitch: 0 }, inventory: { slots: [[6, 6]] }, phase: 0.1, savedAt: Date.now(),
+      mission: { id: "abri", step: 1, counts: {} },
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  const play = async () => {
+    await page.locator('.profile-card[data-profile="p2"]').click();
+    await page.locator('.slot-card[data-slot="0"]').click();
+    await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  };
+  await play();
+  let s = await state(page);
+  expect(s.mission).toEqual({ step: 1, done: false });
+  expect(s.craftSeen).toBe(false);
+  // Avant l'abri : pas de marteau, F ne fait rien.
+  await expect(page.locator(".craft-btn")).toBeHidden();
+  await page.keyboard.press("KeyF");
+  expect((await state(page)).craft.open).toBe(false);
+  // Étape abri : au bout de 15 s, Pixel présente le marteau, qui brille.
+  await page.evaluate(() => window.cubesDebug.give(3, 4));
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  await expect.poll(async () => (await state(page)).craft.intro, { timeout: 40_000 }).toBe(true);
+  await expect(page.locator(".message")).toContainText("Nouveau : appuie sur F pour fabriquer des blocs.");
+  await expect(page.locator(".craft-btn")).toBeVisible();
+  await expect(page.locator(".craft-btn")).toHaveClass(/new/);
+  await expect(page.locator(".hint")).toContainText("F : fabriquer");
+  // L'ouverture retire le halo et retient la découverte dans le profil.
+  await page.keyboard.press("KeyF");
+  await expect(page.locator(".craft")).toBeVisible();
+  s = await state(page);
+  expect(s.craft.glow).toBe(false);
+  expect(s.craftSeen).toBe(true);
+  await expect(page.locator(".craft-btn")).not.toHaveClass(/new/);
+  const profiles = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:profils") ?? "null"));
+  expect(profiles.profiles[1].craftSeen).toBe(true);
+  expect(profiles.profiles[0].craftSeen).toBe(false);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".craft")).toBeHidden();
+  // Rechargement : le marteau est là d'emblée, sans halo ni nouvelle présentation.
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await play();
+  s = await state(page);
+  expect(s.mission?.step).toBe(2);
+  expect(s.craftSeen).toBe(true);
+  await expect(page.locator(".craft-btn")).toBeVisible();
+  await page.waitForTimeout(17_000);
+  s = await state(page);
+  expect(s.craft).toMatchObject({ available: true, glow: false, intro: false });
+  expect(errors).toEqual([]);
+});
+
+test("verre : fabriqué avec du sable et posé, on voit le ciel à travers (pas à travers une pierre) ; il arrête le joueur ; cassé, il revient dans le sac ; une fleur s'y pose", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(5, 1));
+  expect(await page.evaluate(() => window.cubesDebug.craft("verre"))).toMatchObject({ ok: true, before: 0, after: 2 });
+  let s = await state(page);
+  expect(invCount(s, B8.glass)).toBe(2);
+  expect(invCount(s, B.sand)).toBe(0);
+  await expect(page.locator(".message")).toContainText("Le sable devient du verre");
+  // Une vitre à hauteur des yeux, posée contre un bloc de support qu'on retire ensuite.
+  const cx = Math.floor(s.player.x);
+  const cz = Math.floor(s.player.z);
+  await page.evaluate(([x, z]) => {
+    window.cubesDebug.teleport(x + 0.5, 4, z + 0.5);
+    window.cubesDebug.setBlock(x, 6, z - 3, 3);
+  }, [cx, cz] as const);
+  await page.waitForTimeout(300);
+  const eyeY = (await state(page)).camera.y;
+  const lookAt = (y: number, dist: number) =>
+    page.evaluate(([a]) => window.cubesDebug.look(0, a), [(Math.atan2(y - eyeY, dist) * 180) / Math.PI] as const);
+  await lookAt(6.5, 2.5);
+  await expect.poll(async () => (await state(page)).target).toMatchObject({ x: cx, y: 6, z: cz - 3, nz: 1 });
+  await page.evaluate(() => {
+    const inv = window.cubesDebug.state().inventory;
+    window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 17));
+    window.cubesDebug.placeBlock();
+  });
+  expect(await blockAt(page, { x: cx, y: 6, z: cz - 2 })).toBe(B8.glass);
+  await expect(page.locator(".message")).toContainText("On voit à travers !");
+  await page.evaluate(([x, z]) => window.cubesDebug.setBlock(x, 6, z - 3, 0), [cx, cz] as const);
+  // Regard au centre de la vitre : le ciel bleu à travers ; une pierre au même endroit, non.
+  await lookAt(6.5, 2);
+  await expect.poll(async () => (await state(page)).target).toMatchObject({ x: cx, y: 6, z: cz - 2 });
+  await page.waitForTimeout(400);
+  const through = await pixel(page, 0.5, 0.5);
+  await page.evaluate(([x, z]) => window.cubesDebug.setBlock(x, 6, z - 2, 3), [cx, cz] as const);
+  await page.waitForTimeout(400);
+  const stone = await pixel(page, 0.5, 0.5);
+  expect(through[2]!).toBeGreaterThan(through[0]! + 30);
+  expect(stone[2]! - stone[0]!).toBeLessThan(30);
+  await page.evaluate(([x, z]) => window.cubesDebug.setBlock(x, 6, z - 2, 0), [cx, cz] as const);
+  // Un mur de verre de deux blocs : le joueur ne le traverse pas.
+  await page.evaluate(([x, z]) => {
+    window.cubesDebug.setBlock(x, 4, z - 2, 17);
+    window.cubesDebug.setBlock(x, 5, z - 2, 17);
+    window.cubesDebug.look(0, 0);
+  }, [cx, cz] as const);
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(1000);
+  await page.keyboard.up("KeyW");
+  s = await state(page);
+  expect(s.player.z).toBeGreaterThan(cz - 1);
+  expect(s.player.z).toBeLessThan(cz);
+  // Cassé, le verre revient dans le sac.
+  await page.evaluate(([x, z]) => window.cubesDebug.breakBlock(x, 5, z - 2), [cx, cz] as const);
+  expect(invCount(await state(page), B8.glass)).toBe(2);
+  await expect(page.locator(".message")).toContainText(/blocs? de verre/);
+  // Une fleur se pose sur le verre.
+  await page.evaluate(([x, z]) => {
+    window.cubesDebug.give(9, 1);
+    window.cubesDebug.teleport(x + 0.5, 4, z + 0.5);
+  }, [cx, cz] as const);
+  await lookAt(5, 2);
+  await expect.poll(async () => (await state(page)).target).toMatchObject({ x: cx, y: 4, z: cz - 2, ny: 1 });
+  await page.evaluate(() => {
+    const inv = window.cubesDebug.state().inventory;
+    window.cubesDebug.selectSlot(inv.findIndex((c) => c?.id === 9));
+    window.cubesDebug.placeBlock();
+  });
+  expect(await blockAt(page, { x: cx, y: 5, z: cz - 2 })).toBe(B.flowerRed);
   expect(errors).toEqual([]);
 });
