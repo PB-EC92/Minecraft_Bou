@@ -102,7 +102,7 @@ canvas.game {
   opacity: 0.95;
 }
 
-/* Ligne d'infos du HUD (« .hud > » : le panneau de fabrication donne aussi la classe « info » à sa ligne d'état, V2). */
+/* Ligne d'infos du HUD (enfant direct du HUD ; la ligne d'état du panneau de fabrication a ses classes « tone-… »). */
 .hud > .info {
   position: absolute;
   left: 10px;
@@ -1185,14 +1185,17 @@ canvas.game {
   inset: 0;
   background: rgba(20, 24, 32, 0.35);
 }
-/* Feuille juste au-dessus de la barre (qui reste visible et touchable). */
+/* Feuille au-dessus de la barre (qui reste visible et touchable), assez haut pour laisser entre les deux la place de
+   l'anneau de l'appui long (de --slot + 38 px à --slot + 86 px du bas de l'écran, voir .slot-hold) et des pastilles
+   « −1 » / « +2 » : aucun ne couvre la feuille ni sa ligne d'état (V2, relecture J8). Bas de la feuille à --slot +
+   94 px, 8 px au-dessus de l'anneau ; 42 px gardés en haut de l'écran. */
 .craft-sheet {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));
+  bottom: calc(14px + var(--slot) + 80px + env(safe-area-inset-bottom));
   width: min(960px, calc(100vw - 32px));
-  max-height: calc(100vh - var(--slot) - 96px);
+  max-height: calc(100vh - var(--slot) - 136px);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1364,10 +1367,11 @@ canvas.game {
   line-height: 1.25;
   text-align: center;
 }
-.craft-status.ok {
+/* Classes de ton préfixées « tone- » : « info » seule est la ligne d'infos du HUD. */
+.craft-status.tone-ok {
   color: #2f7d32;
 }
-.craft-status.no {
+.craft-status.tone-no {
   color: #b4521a;
 }
 

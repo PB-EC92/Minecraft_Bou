@@ -51,7 +51,16 @@ export interface CraftHandlers {
   close(): void;
 }
 
+/**
+ * Ton de la ligne d'état : consigne (info), résultat (ok), raison d'un refus (no). Classe CSS « tone-<ton> » : jamais
+ * « info » seule, que porte la ligne d'infos du HUD (.hud > .info).
+ */
 export type CraftStatusTone = "info" | "ok" | "no";
+
+/** Classe CSS du ton de la ligne d'état (préfixée : aucune collision avec les autres classes du jeu). */
+export function craftToneClass(tone: CraftStatusTone): string {
+  return `tone-${tone}`;
+}
 
 /** Ce que vise un geste : une carte, ou la fermeture (voile, croix). */
 type Target = { kind: "card"; id: RecipeId } | { kind: "close" };
@@ -67,7 +76,7 @@ interface CardParts {
   inTiles: HTMLSpanElement[];
 }
 
-/** Doigt suivi : le premier posé sur le panneau. */
+/** Doigt suivi : le dernier posé sur le panneau (un nouveau doigt reprend le geste). */
 interface TrackedTouch {
   id: number;
   x: number;
@@ -147,7 +156,7 @@ export class CraftPanel {
     this.cardsBox.className = "craft-cards";
 
     this.status = document.createElement("p");
-    this.status.className = "craft-status info";
+    this.status.className = `craft-status ${craftToneClass("info")}`;
     this.status.setAttribute("aria-live", "polite");
 
     sheet.append(head, this.cardsBox, this.status);
@@ -177,6 +186,8 @@ export class CraftPanel {
     });
     // Molette : arrêtée seulement, pour que la feuille puisse défiler dans une petite fenêtre.
     this.root.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    // Fenêtre qui perd le focus : le doigt suivi est oublié (sa fin risque de ne jamais arriver), la carte relâchée.
+    window.addEventListener("blur", () => this.forgetTouch());
 
     parent.appendChild(this.root);
   }
@@ -218,7 +229,7 @@ export class CraftPanel {
   /** Ligne d'état : consigne (info), résultat (ok) ou raison d'un refus (no). */
   setStatus(text: string, tone: CraftStatusTone): void {
     this.status.textContent = text;
-    this.status.className = `craft-status ${tone}`;
+    this.status.className = `craft-status ${craftToneClass(tone)}`;
   }
 
   /** Fait trembler une carte (refus), classe shake pendant CRAFT_SHAKE_MS. */
@@ -363,9 +374,10 @@ export class CraftPanel {
   private onTouchStart(e: TouchEvent): void {
     e.stopPropagation();
     e.preventDefault();
-    // Un doigt déjà suivi mais qui n'est plus posé (fin de geste perdue) ne bloque pas les suivants.
-    if (this.touch && !findTouch(e.touches, this.touch.id)) this.forgetTouch();
-    if (this.touch) return; // on ne suit que le premier doigt
+    // Un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Un doigt dont la fin s'est perdue
+    // (geste du système, que le navigateur liste peut-être encore) ou une paume posée sur le voile ne bloquent
+    // donc jamais le panneau (sous son voile, la croix et les cartes seraient sans réponse au doigt).
+    this.forgetTouch();
     const f = e.changedTouches.item(0);
     if (!f) return;
     const target = this.targetOf(f.target);

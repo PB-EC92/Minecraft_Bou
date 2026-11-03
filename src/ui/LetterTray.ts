@@ -7,8 +7,9 @@
  *
  * Rien de ce qui se passe sur la boîte ne parvient au jeu :
  * - toucher : l'action se fait quand le doigt retenu se lève, sur la cible où il s'est posé ; un glissé de plus
- *   de TRAY_SLOP_PX, ou un doigt levé sur une autre cible, l'annule. Les événements sont arrêtés et empêchés
- *   (pas de souris ni de clic de compatibilité) ;
+ *   de TRAY_SLOP_PX, ou un doigt levé sur une autre cible, l'annule. Le doigt retenu est le dernier posé : un
+ *   nouveau doigt reprend le geste (un doigt dont la fin s'est perdue ne bloque rien), et la fenêtre qui perd le
+ *   focus l'oublie. Les événements sont arrêtés et empêchés (pas de souris ni de clic de compatibilité) ;
  * - souris : action au clic ; appui, relâchement et molette ne remontent pas ;
  * - clavier, boîte ouverte : un écouteur sur window, en phase de capture, voit toutes les touches avant le jeu
  *   et les arrête (trayKeyAction). Échap, 0 ou 0 du pavé (par KeyboardEvent.code) ferment ; une lettre tapée
@@ -195,7 +196,7 @@ export class LetterTray {
   private armedAt = 0;
   private armTimer = 0;
   private listening = false;
-  /** Doigt retenu (le premier posé une fois la boîte armée), son point de départ et sa cible. */
+  /** Doigt retenu (le dernier posé une fois la boîte armée), son point de départ et sa cible. */
   private touchId: number | null = null;
   private touchX = 0;
   private touchY = 0;
@@ -265,6 +266,7 @@ export class LetterTray {
     if (!this.listening) {
       window.addEventListener("keydown", this.onKeyDown, true);
       window.addEventListener("keyup", this.onKeyUp, true);
+      window.addEventListener("blur", this.onBlur);
       this.listening = true;
     }
   }
@@ -275,6 +277,7 @@ export class LetterTray {
     if (this.listening) {
       window.removeEventListener("keydown", this.onKeyDown, true);
       window.removeEventListener("keyup", this.onKeyUp, true);
+      window.removeEventListener("blur", this.onBlur);
       this.listening = false;
     }
     const active = document.activeElement;
@@ -441,9 +444,13 @@ export class LetterTray {
     switch (e.type) {
       case "touchstart": {
         this.lastTouchAt = now;
-        if (this.touchId !== null || !this.armed()) return;
+        if (!this.armed()) return;
         const t = e.changedTouches[0];
         if (!t) return;
+        // Un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Ainsi, un doigt dont la fin
+        // s'est perdue (geste du système, que le navigateur liste peut-être encore) ou une paume posée sur le voile
+        // ne bloquent jamais la boîte : sous le voile plein écran, sans clavier, ce serait sans sortie.
+        this.resetTouch();
         this.touchId = t.identifier;
         this.touchX = t.clientX;
         this.touchY = t.clientY;
@@ -538,6 +545,11 @@ export class LetterTray {
   /** Relâchement : arrêté aussi (le clavier du jeu, en capture sur window avant nous, reste à jour). */
   private readonly onKeyUp = (e: KeyboardEvent): void => {
     e.stopPropagation();
+  };
+
+  /** Fenêtre qui perd le focus : le doigt suivi est oublié (sa fin risque de ne jamais arriver), sa cible relâchée. */
+  private readonly onBlur = (): void => {
+    this.resetTouch();
   };
 
   /**
