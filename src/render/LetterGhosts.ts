@@ -10,7 +10,8 @@ export interface GhostCell {
   id: BlockId;
 }
 
-export type MarkCell = [number, number, number];
+/** Case d'un contour (lecture seule : reçoit directement les cases `Cell` de `words.ts`). */
+export type MarkCell = readonly [number, number, number];
 
 /** Au plus 10 cubes et 10 contours (le plus long mot de la mission 2 en compte moins). */
 export const MAX_GHOSTS = 10;

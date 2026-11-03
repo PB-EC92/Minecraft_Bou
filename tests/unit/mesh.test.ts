@@ -6,6 +6,7 @@ import { ChunkRenderer } from "../../src/render/ChunkRenderer";
 import { LetterGhosts, DONE_SECONDS, MAX_MARKS, NEXT_OPACITY_MAX, NEXT_OPACITY_MIN, NEXT_STILL_OPACITY } from "../../src/render/LetterGhosts";
 import { ghostCubes, meshSection, srgbToLinear, WATER_SURFACE, type MeshData } from "../../src/render/mesher";
 import { ATLAS_COLS, ATLAS_HEIGHT, ATLAS_ROWS, ATLAS_WIDTH, tileOrigin, tileUv } from "../../src/render/atlas";
+import type { Cell } from "../../src/engine/words";
 
 function vertices(m: MeshData): THREE.Vector3[] {
   const out: THREE.Vector3[] = [];
@@ -501,7 +502,8 @@ describe("fantômes des lettres (mission 2)", () => {
     g.setMarks({ wrong: [[11, 4, 10]], done: [] });
     expect(lines().map(hex)).toEqual([0xff8a3c]);
     expect(lines()[0]!.position.toArray()).toEqual([11.5, 4.5, 10.5]);
-    const word: [number, number, number][] = [[10, 4, 10], [11, 4, 10], [12, 4, 10]];
+    // Cases du moteur des mots (tuples en lecture seule), passées telles quelles.
+    const word: Cell[] = [[10, 4, 10], [11, 4, 10], [12, 4, 10]];
     g.setMarks({ wrong: [], done: word });
     expect(lines().map(hex)).toEqual([0x5cbe5c, 0x5cbe5c, 0x5cbe5c]);
     g.update(DONE_SECONDS * 0.75, false);
