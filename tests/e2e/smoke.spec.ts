@@ -3095,3 +3095,249 @@ test("bloc-lettre : une lettre L posée face à la caméra se lit à l'endroit (
   expect(luminance(paper) - luminance(ink)).toBeGreaterThan(80);
   expect(errors).toEqual([]);
 });
+
+// ---------- V2 lot 1 : mise en page (ronds du haut, colonne tactile, barre à 10 cases, panneaux) ----------
+
+interface LayoutBox {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Boîtes de l'interface à ne jamais superposer, par nom. Le message et le nom du bloc ne comptent que visibles (ils
+ * restent dans la page, transparents, le reste du temps) ; le calque tactile seulement quand il est actif.
+ */
+const HUD_LAYOUT: Record<string, string> = {
+  "ligne d'infos": ".hud > .info",
+  Tests: ".panel-toggle",
+  "rond marteau": ".craft-btn",
+  "rond Bulles": ".bubble-btn",
+  "rond accueil": ".home-btn",
+  "rond vue": ".view-btn",
+  "bandeau de Pixel": ".companion",
+  message: ".message.visible",
+  "nom du bloc": ".slot-name.visible",
+  "aide d'écran": ".hint",
+  barre: ".hotbar",
+  "rond pour marcher": ".joystick",
+  "plein écran": ".fullscreen-btn",
+  "marteau (colonne)": ".craft-touch",
+  "Casser / Poser": ".touch-buttons > .touch-btn:nth-child(1)",
+  Sauter: ".touch-buttons > .touch-btn:nth-child(2)",
+  "Bulles (colonne)": ".bubble-touch",
+};
+
+/**
+ * Mesure, dans une seule tâche de la page, les boîtes affichées (taille non nulle, ni display: none ni visibility:
+ * hidden). letter : choisie juste avant la mesure (accès de test), pour que son nom, affiché 1,8 s, soit compté.
+ */
+async function layoutBoxes(page: Page, selectors: Record<string, string>, letter: string | null = null): Promise<LayoutBox[]> {
+  return page.evaluate(
+    ([sels, ch]) => {
+      if (ch !== null) window.cubesDebug.chooseLetter(ch);
+      const out: LayoutBox[] = [];
+      for (const [name, sel] of Object.entries(sels)) {
+        document.querySelectorAll(sel).forEach((el, i) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          if (r.width === 0 || r.height === 0 || cs.display === "none" || cs.visibility === "hidden") return;
+          const touch = el.closest(".touch");
+          if (touch && !touch.classList.contains("enabled")) return;
+          out.push({ name: i > 0 ? `${name} ${i + 1}` : name, x: r.x, y: r.y, width: r.width, height: r.height });
+        });
+      }
+      return out;
+    },
+    [selectors, letter] as const,
+  );
+}
+
+/** Ce qui ne va pas : boîtes qui sortent de l'écran, paires qui se chevauchent (plus d'un pixel). */
+function layoutProblems(boxes: readonly LayoutBox[], vp: { width: number; height: number }): string[] {
+  const out: string[] = [];
+  for (const b of boxes) {
+    if (b.x < -0.5 || b.y < -0.5 || b.x + b.width > vp.width + 0.5 || b.y + b.height > vp.height + 0.5) out.push(`${b.name} hors de l'écran`);
+  }
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      if (overlaps(a, b)) out.push(`${a.name} × ${b.name}`);
+    }
+  }
+  return out;
+}
+
+const boxNamed = (boxes: readonly LayoutBox[], name: string): LayoutBox => {
+  const b = boxes.find((x) => x.name === name);
+  expect(b, `boîte « ${name} »`).toBeDefined();
+  return b!;
+};
+
+/** a entièrement dans b (demi-pixel de tolérance). */
+const inside = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
+  a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.width <= b.x + b.width + 0.5 && a.y + a.height <= b.y + b.height + 0.5;
+
+/** Bandeau de Pixel : les lettres du modèle dedans, le message (s'il est là) dessous. */
+async function expectCompanionModel(page: Page, boxes: readonly LayoutBox[], letters: number): Promise<void> {
+  const companion = boxNamed(boxes, "bandeau de Pixel");
+  const model = page.locator(".companion-model .model-letter");
+  await expect(model).toHaveCount(letters);
+  for (const l of await model.all()) expect(inside((await l.boundingBox())!, companion)).toBe(true);
+  const message = boxes.find((b) => b.name === "message");
+  if (message) expect(message.y).toBeGreaterThanOrEqual(companion.y + companion.height);
+}
+
+/** Colonne tactile, de haut en bas : plein écran, marteau, Casser (ou Poser), Sauter, Bulles. */
+function expectTouchColumn(boxes: readonly LayoutBox[]): void {
+  const column = ["plein écran", "marteau (colonne)", "Casser / Poser", "Sauter", "Bulles (colonne)"].map((n) => boxNamed(boxes, n));
+  for (let i = 1; i < column.length; i++) expect(column[i - 1]!.y + column[i - 1]!.height).toBeLessThanOrEqual(column[i]!.y);
+  const bar = boxNamed(boxes, "barre");
+  expect(column[column.length - 1]!.y + column[column.length - 1]!.height).toBeLessThanOrEqual(bar.y + bar.height);
+}
+
+test("mise en page, partie d'enfant : ronds du haut avec et sans « Tests », bandeau de Pixel avec un prénom de 10 lettres, barre à 10 cases, colonne tactile dans l'ordre ; rien ne se chevauche @tactile", async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  const vp = page.viewportSize()!;
+  const touch = isTouch(testInfo);
+  // Mission 2 à l'étape du prénom (le plus long des modèles : 10 lettres), marteau déjà découvert.
+  const prepare = (devTools: boolean) =>
+    page.evaluate((dt) => {
+      localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+        { name: "Maximilien", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+        { name: "Tom", level: "autonome", voice: false, avatar: 2, tutorialDone: true },
+      ] }));
+      localStorage.setItem("cubes:reglages", JSON.stringify({ night: "normale", creatures: true, devTools: dt }));
+      localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+        version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+        player: { x: 16.5, y: 4, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [[6, 6], [3, 4]] }, phase: 0.1, savedAt: Date.now(),
+        mission: { id: "mots", step: 4, counts: {}, words: ["AMI", "LUNE", "TOIT"] },
+      }));
+    }, devTools);
+  const play = async () => {
+    await page.reload();
+    await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+    await press(page, page.locator('.profile-card[data-profile="p1"]'), testInfo);
+    await press(page, page.locator('.slot-card[data-slot="0"]'), testInfo);
+    await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+    expect(await writingTarget(page)).toBe("MAXIMILIEN");
+    await expect(page.locator(".companion")).toBeVisible();
+    await expect(page.locator(".slot.letters")).toBeVisible();
+  };
+  const check = async (label: string): Promise<LayoutBox[]> => {
+    const boxes = await layoutBoxes(page, HUD_LAYOUT);
+    expect(layoutProblems(boxes, vp), label).toEqual([]);
+    await expectCompanionModel(page, boxes, 10);
+    // Dix cases dans la barre, assez grandes pour un doigt.
+    const bar = boxNamed(boxes, "barre");
+    const cells = page.locator(".hotbar .slot:visible");
+    await expect(cells).toHaveCount(10);
+    for (const c of await cells.all()) {
+      const b = (await c.boundingBox())!;
+      expect(inside(b, bar)).toBe(true);
+      expect(b.width).toBeGreaterThanOrEqual(44);
+    }
+    if (touch) expectTouchColumn(boxes);
+    else expect(boxes.some((b) => b.name === "rond pour marcher")).toBe(false);
+    // Ronds du haut, du bord vers le centre : vue, accueil, Bulles, marteau.
+    const row = ["rond vue", "rond accueil", "rond Bulles", "rond marteau"].map((n) => boxNamed(boxes, n));
+    for (let i = 1; i < row.length; i++) expect(row[i]!.x + row[i]!.width).toBeLessThanOrEqual(row[i - 1]!.x);
+    return boxes;
+  };
+
+  // Avec « Tests » (l'adulte l'a rallumé) : ligne d'infos et cinq ronds, le bandeau n'en touche aucun.
+  await prepare(true);
+  await play();
+  let boxes = await check("avec Tests");
+  expect(boxes.map((b) => b.name)).toEqual(expect.arrayContaining(["ligne d'infos", "Tests"]));
+  expect(boxNamed(boxes, "rond vue").x + boxNamed(boxes, "rond vue").width).toBeLessThanOrEqual(boxNamed(boxes, "Tests").x);
+  await page.screenshot({ path: testInfo.outputPath("mise-en-page-avec-tests.png") });
+
+  // Sans « Tests » (réglage par défaut des parties d'enfant) : les ronds se rangent contre le bord.
+  await press(page, page.locator(".home-btn"), testInfo);
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  await prepare(false);
+  await play();
+  boxes = await check("sans Tests");
+  expect(boxes.some((b) => b.name === "Tests" || b.name === "ligne d'infos")).toBe(false);
+  const eye = boxNamed(boxes, "rond vue");
+  expect(vp.width - (eye.x + eye.width)).toBeLessThan(20);
+  await page.screenshot({ path: testInfo.outputPath("mise-en-page-sans-tests.png") });
+  expect(errors).toEqual([]);
+});
+
+test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la barre), aide d'écran et modèle du mot sans chevauchement ; panneau de fabrication au-dessus des 10 cases ; boîte à lettres entière dans l'écran @tactile", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  const vp = page.viewportSize()!;
+  await skipStep(page);
+  const target = await writingTarget(page);
+  // La lettre choisie dans la même tâche que la mesure : son nom (1,8 s) est bien compté.
+  const boxes = await layoutBoxes(page, HUD_LAYOUT, "M");
+  expect(layoutProblems(boxes, vp)).toEqual([]);
+  expect(boxes.map((b) => b.name)).toEqual(expect.arrayContaining(["nom du bloc", "aide d'écran", "barre", "bandeau de Pixel"]));
+  await expect(page.locator(".slot-name")).toHaveText("lettre M");
+  await expectCompanionModel(page, boxes, target.length);
+  if (isTouch(testInfo)) {
+    expectTouchColumn(boxes);
+    await expect(page.locator(".touch-buttons > .touch-btn").first()).toHaveText("Poser");
+  }
+  // L'aide d'écran du PC tient sur une ligne (« … · F : fabriquer · 0 : lettres »).
+  if (!isTouch(testInfo)) {
+    await expect(page.locator(".hint")).toContainText("0 : lettres");
+    expect(boxNamed(boxes, "aide d'écran").height).toBeLessThan(24);
+  }
+  await page.screenshot({ path: testInfo.outputPath("mission-2-lettre-en-main.png") });
+
+  // Panneau de fabrication : la feuille juste au-dessus de la barre à 10 cases, ses cartes entières dans l'écran ;
+  // la barre reste touchable (au-dessus du voile).
+  await page.evaluate(() => window.cubesDebug.give(6, 2));
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
+  const sheet = (await page.locator(".craft-sheet").boundingBox())!;
+  const bar = (await page.locator(".hotbar").boundingBox())!;
+  expect(sheet.y + sheet.height).toBeLessThanOrEqual(bar.y);
+  expect(inside(sheet, { x: 0, y: 0, width: vp.width, height: vp.height })).toBe(true);
+  const cards = page.locator(".craft-card");
+  await expect(cards).toHaveCount(3);
+  for (const c of await cards.all()) {
+    const b = (await c.boundingBox())!;
+    expect(b.width).toBeGreaterThanOrEqual(200);
+    expect(b.height).toBeGreaterThanOrEqual(160);
+    expect(inside(b, { x: 0, y: 0, width: vp.width, height: vp.height })).toBe(true);
+  }
+  const abcOnTop = await page.evaluate(() => {
+    const r = document.querySelector(".slot.letters")!.getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest(".hotbar") !== null;
+  });
+  expect(abcOnTop).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("mission-2-fabrication.png") });
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+
+  // Boîte à lettres : 26 lettres d'au moins 64 px, le modèle du mot et la croix, tout dans l'écran, sans défilement.
+  expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+  await expect(page.locator(".letter-tray")).toBeVisible();
+  const card = (await page.locator(".letter-tray-card").boundingBox())!;
+  expect(inside(card, { x: 0, y: 0, width: vp.width, height: vp.height })).toBe(true);
+  const keys = page.locator(".tray-key");
+  await expect(keys).toHaveCount(26);
+  for (const k of await keys.all()) {
+    const b = (await k.boundingBox())!;
+    expect(b.width).toBeGreaterThanOrEqual(64);
+    expect(b.height).toBeGreaterThanOrEqual(64);
+    expect(inside(b, card)).toBe(true);
+  }
+  for (const sel of [".letter-tray-close", ".letter-tray-model"]) expect(inside((await page.locator(sel).boundingBox())!, card)).toBe(true);
+  const scrolls = await page.evaluate(() => {
+    const c = document.querySelector(".letter-tray-card")!;
+    return c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1;
+  });
+  expect(scrolls).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath("mission-2-boite.png") });
+  expect(errors).toEqual([]);
+});

@@ -303,10 +303,11 @@ canvas.game {
   width: 92%;
   height: auto;
 }
+/* Lettre tenue : un peu à droite, pour laisser la touche « 0 » lisible dans son coin ; la légende dessous. */
 .slot.letters canvas.letters-tile {
-  width: 70%;
-  height: 70%;
-  margin-bottom: 18%;
+  width: 60%;
+  height: 60%;
+  margin: 0 0 20% 18%;
 }
 /* Légende « ABC » sous la lettre tenue. */
 .slot.letters .letters-caption {
@@ -595,6 +596,10 @@ canvas.game {
   /* Au-dessus du nom du bloc tenu (.slot-name). */
   bottom: calc(14px + var(--slot) + 76px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
+  /* Sur une ligne tant qu'elle tient (V2 : « F : fabriquer · 0 : lettres » au PC), sans jamais atteindre le rond
+     (178 px du bord gauche) ni la colonne de boutons (112 px du bord droit), qui sont à sa hauteur au doigt. */
+  width: max-content;
+  max-width: max(260px, calc(100vw - 380px));
   font-size: 13px;
   opacity: 0.85;
   text-shadow: 0 1px 2px #000;
@@ -944,6 +949,19 @@ canvas.game {
   .companion {
     top: 66px;
     max-width: calc(100vw - 24px);
+  }
+}
+/* Ligne d'infos visible (mode adresse, ou « Tests » rallumé par l'adulte) : elle descend jusqu'à 96 px et mesure
+   environ 350 px de large (un peu plus quand le jeu rame). Le bandeau ne la chevauche pas (V2) : plus étroit
+   au-dessus de 1100 px (400 px gardés de chaque côté), en dessous d'elle sinon. */
+@media (min-width: 1101px) {
+  .hud:not(.no-devtools) .companion {
+    max-width: min(560px, calc(100vw - 800px));
+  }
+}
+@media (max-width: 1100px) {
+  .hud:not(.no-devtools) .companion {
+    top: 104px;
   }
 }
 .companion-face {
