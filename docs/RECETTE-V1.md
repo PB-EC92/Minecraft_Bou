@@ -65,7 +65,7 @@ Légende : **livré** ; **partiel** (livré avec une réserve) ; **absent** ; **
 | Tactile « moitié gauche = joystick » | différent | Joystick fixe en bas à gauche (J3) |
 | Durée de la nuit réglable | différent | Trois choix : normale, courte, pas de nuit |
 | Sauvegarde « compressée par plages » | différent | Écart avec le monde régénéré, en base64 (quelques ko) |
-| Rappel d'export régulier | livré (J8) | Date du dernier export dans le mode parent ; rappel avec « Exporter maintenant » si des mondes n'ont jamais été exportés, ou après plus de 7 jours |
+| Rappel d'export régulier | livré (J8) | Date du dernier export dans le mode parent ; rappel avec « Exporter maintenant » si des mondes n'ont jamais été exportés, ou après plus de 7 jours, ou si la date du dernier export est incertaine (plus d'un jour dans le futur) |
 | Mode parent : longueur des phrases | différent | Portée par le niveau de lecture |
 | Mode parent : plage de nombres | absent | Sans effet sur la mission 1 ; backlog V2 (missions de mathématiques) |
 | Compagnon : bulle de dialogue | différent | Bandeau en haut de l'écran |

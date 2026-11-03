@@ -14,11 +14,11 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 
 | Vérification | Convertible |
 |---|---|
-| Sac bien rempli : garder le doigt **une seconde** sur une case. Un anneau se remplit **au-dessus** de la case (visible malgré le doigt), puis « pouf » : la case est vidée. Noter : menu contextuel de Firefox ? appui coupé vers 1 s sans vider (Windows annule le toucher) ? | |
+| Sac bien rempli : garder le doigt **une seconde** sur une case. Un anneau se remplit **au-dessus** de la case (visible malgré le doigt), puis « pouf » : la case est vidée. Noter : menu contextuel de Firefox ? Si Windows montre son carré de clic droit ou interrompt le geste vers 1 s, la case doit **quand même se vider** (parade faite après la revue : un toucher annulé après 0,9 s compte comme un appui allé au bout) ; si elle se vide avant la fin de l'anneau, le noter | |
 | Toucher bref sur une case : elle est choisie, aucun anneau ; doigt qui glisse le long de la barre : rien n'est vidé | |
 | Lampe et blocs arc-en-ciel : pas d'anneau, le jeu dit de les garder (« Garde ta lampe ! ») ; pendant l'étape « 6 troncs », les troncs ne se vident pas (« Garde tes troncs ! ») | |
 | Sac plein : le jeu conseille une case à vider, qui palpite | |
-| Déplié, clavier : garder la touche **3** une seconde vide la case 3 ; la relâcher avant ne vide rien. Souris non capturée : garder le clic une seconde sur une case la vide | |
+| Déplié, clavier : garder la touche **3** une seconde vide la case 3 ; la relâcher avant ne vide rien ; de même panneau de fabrication ouvert (la ligne d'état du panneau le dit). Souris non capturée : garder le clic une seconde sur une case la vide | |
 
 ### Fabrication et verre
 
@@ -27,10 +27,12 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 | Partie d'enfant, nouveau monde : pas de marteau avant l'étape abri ; à l'étape abri, Pixel le présente (après au moins 15 s) et il brille (rond du haut et bouton orange de la colonne, sous le plein écran) | |
 | Toucher le marteau : panneau de trois cartes ; toucher « Planches » : 1 tronc → 2 planches ; au deuxième tronc, le débutant voit « 2 + 2 = 4 planches ! » (et l'entend) | |
 | Garder le doigt sur une carte : **une seule** fabrication, pas de menu contextuel ; glisser le doigt sur le panneau : la vue ne tourne pas ; le voile ou la croix ferment ; rien n'a été cassé ni posé derrière | |
-| 2 planches → 1 clôture ; 1 sable → 2 verres. Carte impossible : elle tremble et le panneau dit pourquoi | |
+| 2 planches → 1 clôture ; 1 sable → 2 verres. Carte impossible : elle tremble et le panneau dit pourquoi ; panneau ouvert sac plein, sans aucune carte possible : « Sac plein : vide une case ! » et la case à vider remue | |
+| Panneau ouvert, appui long d'une seconde sur une case : l'anneau se voit **entre la barre et la feuille**, sans masquer la consigne du panneau ; la case est vidée | |
+| Appareil tenu à deux mains, le **pouce posé sur le bord de l'écran** (sur le voile) pendant qu'un doigt de l'autre main touche une carte : la carte fabrique, rien ne se ferme au lever du pouce. Même essai avec une paume posée d'abord sur le voile | |
 | Déplié : **F** ouvre et ferme ; **Échap en plein écran** : noter si Firefox quitte d'abord le plein écran, et si le panneau se ferme ; après fermeture, un clic recapture la souris (« Clique pour jouer ») | |
 | Verre posé, **de jour puis de nuit** : on voit à travers, on ne passe pas ; « On voit à travers ! » à la première vitre | |
-| **Aquarium** (bassin d'eau entouré de verre) et **maison de verre** (murs et toit) : rien ne disparaît selon l'angle ; noter les défauts (vitres qui en cachent d'autres, halo de lampe ou bulles teintés derrière une vitre) | |
+| **Aquarium** (bassin d'eau entouré de verre) et **maison de verre** (murs et toit) : rien ne disparaît selon l'angle ; vue de dehors ou d'au-dessus, la vitre du fond et un verre posé au fond de l'eau sont teintés par l'eau ; vues de l'intérieur sous l'eau, les vitres restent nettes ; noter les défauts (vitres qui en cachent d'autres, halo de lampe ou bulles teintés derrière une vitre, bulle ou halo devant une vitre dessiné derrière son cadre) | |
 | Images par seconde (ligne d'infos) en regardant à travers plusieurs vitres, de près et de loin | |
 
 ### Mission 2 « Les mots » (avec chaque enfant)
@@ -40,7 +42,11 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 | Mission 1 finie (souvent la nuit) : après « Continuer », Pixel dit qu'on écrira demain ; le temps file jusqu'au matin, sans carillon ; la mission 2 commence au matin | |
 | Case **ABC** au bout de la barre : la toucher ouvre la boîte. **Portrait puis paysage** : les 26 lettres tiennent dans l'écran, sans défilement, assez grosses pour le doigt | |
 | Choisir une lettre : la voix dit son **nom** (« emme », « erre ») ; la lettre est en main (mode Poser) ; elle se pose sous la croix | |
-| Débutant : le mot est montré dans le bandeau (syllabes) ; des **cases claires** dans le monde, à quelle distance (prévu : 4 à 7 blocs) ; sans progrès, l'aide monte jusqu'à mettre la lettre dans la main (vers 50 s) | |
+| Boîte ouverte, appareil tenu à deux mains : le **pouce posé sur le voile** pendant qu'un doigt touche une lettre : la lettre est choisie, la boîte ne se ferme pas au lever du pouce. Après un geste de Windows (balayage depuis un bord, puis retour au jeu), la boîte répond toujours au doigt | |
+| Débutant : le mot est montré dans le bandeau (syllabes) ; des **cases claires** dans le monde, à quelle distance (prévu : 3 à 6 blocs, toujours posables sans bouger) ; sans progrès, l'aide monte jusqu'à mettre la lettre dans la main (vers 50 s) | |
+| Débutant, au doigt : la lettre posée tombe-t-elle bien **dans la case visée** ? Une mauvaise lettre dans la première case claire : « Ici, il faut un … », contour orange, et la ligne ne bouge pas | |
+| Trois mots écrits de suite **sans bouger** : chaque mot a sa ligne, lisible, jamais derrière le mot d'avant ; s'il n'y a plus de cases claires, Pixel dit la lettre suivante, et en tournant la tête des cases claires apparaissent | |
+| Écrire son prénom pendant les mots 1 à 3 : l'étape « prénom » est validée dès son début | |
 | Autonome : le mot est **dicté, pas écrit**, et lu **même voix coupée** (mots dictés et indices seulement) ; les mots sont-ils compris avec la voix du convertible ? un indice de plus toutes les 30 s ou à chaque essai | |
 | Prénom (étape 4) : écrit sans accent ; pour un prénom à accents, copie du prénom en capitales | |
 | **Lisibilité des lettres** posées, à 5, 15 et 30 blocs, de jour et le soir (17 h) | |
@@ -60,7 +66,7 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 
 ### Séance enfants J8
 
-Profil 6 ans d'abord, seul, sur un monde dont la mission 1 est finie (ou un nouveau monde : la mission 1 puis la mission 2). Noter chaque appel à l'aide et sa raison. À observer : vide-t-il des cases sans le vouloir (appui long) ? Trouve-t-il le marteau, comprend-il les cartes et l'addition ? Que fait-il du verre ? Comprend-il la case ABC et la boîte ? Recopie-t-il le mot avec les cases claires ? Combien de temps par mot ? Puis le profil 8 ans : la dictée est-elle comprise, trop facile, trop longue ? Les deux : la mission 2 les amuse-t-elle ?
+Profil 6 ans d'abord, seul, sur un monde dont la mission 1 est finie (ou un nouveau monde : la mission 1 puis la mission 2). Noter chaque appel à l'aide et sa raison. À observer : vide-t-il des cases sans le vouloir (appui long) ? Trouve-t-il le marteau (dans un monde dont la mission 1 est finie, il brille, mais Pixel n'en parle pas : le trouve-t-il seul ?), comprend-il les cartes et l'addition ? Que fait-il du verre ? Comprend-il la case ABC et la boîte ? Recopie-t-il le mot avec les cases claires ? Combien de temps par mot ? Puis le profil 8 ans : la dictée est-elle comprise, trop facile, trop longue ? Les deux : la mission 2 les amuse-t-elle ?
 
 ## Séance du … — J8
 
