@@ -2095,7 +2095,7 @@ test("au doigt : garder le doigt une seconde sur une case la vide ; un doigt qui
   expect(errors).toEqual([]);
 });
 
-test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un appui allé au bout ; avant, la case est gardée ; lampe toujours gardée @tactile", async ({ page, context }, testInfo) => {
+test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un appui allé au bout, que la fenêtre perde le focus avant ou après ; avant, la case est gardée ; lampe toujours gardée @tactile", async ({ page, context }, testInfo) => {
   test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page);
   await page.evaluate(() => {
@@ -2103,11 +2103,14 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
     window.cubesDebug.give(3, 4); // pierre, case 2
     window.cubesDebug.give(5, 4); // sable, case 3
     window.cubesDebug.give(13, 1); // lampe, case 4
+    window.cubesDebug.give(4, 4); // planches, case 5
+    window.cubesDebug.give(6, 4); // troncs, case 6
   });
   // Doigt posé sur la case i, gardé ms millisecondes puis annulé par le système, dans une seule tâche de la page :
   // aucune image ne passe pendant l'appui, le jeu ne le voit donc jamais plein avant l'annulation (seule celle-ci
-  // peut vider la case). blur : la fenêtre perd aussi le focus juste après. Rend l'appui que garde la barre.
-  const cancelAfter = (i: number, ms: number, blur = false) =>
+  // peut vider la case). blur : la fenêtre perd aussi le focus, juste après l'annulation ou juste avant. Rend l'appui
+  // que garde la barre.
+  const cancelAfter = (i: number, ms: number, blur: "after" | "before" | null = null) =>
     page.evaluate(
       ([slot, wait, lose]) => {
         const target = document.querySelectorAll(".hotbar .slot")[slot]!;
@@ -2118,8 +2121,9 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
         while (performance.now() - t0 < wait) {
           // doigt immobile
         }
+        if (lose === "before") window.dispatchEvent(new Event("blur"));
         target.dispatchEvent(new TouchEvent("touchcancel", { bubbles: true, cancelable: false, touches: [], changedTouches: [t] }));
-        if (lose) window.dispatchEvent(new Event("blur"));
+        if (lose === "after") window.dispatchEvent(new Event("blur"));
         return window.cubesDebug.state().slotHold;
       },
       [i, ms, blur] as const,
@@ -2132,9 +2136,15 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
   expect(await cancelAfter(1, 950)).toEqual({ slot: 1, progress: 1, source: "touch" });
   await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
   await expect(page.locator(".message")).toContainText("Case vidée");
-  // Même chose si la fenêtre perd le focus avec l'annulation (geste du système).
-  expect(await cancelAfter(2, 950, true)).toEqual({ slot: 2, progress: 1, source: "touch" });
+  // Même chose si la fenêtre perd le focus avec l'annulation (geste du système), juste après elle ou juste avant.
+  expect(await cancelAfter(2, 950, "after")).toEqual({ slot: 2, progress: 1, source: "touch" });
   await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+  expect(await cancelAfter(4, 950, "before")).toEqual({ slot: 4, progress: 1, source: "touch" });
+  await expect.poll(async () => invCount(await state(page), B.planks), { timeout: 10_000 }).toBe(0);
+  // Focus perdu puis doigt annulé à 500 ms : l'appui est abandonné, la case reste pleine.
+  expect(await cancelAfter(5, 500, "before")).toBeNull();
+  await page.waitForTimeout(1300);
+  expect(invCount(await state(page), B.log)).toBe(4);
   // Mêmes règles qu'au bout de la seconde : la lampe n'est jamais vidée, le jeu le dit.
   await cancelAfter(3, 950);
   await expect(page.locator(".message")).toContainText("Garde ta lampe", { timeout: 10_000 });
@@ -3246,7 +3256,7 @@ test("mission 2, cases claires : une lettre fausse dans la première case est si
   expect(errors).toEqual([]);
 });
 
-test("mission 2 : pas de place à portée pour les cases claires là où regarde l'enfant : Pixel dit la lettre suivante, pas « Remplis les cases claires » ; la tête tournée, la ligne se trace", async ({ page }, testInfo) => {
+test("mission 2 : pas de place à portée pour les cases claires là où regarde l'enfant : Pixel dit la lettre suivante, puis de se tourner vers un sol plat, pas « Remplis les cases claires » ; la tête tournée, la ligne se trace", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   test.setTimeout(120_000);
   const errors = await openGame(page, M2);
@@ -3260,13 +3270,19 @@ test("mission 2 : pas de place à portée pour les cases claires là où regarde
   let s = await state(page);
   expect(s.writing).toMatchObject({ have: 0, ghosts: 0 });
   expect(s.writing!.help.ghostLine).toBe(true);
-  // 31 s sans progrès : l'aide des cases claires tombe, mais il n'y en a pas : la lettre suivante, sans parler de cases.
-  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
+  // 26 s sans progrès : la lettre suivante.
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(26_000))).toBe(true);
   await expect(page.locator(".message")).toContainText(`Maintenant, la lettre ${target[0]}`);
+  // 31 s : l'aide des cases claires tombe, mais il n'y en a pas : pas « Remplis les cases claires », ni la lettre
+  // suivante redite 5 s après, mais le geste qui fait tracer la ligne.
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(5_000))).toBe(true);
+  await expect(page.locator(".message")).toContainText("Tourne-toi vers un sol plat");
   s = await state(page);
   expect(s.writing?.ghosts).toBe(0);
-  expect(s.spoken.some((t) => t.includes("cases claires"))).toBe(false);
-  await expect(page.locator(".message")).not.toContainText("cases claires");
+  expect(s.spoken.at(-1)).toContain("Tourne-toi vers un sol plat");
+  expect(s.spoken.filter((t) => t.startsWith("Maintenant, la lettre"))).toHaveLength(1);
+  expect(s.spoken.some((t) => /Remplis les cases claires|Pose les lettres dans les cases claires/.test(t))).toBe(false);
+  await expect(page.locator(".message")).not.toContainText("Remplis");
   // Il se retourne (vers −Z, la place est libre) : la ligne se trace sans autre geste, et chaque case se vise d'ici.
   await page.evaluate(() => window.cubesDebug.look(0, 0));
   await expect.poll(async () => (await state(page)).writing?.ghosts, { timeout: 5000 }).toBe(target.length);
@@ -3311,6 +3327,55 @@ test("mission 2, étape « prénom » : un prénom déjà écrit devant l'enfant
   expect(s.words[3]).toBe("LEA");
   expect(s.spoken.some((t) => t.includes("Léa") && t.includes("Bravo"))).toBe(true);
   expect(s.spoken.some((t) => t.startsWith("Écris ton prénom") || t.startsWith("Maintenant"))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2, prénom de 10 lettres regardé droit devant, sol plat : la case suivante au palier 1, toute la ligne au palier 2, chaque lettre se pose sans bouger et le prénom est trouvé", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(150_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Maximilien", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    localStorage.setItem("cubes:reglages", JSON.stringify({ night: "normale", creatures: false, devTools: true }));
+    // Monde plat en mission 2, à l'étape « prénom », debout au milieu, regard droit devant (vers −Z).
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4.01, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(),
+      mission: { id: "mots", step: 4, counts: {}, words: ["AMI", "LUNE", "TOIT"] },
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  const target = await writingTarget(page);
+  expect(target).toBe("MAXIMILIEN");
+  await page.evaluate(() => window.cubesDebug.look(0, 0));
+  // Palier 1 (15 s sans rien poser) : la case de la première lettre, sans tourner la tête.
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(16_000))).toBe(true);
+  await expect.poll(async () => (await state(page)).writing?.ghosts, { timeout: 5000 }).toBe(1);
+  expect((await state(page)).writing?.stage).toBe(1);
+  // Palier 2 (30 s) : toute la ligne, et la consigne des cases claires (il y en a).
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(15_000))).toBe(true);
+  await expect.poll(async () => (await state(page)).writing?.ghosts, { timeout: 5000 }).toBe(10);
+  await expect(page.locator(".message")).toContainText("Remplis les cases claires");
+  const cells = (await state(page)).writing!.ghostCells;
+  const feet = (await state(page)).player;
+  // Devant lui (vers −Z) et en travers de son regard.
+  for (const [, , z] of cells) expect(z).toBeLessThan(feet.z - 1);
+  expect(Math.min(...cells.map((c) => c[0]))).toBeLessThan(feet.x);
+  expect(Math.max(...cells.map((c) => c[0]))).toBeGreaterThan(feet.x);
+  for (let k = 0; k < target.length; k++) {
+    expect(await aimAndPlace(page, cells[k]!, target[k]!), `${target[k]} en ${cells[k]!.join(", ")}`).toBe(true);
+  }
+  await expect.poll(async () => (await state(page)).words, { timeout: 10_000 }).toContain("MAXIMILIEN");
+  const after = (await state(page)).player;
+  expect([after.x, after.y, after.z]).toEqual([feet.x, feet.y, feet.z]);
   expect(errors).toEqual([]);
 });
 
@@ -3631,7 +3696,7 @@ test("boîte à lettres au doigt : un doigt dont la fin se perd ne la bloque pas
   expect(errors).toEqual([]);
 });
 
-test("au doigt, un pouce posé sur le voile pendant qu'un doigt touche une lettre ou une carte : la lettre est choisie, la carte fabrique, rien ne se ferme @tactile", async ({ page }, testInfo) => {
+test("au doigt, un pouce posé sur le voile pendant qu'un doigt touche une lettre, une carte ou une case de la barre : la lettre est choisie, la carte fabrique, l'appui long continue, rien ne se ferme @tactile", async ({ page }, testInfo) => {
   test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
   const errors = await openGame(page, M2);
   // Boîte à lettres : doigt 1 sur N, le pouce (2) se pose sur le voile, 1 se lève sur N, puis le pouce se lève.
@@ -3676,12 +3741,175 @@ test("au doigt, un pouce posé sur le voile pendant qu'un doigt touche une lettr
   await expect.poll(async () => invCount(await state(page), B.planks)).toBe(2);
   expect((await state(page)).craft.open).toBe(true);
   await expect(page.locator(".craft")).toBeVisible();
+  // Appui long sur une case de la barre (touchable au-dessus du voile, hors du panneau, qui ne voit pas ce doigt) et
+  // pouce sur le voile : le pouce levé ne ferme pas le panneau, qu'il se soit posé après le doigt de la case ou avant.
+  const planksSlot = (await state(page)).inventory.findIndex((c) => c?.id === B.planks);
+  expect(planksSlot).toBeGreaterThanOrEqual(0);
+  const SLOT = `.hotbar > .slot:nth-child(${planksSlot + 1})`;
+  await synthTouches(page, [
+    { type: "touchstart", id: 8, sel: SLOT, down: [8] },
+    { type: "touchstart", id: 9, sel: ".craft-backdrop", down: [8, 9] },
+    { type: "touchend", id: 9, sel: ".craft-backdrop", down: [8] },
+  ]);
+  await page.waitForTimeout(300);
+  let s = await state(page);
+  expect(s.craft.open).toBe(true);
+  expect(s.slotHold).toMatchObject({ slot: planksSlot, source: "touch" });
+  await synthTouches(page, [{ type: "touchend", id: 8, sel: SLOT, down: [] }]);
+  s = await state(page);
+  expect(s.slotHold).toBeNull();
+  expect(invCount(s, B.planks)).toBe(2);
+  // Pouce posé d'abord, puis appui long allé au bout (la case se vide), doigt levé, puis pouce levé.
+  await synthTouches(page, [
+    { type: "touchstart", id: 10, sel: ".craft-backdrop", down: [10] },
+    { type: "touchstart", id: 11, sel: SLOT, down: [10, 11] },
+  ]);
+  await expect.poll(async () => invCount(await state(page), B.planks), { timeout: 5000 }).toBe(0);
+  await synthTouches(page, [
+    { type: "touchend", id: 11, sel: SLOT, down: [10] },
+    { type: "touchend", id: 10, sel: ".craft-backdrop", down: [] },
+  ]);
+  await page.waitForTimeout(300);
+  expect((await state(page)).craft.open).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
   // Le voile seul, touché d'un doigt, ferme toujours le panneau.
   await synthTouches(page, [
     { type: "touchstart", id: 7, sel: ".craft-backdrop", down: [7] },
     { type: "touchend", id: 7, sel: ".craft-backdrop", down: [] },
   ]);
   await expect(page.locator(".craft")).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("au doigt, double toucher qui ferme la boîte ou le panneau : le second toucher, sur le jeu, ne pose ni la lettre ni le bloc en main ; un tapotement 500 ms plus tard pose @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page, M2);
+  await page.evaluate(() => window.cubesDebug.look(0, -50));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const N = letterId("N");
+  // Double toucher sur N : le premier lever choisit N, ferme la boîte et passe en mode Poser ; le second toucher
+  // tombe sur le jeu tout de suite après.
+  expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  await synthTouches(page, [
+    { type: "touchstart", id: 1, sel: '.tray-key[data-letter="N"]', down: [1] },
+    { type: "touchend", id: 1, sel: '.tray-key[data-letter="N"]', down: [] },
+    { type: "touchstart", id: 2, sel: "canvas.game", down: [2] },
+    { type: "touchend", id: 2, sel: "canvas.game", down: [] },
+  ]);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  let s = await state(page);
+  expect(s.letters).toMatchObject({ open: false, hand: "N" });
+  expect(s.touchMode).toBe("place");
+  await page.waitForTimeout(300);
+  expect(await page.evaluate((id) => window.cubesDebug.countBlocks(id), N)).toBe(0);
+  // 500 ms après la fermeture : un tapotement sur le jeu pose bien la lettre.
+  await page.waitForTimeout(250);
+  await synthTouches(page, [
+    { type: "touchstart", id: 3, sel: "canvas.game", down: [3] },
+    { type: "touchend", id: 3, sel: "canvas.game", down: [] },
+  ]);
+  await expect.poll(() => page.evaluate((id) => window.cubesDebug.countBlocks(id), N)).toBe(1);
+  // Double toucher sur la croix de la boîte : rien n'est posé non plus.
+  expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  await synthTouches(page, [
+    { type: "touchstart", id: 4, sel: ".letter-tray-close", down: [4] },
+    { type: "touchend", id: 4, sel: ".letter-tray-close", down: [] },
+    { type: "touchstart", id: 5, sel: "canvas.game", down: [5] },
+    { type: "touchend", id: 5, sel: "canvas.game", down: [] },
+  ]);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate((id) => window.cubesDebug.countBlocks(id), N)).toBe(1);
+  // Panneau de fabrication, de l'herbe en main, mode Poser : double toucher sur la croix, rien n'est posé ; puis un
+  // tapotement 500 ms plus tard pose un bloc.
+  await page.evaluate(() => window.cubesDebug.give(1, 20));
+  s = await state(page);
+  const grassSlot = s.inventory.findIndex((c) => c?.id === B.grass);
+  await synthTouches(page, [
+    { type: "touchstart", id: 6, sel: `.hotbar > .slot:nth-child(${grassSlot + 1})`, down: [6] },
+    { type: "touchend", id: 6, sel: `.hotbar > .slot:nth-child(${grassSlot + 1})`, down: [] },
+  ]);
+  s = await state(page);
+  expect(s.slot).toBe(grassSlot);
+  expect(s.touchMode).toBe("place");
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
+  await page.waitForTimeout(500); // armé 400 ms après l'ouverture
+  await synthTouches(page, [
+    { type: "touchstart", id: 7, sel: ".craft-close", down: [7] },
+    { type: "touchend", id: 7, sel: ".craft-close", down: [] },
+    { type: "touchstart", id: 8, sel: "canvas.game", down: [8] },
+    { type: "touchend", id: 8, sel: "canvas.game", down: [] },
+  ]);
+  await expect(page.locator(".craft")).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(invCount(await state(page), B.grass)).toBe(20);
+  await page.waitForTimeout(250);
+  await synthTouches(page, [
+    { type: "touchstart", id: 9, sel: "canvas.game", down: [9] },
+    { type: "touchend", id: 9, sel: "canvas.game", down: [] },
+  ]);
+  await expect.poll(async () => invCount(await state(page), B.grass)).toBe(19);
+  expect(errors).toEqual([]);
+});
+
+test("au doigt, double toucher sur « Continuer » des félicitations : le second toucher ne pose pas le bloc en main @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  test.setTimeout(120_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    // Monde plat dont la mission 1 est finie, félicitations pas encore vues ; de l'herbe dans le sac, de jour.
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4.01, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [[1, 20]] }, phase: 0.4, savedAt: Date.now(),
+      mission: { id: "abri", step: 6, counts: {} }, celebrate: true,
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await expect(page.locator(".celebration")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".celebration-button")).toBeEnabled({ timeout: 5_000 });
+  await page.evaluate(() => window.cubesDebug.look(0, -50));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  // Mode Poser (bouton Casser / Poser), l'herbe en main.
+  await page.evaluate(() => {
+    const mode = Array.from(document.querySelectorAll(".touch-btn")).find((b) => b.textContent === "Casser")!;
+    mode.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true }));
+  });
+  let s = await state(page);
+  expect(s.touchMode).toBe("place");
+  expect(s.inventory[s.slot]).toMatchObject({ id: B.grass, count: 20 });
+  // Le premier toucher ferme l'écran (clic qui suit le lever), le second tombe sur le jeu tout de suite après.
+  await synthTouches(page, [
+    { type: "touchstart", id: 1, sel: ".celebration-button", down: [1] },
+    { type: "touchend", id: 1, sel: ".celebration-button", down: [] },
+  ]);
+  await page.evaluate(() => (document.querySelector(".celebration-button") as HTMLButtonElement).click());
+  await synthTouches(page, [
+    { type: "touchstart", id: 2, sel: "canvas.game", down: [2] },
+    { type: "touchend", id: 2, sel: "canvas.game", down: [] },
+  ]);
+  await expect(page.locator(".celebration")).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(invCount(await state(page), B.grass)).toBe(20);
+  // 500 ms après la fermeture : un tapotement pose bien le bloc.
+  await page.waitForTimeout(250);
+  await synthTouches(page, [
+    { type: "touchstart", id: 3, sel: "canvas.game", down: [3] },
+    { type: "touchend", id: 3, sel: "canvas.game", down: [] },
+  ]);
+  await expect.poll(async () => invCount(await state(page), B.grass)).toBe(19);
+  s = await state(page);
+  expect(s.celebration).toBe(false);
   expect(errors).toEqual([]);
 });
 

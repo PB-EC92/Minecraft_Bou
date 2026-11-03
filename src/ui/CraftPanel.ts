@@ -188,6 +188,18 @@ export class CraftPanel {
     this.root.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
     // Fenêtre qui perd le focus : le doigt suivi est oublié (sa fin risque de ne jamais arriver), la carte relâchée.
     window.addEventListener("blur", () => this.forgetTouch());
+    // Un doigt qui se pose hors du panneau (sur la barre, qui reste touchable au-dessus du voile et ne laisse pas
+    // passer ses touchers) : un pouce posé avant sur le voile ne fermera pas le panneau en se levant. Écouté en
+    // capture sur la fenêtre, avant que la barre n'arrête le toucher.
+    window.addEventListener(
+      "touchstart",
+      (e) => {
+        if (!this.visible || this.touch?.target?.kind !== "close") return;
+        if (e.target instanceof Node && this.root.contains(e.target)) return;
+        this.forgetTouch();
+      },
+      { capture: true, passive: true },
+    );
 
     parent.appendChild(this.root);
   }
@@ -377,11 +389,12 @@ export class CraftPanel {
     const f = e.changedTouches.item(0);
     if (!f) return;
     const target = this.targetOf(f.target);
-    // Un pouce qui tient l'appareil, posé sur le voile (ou sur rien qui agisse) pendant que le doigt suivi est encore
-    // posé : il ne reprend pas le geste (la carte touchée fabrique au lever du doigt, le panneau ne se ferme pas au
-    // lever du pouce).
+    // Un pouce qui tient l'appareil, posé sur le voile (ou sur rien qui agisse) pendant qu'un autre doigt est posé
+    // (le doigt suivi, ou un doigt sur la barre, que le panneau ne voit pas) : il ne reprend pas le geste (la carte
+    // touchée fabrique au lever du doigt, l'appui long sur une case continue, le panneau ne se ferme pas au lever du
+    // pouce).
     const passive = target === null || f.target === this.backdrop;
-    if (passive && this.touch && findTouch(e.touches, this.touch.id)) return;
+    if (passive && e.touches.length > 1) return;
     // Sinon, un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Un doigt dont la fin s'est
     // perdue (geste du système) ou une paume posée d'abord sur le voile ne bloquent donc jamais le panneau (sous son
     // voile, la croix et les cartes seraient sans réponse au doigt ; elles répondent toujours).

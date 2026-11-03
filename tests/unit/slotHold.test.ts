@@ -4,6 +4,7 @@ import {
   SLOT_HOLD_MOVE_PX,
   SLOT_HOLD_MS,
   SLOT_HOLD_SHOW_MS,
+  slotHoldAfterBlur,
   slotHoldAfterCancel,
   slotHoldMoved,
   slotHoldProgress,
@@ -74,6 +75,25 @@ describe("appui long sur une case (V2)", () => {
     expect(slotHoldAfterCancel(h, 4000)!.since).toBe(1000);
     expect(slotHoldAfterCancel(h, 1950)!.since).toBe(1950 - SLOT_HOLD_MS);
     expect(h.since).toBe(1000);
+  });
+
+  it("fenêtre qui perd le focus : appui plein gardé ; doigt tenu 900 ms mené au bout (la perte de focus peut précéder le touchcancel) ; sinon abandonné", () => {
+    const finger = startSlotHold(5, 1000, "touch", 120, 900, 7);
+    expect(slotHoldAfterBlur(finger, 1500)).toBeNull();
+    expect(slotHoldAfterBlur(finger, 1000 + SLOT_HOLD_CANCEL_OK_MS - 1)).toBeNull();
+    const kept = slotHoldAfterBlur(finger, 1950);
+    expect(kept).toMatchObject({ slot: 5, source: "touch", pointer: 7 });
+    expect(slotHoldProgress(kept!, 1950)).toBe(1);
+    // Le touchcancel qui suit trouve l'appui, plein : il le garde plein (la case sera vidée à l'image suivante).
+    expect(slotHoldProgress(slotHoldAfterCancel(kept!, 1960)!, 1960)).toBe(1);
+    // Un appui plein (la seconde écoulée) reste tel quel, quelle que soit son origine.
+    for (const source of ["mouse", "touch", "key"] as const) {
+      const h = startSlotHold(1, 0, source);
+      expect(slotHoldAfterBlur(h, SLOT_HOLD_MS)).toBe(h);
+    }
+    // Souris et clavier, pas encore pleins : abandonnés, même après 900 ms.
+    expect(slotHoldAfterBlur(startSlotHold(2, 0, "mouse", 10, 10), 950)).toBeNull();
+    expect(slotHoldAfterBlur(startSlotHold(2, 0, "key", 0, 0, "Digit3"), 950)).toBeNull();
   });
 
   it("souris et clavier n'ont pas d'annulation par le système : rien n'est mené au bout", () => {

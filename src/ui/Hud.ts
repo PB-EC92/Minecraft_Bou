@@ -5,9 +5,9 @@ import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
 import { blockIcon, tileIcon } from "../render/textures";
 import {
+  slotHoldAfterBlur,
   slotHoldAfterCancel,
   slotHoldMoved,
-  slotHoldProgress,
   startSlotHold,
   type SlotHold,
   type SlotHoldSource,
@@ -254,11 +254,13 @@ export class Hud {
       true,
     );
     // Fenêtre qui perd le focus : un appui en cours est abandonné ; un appui déjà allé au bout (seconde écoulée, ou
-    // doigt annulé par le système après 900 ms, peut-être avec ce même changement de focus) attend l'image suivante.
+    // doigt annulé par le système après 900 ms) attend l'image suivante. Un doigt tenu depuis 900 ms est mené au bout
+    // (slotHoldAfterBlur) : le même geste du système peut faire perdre le focus avant d'annuler le doigt.
     window.addEventListener("blur", () => {
       const h = this.hold;
-      if (h && slotHoldProgress(h, performance.now()) >= 1) return;
-      this.cancelSlotHold();
+      const kept = h ? slotHoldAfterBlur(h, performance.now()) : null;
+      if (kept) this.hold = kept;
+      else this.cancelSlotHold();
     });
     this.root.appendChild(this.hotbar);
 

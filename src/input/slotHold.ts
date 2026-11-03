@@ -9,7 +9,8 @@
  * qu'après SLOT_HOLD_SHOW_MS. Un glissé du doigt ou de la souris au-delà de
  * SLOT_HOLD_MOVE_PX annule l'appui (l'enfant regardait ou visait) ; un
  * tremblement du doigt ne compte pas. Un doigt annulé par le système après
- * SLOT_HOLD_CANCEL_OK_MS compte comme un appui allé au bout (slotHoldAfterCancel).
+ * SLOT_HOLD_CANCEL_OK_MS compte comme un appui allé au bout (slotHoldAfterCancel), que la fenêtre perde le focus
+ * avant ou après l'annulation (slotHoldAfterBlur).
  * Module pur, testé en Node.
  */
 
@@ -82,4 +83,15 @@ export function slotHoldProgress(h: SlotHold, now: number): number {
 export function slotHoldAfterCancel(h: SlotHold, now: number): SlotHold | null {
   if (h.source !== "touch" || !(now - h.since >= SLOT_HOLD_CANCEL_OK_MS)) return null;
   return { ...h, since: Math.min(h.since, now - SLOT_HOLD_MS) };
+}
+
+/**
+ * Fenêtre qui perd le focus pendant l'appui, à l'instant now. Un appui déjà plein reste tel quel (le jeu vide la case
+ * à l'image suivante). Un doigt tenu depuis SLOT_HOLD_CANCEL_OK_MS est mené au bout comme par slotHoldAfterCancel :
+ * sous Windows, la perte de focus d'un geste du système peut arriver avant son touchcancel, qui ne trouverait alors
+ * plus d'appui. Sinon (souris, touche, doigt posé depuis moins longtemps), l'appui est abandonné (null).
+ */
+export function slotHoldAfterBlur(h: SlotHold, now: number): SlotHold | null {
+  if (slotHoldProgress(h, now) >= 1) return h;
+  return slotHoldAfterCancel(h, now);
 }

@@ -86,6 +86,7 @@ describe("textes de la mission 2 (wordTexts.ts)", () => {
         "LETTER_IN_HAND_TOUCH",
         "LETTER_IN_HAND_MOUSE",
         "GHOST_LINE",
+        "GHOST_NO_PLACE",
         "NEXT_LETTER",
         "GIVE_LETTER",
         "WRONG_LETTER",
@@ -186,6 +187,19 @@ describe("textes de la mission 2 (wordTexts.ts)", () => {
     expect(plain(fillWord(wt.M2_STEP_NAME_COPY.text, wordVars("autonome", "LEA", "Léa")).autonome)).toBe(
       "Pour finir, écris ton prénom avec les lettres. Les lettres n'ont pas d'accent : écris LEA.",
     );
+  });
+
+  it("pas de case claire au seuil de la ligne : le geste qui la fait tracer, pas la lettre suivante redite", () => {
+    const t = fillSaid(wt.GHOST_NO_PLACE, DEB, DEB_SPOKEN);
+    expect(plain(t.text.debutant)).toBe("Tourne-toi vers un sol plat !");
+    expect(plain(t.spoken.debutant)).toBe("Tourne-toi vers un sol plat, sans rien devant toi : les cases claires vont apparaître.");
+    const a = fillSaid(wt.GHOST_NO_PLACE, AUT, AUT_SPOKEN);
+    expect(a.text.autonome).toBe("Pour voir les cases claires, tourne-toi vers un sol plat, sans rien devant toi.");
+    // Distinct de la lettre suivante (dite 5 s plus tôt) et de la consigne des cases claires.
+    for (const other of [wt.NEXT_LETTER, wt.GHOST_LINE]) {
+      expect(fillSaid(other, DEB, DEB_SPOKEN).spoken.debutant).not.toBe(t.spoken.debutant);
+      expect(fillSaid(other, AUT, AUT_SPOKEN).text.autonome).not.toBe(a.text.autonome);
+    }
   });
 
   it("réussite : épelé, le mot, puis sa phrase ; le prénom tel qu'enregistré", () => {

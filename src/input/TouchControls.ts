@@ -5,6 +5,14 @@ import { inJoystickZone, joystickVector, type Point } from "./touchZones";
 export type TouchMode = "break" | "place";
 
 /**
+ * Après la fermeture d'un écran posé sur le jeu au doigt (lettre choisie, boîte ou panneau fermés, félicitations) :
+ * un doigt qui se pose dans ce délai regarde mais ne pose ni ne casse (V2). Le second toucher d'un double toucher sur
+ * une lettre ou sur la croix tombe sinon sur le jeu, en mode Poser, et pose la lettre ou le bloc en main là où vise la
+ * croix. Même durée que l'armement de la boîte à l'ouverture (TRAY_ARM_MS).
+ */
+export const OVERLAY_CLOSE_GUARD_MS = 400;
+
+/**
  * Contrôles tactiles (J0, casse par appui maintenu au J2, zones revues au J3) :
  * - rond fixe en bas à gauche : joystick ; seul un toucher qui commence sur lui
  *   (ou tout près, voir touchZones) fait marcher ;
@@ -55,6 +63,10 @@ export class TouchControls {
   private lookLastY = 0;
   private lookStartTime = 0;
   private lookMoved = false;
+  /** Fin du délai qui suit la fermeture d'un écran posé sur le jeu (OVERLAY_CLOSE_GUARD_MS). */
+  private guardUntil = 0;
+  /** Doigts posés pendant ce délai : ils regardent, sans poser ni casser, jusqu'à ce qu'ils se lèvent. */
+  private readonly guarded = new Set<number>();
 
   private readonly actionHandlers: ((mode: TouchMode) => void)[] = [];
   private readonly releaseHandlers: ((press: BreakPress) => void)[] = [];
@@ -89,7 +101,9 @@ export class TouchControls {
       this.mode = this.mode === "break" ? "place" : "break";
       // Doigt qui regarde déjà posé et immobile : en passant en mode Casser, l'appui commence maintenant.
       this.breakPress =
-        this.mode === "break" && this.lookTouchId !== null ? newBreakPress(performance.now(), true, this.lookMoved) : null;
+        this.mode === "break" && this.lookTouchId !== null && !this.guarded.has(this.lookTouchId)
+          ? newBreakPress(performance.now(), true, this.lookMoved)
+          : null;
       this.updateModeButton();
       for (const h of this.modeHandlers) h(this.mode);
     });
@@ -188,6 +202,12 @@ export class TouchControls {
     this.prevLookId = null;
     this.breakPress = null;
     this.jumpPressed = false;
+    this.guarded.clear();
+  }
+
+  /** Un écran posé sur le jeu vient de se fermer : voir OVERLAY_CLOSE_GUARD_MS. */
+  guardAfterOverlay(now = performance.now()): void {
+    this.guardUntil = now + OVERLAY_CLOSE_GUARD_MS;
   }
 
   /** Change le mode Casser / Poser depuis le jeu (J6 : retour à Casser à la fin du tutoriel). */
@@ -242,7 +262,9 @@ export class TouchControls {
         this.lookLastY = this.anchorY = t.clientY;
         this.lookStartTime = performance.now();
         this.lookMoved = false;
-        this.breakPress = this.mode === "break" ? newBreakPress(this.lookStartTime, true) : null;
+        const guarded = this.lookStartTime < this.guardUntil;
+        if (guarded) this.guarded.add(t.identifier);
+        this.breakPress = this.mode === "break" && !guarded ? newBreakPress(this.lookStartTime, true) : null;
       }
     }
   }
@@ -266,7 +288,7 @@ export class TouchControls {
           this.lookMoved = true;
           this.anchorX = t.clientX;
           this.anchorY = t.clientY;
-          if (this.mode === "break") this.breakPress = newBreakPress(performance.now(), true, true);
+          if (this.mode === "break" && !this.guarded.has(t.identifier)) this.breakPress = newBreakPress(performance.now(), true, true);
         }
       }
     }
@@ -294,7 +316,7 @@ export class TouchControls {
         // Seuil aligné sur le clic souris (450 ms) : un enfant de 6 ans tapote plus lentement
         // qu'un adulte (constat 12 de l'audit J0). Casser se fait par appui maintenu (J2).
         const quick = performance.now() - this.lookStartTime < CLICK_MAX_MS;
-        if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend") {
+        if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend" && !this.guarded.has(t.identifier)) {
           for (const h of this.actionHandlers) h(this.mode);
         }
         const back = this.stillDown(e, this.prevLookId);
@@ -306,9 +328,10 @@ export class TouchControls {
           this.lookLastY = this.anchorY = back.clientY;
           this.lookStartTime = performance.now();
           this.lookMoved = true;
-          this.breakPress = this.mode === "break" ? newBreakPress(this.lookStartTime, true, true) : null;
+          this.breakPress = this.mode === "break" && !this.guarded.has(back.identifier) ? newBreakPress(this.lookStartTime, true, true) : null;
         }
       }
+      this.guarded.delete(t.identifier);
     }
   }
 

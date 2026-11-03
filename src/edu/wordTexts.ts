@@ -160,6 +160,22 @@ export const NEXT_LETTER: SaidTemplate = {
   },
 };
 
+/**
+ * Copie, au seuil de la ligne de cases claires (COPY_LINE_MS), quand aucune ligne ne se trace là où l'enfant regarde
+ * (mur, bord du monde, pente, eau, mots déjà écrits tout autour) : le geste qui la fait apparaître (le jeu réessaie
+ * dès qu'il tourne la tête), au lieu de redire la lettre suivante dite 5 s plus tôt.
+ */
+export const GHOST_NO_PLACE: SaidTemplate = {
+  text: {
+    debutant: `Tourne-toi vers un sol plat${NBSP}!`,
+    autonome: "Pour voir les cases claires, tourne-toi vers un sol plat, sans rien devant toi.",
+  },
+  spoken: {
+    debutant: `Tourne-toi vers un sol plat, sans rien devant toi${NBSP}: les cases claires vont apparaître.`,
+    autonome: "Pour voir les cases claires, tourne-toi vers un sol plat, sans rien devant toi.",
+  },
+};
+
 /** Lieu de la lettre donnée ({ou} de GIVE_LETTER) : dans le fantôme suivant s'il y en a un, sinon devant l'enfant. */
 export const PLACE_WHERE: { readonly ghost: string; readonly ahead: string } = {
   ghost: "dans la case claire",

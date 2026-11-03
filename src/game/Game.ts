@@ -57,6 +57,7 @@ import {
   EXTRA_LETTER,
   fillSaid,
   GHOST_LINE,
+  GHOST_NO_PLACE,
   GIVE_LETTER,
   HIDDEN_WORD,
   LEFT_TO_RIGHT,
@@ -1733,6 +1734,7 @@ export class Game {
       },
       () => {
         this.keyboard.clear();
+        this.touch.guardAfterOverlay(); // un double toucher sur « Continuer » ne pose rien
         this.paused = false;
         const now = performance.now();
         // Les Grignotes fuient encore la lampe : « Elles fuient la lampe ! », déjà dit, ne recouvre pas le message du cadeau.
@@ -1906,6 +1908,7 @@ export class Game {
     this.paused = false;
     this.keyboard.clear();
     this.touch.reset();
+    this.touch.guardAfterOverlay(); // un double toucher sur la croix ne pose rien
     this.mouse.cancelPress();
     this.updateHint();
     if (opts.silent) return;
@@ -2107,6 +2110,7 @@ export class Game {
     this.paused = false;
     this.keyboard.clear();
     this.touch.reset();
+    this.touch.guardAfterOverlay(); // un double toucher sur la croix ou le voile ne pose rien
     this.mouse.cancelPress();
     this.updateHint();
     if (!this.touchUi && !this.mouse.locked && !this.mouse.inFallback()) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
@@ -2121,6 +2125,7 @@ export class Game {
     this.paused = false;
     this.keyboard.clear();
     this.touch.reset();
+    this.touch.guardAfterOverlay(); // le second toucher d'un double toucher sur la lettre ne la pose pas
     this.mouse.cancelPress();
     const id = letterBlockId(ch);
     if (id === null || !this.lettersOn()) {
@@ -2428,12 +2433,9 @@ export class Game {
         return;
       }
       case "ghosts": {
-        // Aucune case claire montrée (pas de place à portée là où il regarde) : la lettre suivante, sans parler de cases.
-        if (this.ghostCount === 0) {
-          this.sayHelp(w, "next");
-          return;
-        }
-        const t = fillSaid(GHOST_LINE, base);
+        // Aucune case claire montrée (pas de place à portée là où il regarde) : le geste qui en fait tracer une (la
+        // lettre suivante vient d'être dite, à 25 s).
+        const t = fillSaid(this.ghostCount === 0 ? GHOST_NO_PLACE : GHOST_LINE, base);
         this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
         return;
       }
