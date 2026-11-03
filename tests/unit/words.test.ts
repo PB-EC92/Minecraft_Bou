@@ -815,8 +815,9 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
     expectReachable(w, at, plan!.cells, "prairie 2");
   });
 
-  it("mondes générés : chaque ligne proposée se pose case après case selon la règle du jeu (fleurs comprises)", () => {
+  it("mondes générés : chaque ligne proposée se pose case après case selon la règle du jeu (fleurs comprises), et le mot s'y lit de face", () => {
     let lines = 0;
+    const WORD = "MAXIMILIEN";
     for (const type of ["prairie", "desert"] as const) {
       for (const seed of [1, 2, 3]) {
         const w = generateWorld(type, seed).world;
@@ -833,7 +834,16 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
             const plan = planLine(w, at, yaw, len, 60, aimFrom(at));
             if (!plan) continue;
             lines++;
-            expectReachable(w, at, plan.cells, `${type} ${seed}, pieds ${bx},${y},${bz}, cap ${yaw}, ${len} lettres`);
+            const label = `${type} ${seed}, pieds ${bx},${y},${bz}, cap ${yaw}, ${len} lettres`;
+            expectReachable(w, at, plan.cells, label);
+            // Écrit dans ses cases, le mot se lit de face, dans ces cases-là ; puis le monde est remis comme avant.
+            const word = WORD.slice(0, len);
+            const before = plan.cells.map(([x, cy, z]) => w.get(x, cy, z));
+            plan.cells.forEach(([x, cy, z], i) => w.set(x, cy, z, letterBlockId(word.charAt(i))!));
+            const s = evaluateWriting(w, at, word, at, []);
+            expect(s.found?.cells, label).toEqual(plan.cells);
+            expect(s.foundFacing, label).toBe(true);
+            plan.cells.forEach(([x, cy, z], i) => w.set(x, cy, z, before[i]!));
           }
         }
       }
