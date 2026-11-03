@@ -265,6 +265,79 @@ canvas.game {
   opacity: 0;
 }
 
+/* ---------- Case ABC de la mission 2 (V2 lot 1) ---------- */
+
+/* Dix cases : un peu plus petites quand la largeur manque (la case ABC est séparée du sac par 10 px de plus). */
+.letters-on {
+  --slot: clamp(34px, min(max(44px, 7vh), calc((100vw - 120px) / 10)), 64px);
+}
+.slot.letters {
+  margin-left: 10px;
+  background: #f7efd8;
+  border-color: rgba(176, 132, 82, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.slot.letters[hidden] {
+  display: none;
+}
+.slot.letters.selected {
+  border-color: var(--ui-accent);
+}
+/* Touche « 0 » lisible sur le fond crème. */
+.slot.letters .key {
+  color: #6b4a22;
+  font-weight: 700;
+  text-shadow: none;
+}
+.slot.letters .letters-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.slot.letters canvas.letters-abc {
+  width: 92%;
+  height: auto;
+}
+.slot.letters canvas.letters-tile {
+  width: 70%;
+  height: 70%;
+  margin-bottom: 18%;
+}
+/* Légende « ABC » sous la lettre tenue. */
+.slot.letters .letters-caption {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  font-size: clamp(9px, calc(var(--slot) * 0.2), 13px);
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  color: #6b4a22;
+}
+.slot.letters.holding-letter .letters-caption {
+  display: block;
+}
+/* Étape 0 : la case à toucher palpite. */
+.slot.letters.pulse-hint:not(.pulse) {
+  animation: letters-hint 1.2s ease-in-out infinite;
+}
+@keyframes letters-hint {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(255, 210, 63, 0.3);
+  }
+}
+
 /* ---------- Boutons ---------- */
 
 .btn {
@@ -475,6 +548,14 @@ canvas.game {
 @media (max-width: 1040px) {
   .touch-buttons,
   .joystick {
+    bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));
+  }
+}
+/* Mission 2 (V2) : avec la case ABC, la barre a 10 cases (738 px en portrait 1080) et chevaucherait le rond
+   (qui finit à 178 px du bord) : jusqu'à 1120 px de large, rond et boutons remontent aussi au-dessus de la barre. */
+@media (max-width: 1120px) {
+  .letters-on .touch-buttons,
+  .letters-on .joystick {
     bottom: calc(14px + var(--slot) + 40px + env(safe-area-inset-bottom));
   }
 }
@@ -886,6 +967,77 @@ canvas.game {
   border-radius: 6px;
   box-shadow: 0 0 0 2px #e8762c;
 }
+/* Mission 2, étape 0 : « ABC » en tuiles de lettres. */
+.companion-block.word {
+  width: 108px;
+}
+/* Mot à écrire (mission 2) : le modèle passe à la ligne sous la consigne. */
+.companion.with-model {
+  flex-wrap: wrap;
+}
+.companion.with-model .companion-text {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.companion-model {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 2px 0 4px;
+}
+.companion-model[hidden] {
+  display: none;
+}
+/* Arc sous chaque syllabe. */
+.model-syllable {
+  display: flex;
+  gap: 4px;
+  padding: 0 4px 5px;
+  border-bottom: 4px solid #e8762c;
+  border-radius: 0 0 14px 14px;
+}
+.model-letter {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.companion-model.long .model-letter {
+  width: 40px;
+  height: 40px;
+}
+.model-letter canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  border-radius: 6px;
+}
+.model-letter.done {
+  box-shadow: 0 0 0 3px #5cbe5c;
+}
+.model-letter.next {
+  box-shadow: 0 0 0 4px #ffd23f;
+  animation: model-next 0.9s ease-in-out infinite;
+}
+.model-letter.box {
+  border: 3px dashed #b4521a;
+  cursor: default;
+}
+@keyframes model-next {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
 .companion-progress {
   flex: none;
   font-size: 20px;
@@ -1201,6 +1353,186 @@ canvas.game {
   color: #b4521a;
 }
 
+/* ---------- Boîte à lettres de la mission 2 (V2 lot 1) ---------- */
+
+/* Grille de 13 colonnes (paysage), 7 en portrait, 9 en paysage étroit ; cases de 64 à 128 px, sans défilement. */
+.letter-tray {
+  --cols: 13;
+  --cell: max(64px, min(128px, calc((100vw - 76px - (var(--cols) - 1) * 12px) / var(--cols))));
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  touch-action: none;
+}
+.letter-tray[hidden] {
+  display: none;
+}
+@media (max-aspect-ratio: 1/1) {
+  .letter-tray {
+    --cols: 7;
+  }
+}
+@media (min-aspect-ratio: 1/1) and (max-width: 1100px) {
+  .letter-tray {
+    --cols: 9;
+  }
+}
+.letter-tray-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 24, 32, 0.55);
+}
+.letter-tray-card {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #fffaf0;
+  border: 3px solid #e8762c;
+  border-radius: 16px;
+  color: #2a1d18;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.letter-tray-head {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.letter-tray-face {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  image-rendering: pixelated;
+  background: #ffe9d2;
+  border-radius: 10px;
+}
+.letter-tray-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: clamp(22px, 2.6vw, 28px);
+  color: #b4521a;
+}
+/* « Ou tape-la au clavier ! » : sous le titre, toute la largeur. */
+.letter-tray-keyboard {
+  order: 5;
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.letter-tray-speaker,
+.letter-tray-close {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid #e8762c;
+  background: #fff;
+  color: #b4521a;
+  font: inherit;
+  font-size: 28px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.letter-tray-speaker.pressed,
+.letter-tray-close.pressed {
+  background: #ffe9d2;
+}
+.letter-tray-model {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+.tray-syllable {
+  display: flex;
+  gap: 4px;
+  padding: 0 4px 6px;
+  border-bottom: 4px solid #e8762c;
+  border-radius: 0 0 14px 14px;
+}
+.tray-letter {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+.tray-letter canvas {
+  display: block;
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+}
+.tray-letter.done {
+  box-shadow: 0 0 0 3px #5cbe5c;
+}
+.tray-letter.next {
+  box-shadow: 0 0 0 4px #ffd23f;
+}
+.tray-letter.box {
+  border: 3px dashed #b4521a;
+}
+.letter-tray-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--cell));
+  gap: 12px;
+}
+/* Chaque lettre est le dessin exact du bloc posé (tuile de l'atlas). */
+.tray-key {
+  width: var(--cell);
+  height: var(--cell);
+  padding: 0;
+  overflow: hidden;
+  border: 3px solid #b08452;
+  border-radius: 12px;
+  background: #f7efd8;
+  cursor: pointer;
+}
+.tray-key canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.tray-key:active,
+.tray-key.pressed {
+  transform: scale(0.94);
+}
+.tray-key:focus-visible {
+  outline: 4px solid #2f6fd6;
+  outline-offset: 2px;
+}
+/* Lettre attendue (aide) : anneau jaune qui palpite. */
+.tray-key.glow {
+  border-color: #ffd23f;
+  animation: tray-glow 1.2s ease-in-out infinite;
+}
+@keyframes tray-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 210, 63, 0.3);
+  }
+}
+
 /* ---------- Tutoriel, abri, félicitations (J6) ---------- */
 
 /* Pictogramme de l'abri dans le bandeau de Pixel : chaque partie s'allume quand elle est en place. */
@@ -1320,6 +1652,14 @@ canvas.game {
 canvas.celebration-icon {
   border-radius: 6px;
 }
+/* Mot écrit (mission 2) : ses lettres-blocs côte à côte, à la hauteur d'une ligne. */
+.celebration-word {
+  flex: none;
+  height: 32px;
+  width: auto;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
 .celebration-button {
   min-width: 220px;
   min-height: 72px;
@@ -1394,6 +1734,15 @@ canvas.celebration-icon {
   .craft-card.shake,
   .slot.wiggle,
   .slot-delta {
+    animation: none;
+  }
+  /* Mission 2 : anneaux fixes, pas de rebond. */
+  .slot.letters.pulse-hint:not(.pulse),
+  .tray-key.glow {
+    animation: none;
+    box-shadow: 0 0 0 4px #ffd23f;
+  }
+  .model-letter.next {
     animation: none;
   }
   .celebration-card,

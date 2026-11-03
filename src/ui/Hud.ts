@@ -3,9 +3,10 @@ import { GAME_NAME } from "../game/identity";
 import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
-import { blockIcon } from "../render/textures";
+import { blockIcon, tileIcon } from "../render/textures";
 import { slotHoldMoved, startSlotHold, type SlotHold, type SlotHoldSource } from "../input/slotHold";
 import { nearestSlot } from "./nearestSlot";
+import { wordIcon } from "./wordIcon";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
 export const RENDER_DISTANCES = [32, 48, 64, 96, 128] as const;
@@ -14,6 +15,16 @@ export const RENDER_DISTANCES = [32, 48, 64, 96, 128] as const;
 const WIGGLE_MS = 1500;
 /** Durée d'affichage d'une pastille « +2 » ou « −1 » au-dessus d'une case (ms). */
 const SLOT_DELTA_MS = 900;
+/** Indice de la case ABC (mission 2) : juste après les 9 cases du sac. */
+export const LETTERS_CELL = INVENTORY_SLOTS;
+
+/** État de la case ABC (mission 2) : visible, tuile de la lettre tenue (null : « ABC »), choisie, à faire remarquer. */
+export interface LettersCellState {
+  visible: boolean;
+  tile: number | null;
+  selected: boolean;
+  hint: boolean;
+}
 
 /** Heures proposées dans le panneau. */
 export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
@@ -34,6 +45,10 @@ export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
  * chaque image, décide (blocs gardés) et règle l'anneau par setSlotHoldProgress.
  * Fabrication : la barre passe au-dessus du voile du panneau (setCraftOpen), la
  * case à vider remue (wiggleSlot), des pastilles « −1 » / « +2 » (slotDelta).
+ * Mission 2 : une 10e case « ABC » au bout de la barre (setLettersCell), hors du
+ * sac ; elle ouvre la boîte à lettres et montre la lettre tenue. Visible, elle
+ * pose la classe .letters-on sur la racine du jeu (cases un peu plus petites,
+ * rond et boutons tactiles remontés en portrait).
  */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -84,9 +99,14 @@ export class Hud {
   private holdShownSlot = -1;
   /** Fin de l'animation « case qui remue » de chaque case (fabrication refusée, sac plein) (V2). */
   private readonly wiggleTimers = new Map<number, number>();
+  /** Case ABC de la mission 2 (10e case, hors du tableau slots : setInventory l'effacerait) et ce qu'elle montre. */
+  private readonly lettersCell: HTMLDivElement;
+  private readonly lettersIcon: HTMLDivElement;
+  private lettersShown: LettersCellState = { visible: false, tile: null, selected: false, hint: false };
+  private lettersDrawn: number | null | undefined = undefined;
 
   constructor(
-    parent: HTMLElement,
+    private readonly host: HTMLElement,
     private readonly atlas: HTMLCanvasElement,
     version: string,
   ) {
@@ -128,12 +148,30 @@ export class Hud {
       this.hotbar.appendChild(slot);
       this.slots.push(slot);
     }
+    // Case ABC (mission 2) : 10e enfant de la barre, cachée tant que la boîte à lettres n'est pas ouverte à l'enfant.
+    this.lettersCell = this.div("slot letters");
+    this.lettersCell.hidden = true;
+    this.lettersCell.setAttribute("role", "button");
+    this.lettersCell.setAttribute("aria-label", "Boîte à lettres");
+    this.lettersCell.title = "Boîte à lettres (touche 0)";
+    const lettersKey = document.createElement("span");
+    lettersKey.className = "key";
+    lettersKey.textContent = "0";
+    this.lettersIcon = this.div("letters-icon");
+    const lettersCaption = document.createElement("span");
+    lettersCaption.className = "letters-caption";
+    lettersCaption.textContent = "ABC";
+    this.lettersCell.append(lettersKey, this.lettersIcon, lettersCaption);
+    this.lettersCell.addEventListener("animationend", () => this.lettersCell.classList.remove("pulse"));
+    this.hotbar.appendChild(this.lettersCell);
     // Toute la barre choisit une case, marges et espaces compris : la plus proche du doigt ou du clic (J3).
-    // Annuler l'événement empêche aussi le menu contextuel du navigateur sur un appui long.
+    // Annuler l'événement empêche aussi le menu contextuel du navigateur sur un appui long. La case ABC n'est
+    // candidate que visible (une case masquée aurait un centre à 0).
     const selectAt = (x: number): number => {
+      const cells = this.lettersCell.hidden ? this.slots : [...this.slots, this.lettersCell];
       const i = nearestSlot(
         x,
-        this.slots.map((s) => {
+        cells.map((s) => {
           const r = s.getBoundingClientRect();
           return r.left + r.width / 2;
         }),
@@ -331,7 +369,7 @@ export class Hud {
       this.panel.addEventListener(ev, (e) => e.stopPropagation());
     }
 
-    parent.appendChild(this.root);
+    host.appendChild(this.root);
   }
 
   private div(className: string): HTMLDivElement {
@@ -372,8 +410,44 @@ export class Hud {
     this.selectHandlers.push(h);
   }
 
+  /** Case choisie : 0 à 8 (sac), ou LETTERS_CELL (case ABC de la mission 2). */
   setSelectedSlot(index: number): void {
     this.slots.forEach((s, i) => s.classList.toggle("selected", i === index));
+    this.lettersCell.classList.toggle("selected", index === LETTERS_CELL);
+    this.lettersShown = { ...this.lettersShown, selected: index === LETTERS_CELL };
+  }
+
+  /**
+   * Case ABC de la mission 2 (V2 lot 1) : visible ou non (classe .letters-on sur la racine du jeu), tuile de la
+   * lettre tenue (sinon le grand « ABC » en tuiles de lettres), choisie, et anneau qui palpite pendant l'étape 0.
+   * Appelée à chaque image : seul ce qui change est redessiné.
+   */
+  setLettersCell(s: LettersCellState): void {
+    const prev = this.lettersShown;
+    if (prev.visible === s.visible && prev.tile === s.tile && prev.selected === s.selected && prev.hint === s.hint) return;
+    this.lettersShown = { ...s };
+    if (prev.visible !== s.visible) {
+      this.lettersCell.hidden = !s.visible;
+      this.host.classList.toggle("letters-on", s.visible);
+    }
+    this.lettersCell.classList.toggle("selected", s.selected);
+    this.lettersCell.classList.toggle("pulse-hint", s.visible && s.hint);
+    this.lettersCell.classList.toggle("holding-letter", s.tile !== null);
+    if (this.lettersDrawn !== s.tile) {
+      const first = this.lettersDrawn !== undefined;
+      this.lettersDrawn = s.tile;
+      const icon = s.tile === null ? wordIcon(this.atlas, "ABC") : tileIcon(this.atlas, s.tile);
+      icon.className = s.tile === null ? "letters-abc" : "letters-tile";
+      this.lettersIcon.replaceChildren(icon);
+      if (first && s.tile !== null) this.pulseLettersCell();
+    }
+  }
+
+  /** Petite animation de la case ABC (une lettre vient d'arriver dans la main). */
+  private pulseLettersCell(): void {
+    this.lettersCell.classList.remove("pulse");
+    void this.lettersCell.offsetWidth; // relance l'animation
+    this.lettersCell.classList.add("pulse");
   }
 
   /**

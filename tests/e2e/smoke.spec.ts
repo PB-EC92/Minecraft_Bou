@@ -79,7 +79,29 @@ interface DebugState {
   craft: { available: boolean; open: boolean; glow: boolean; status: string; cards: { id: string; state: string }[]; intro: boolean };
   /** Marteau découvert par l'enfant (profil), null hors d'une partie d'enfant (V2). */
   craftSeen: boolean | null;
+  /** Mission 2 (V2) : case ABC là, boîte ouverte, lettre tenue, case ABC choisie. */
+  letters: { unlocked: boolean; open: boolean; hand: string | null; selected: boolean };
+  /** Mission 2 : mot de l'étape d'écriture en cours (null hors d'une étape d'écriture). */
+  writing: {
+    target: string;
+    mode: "copy" | "dictation";
+    stage: number;
+    revealed: number;
+    have: number;
+    words: string[];
+    ghosts: number;
+    wrongCells: number;
+    help: { model: "full" | "boxes" | "none"; revealed: number; nextRing: boolean; ghostLine: boolean; ghostNext: boolean; trayGlow: boolean };
+    /** Consigne dite (l'horloge d'aide tourne et les cases claires peuvent se montrer). */
+    announced: boolean;
+    found: boolean;
+  } | null;
+  /** Mots écrits dans la mission en cours (mission 2). */
+  words: string[];
 }
+
+/** Réaction à l'écriture d'un mot (cubesDebug.checkWriting, V2). */
+type WritingCheck = { found: boolean; key: string | null; have: number; wrongCells: number; newTry: boolean } | null;
 
 /** Résultat de cubesDebug.craft (V2). */
 type CraftResult = { ok: true; outputSlot: number; before: number; after: number } | { ok: false; reason: string };
@@ -106,6 +128,12 @@ declare global {
       openCraft(): boolean;
       closeCraft(): void;
       craft(id: string): CraftResult;
+      openLetters(): boolean;
+      chooseLetter(ch: string): boolean;
+      assumeVoice(v: boolean | null): void;
+      checkWriting(): WritingCheck;
+      advanceWritingClock(ms: number): boolean;
+      skipMissionStep(): boolean;
       fillInventory(): void;
       selectSlot(i: number): void;
       setBlock(x: number, y: number, z: number, id: number): boolean;
@@ -2646,5 +2674,424 @@ test("verre : fabriqué avec du sable et posé, on voit le ciel à travers (pas 
     window.cubesDebug.placeBlock();
   });
   expect(await blockAt(page, { x: cx, y: 5, z: cz - 2 })).toBe(B.flowerRed);
+  expect(errors).toEqual([]);
+});
+
+// ---------- V2 lot 1 : mission 2 « Les mots » ----------
+
+/** Mission 2 forcée par l'adresse (monde plat, lecteur débutant). */
+const M2 = "#monde=plat&graine=1&mission=2";
+
+/** Identifiant du bloc-lettre d'une capitale (A = 18 … Z = 43). */
+const letterId = (ch: string) => 18 + ch.charCodeAt(0) - 65;
+
+const reversedWord = (w: string) => Array.from(w).reverse().join("");
+
+/**
+ * Pose un mot en blocs-lettres (accès de test) au sol du monde plat (y = 4), sur la rangée z, de x0 vers +X : de
+ * gauche à droite pour l'enfant de l'apparition (16,5 ; 20,5), qui regarde vers −Z.
+ */
+async function writeWord(page: Page, word: string, x0: number, z: number): Promise<void> {
+  await page.evaluate(
+    ([w, x, zz]) => {
+      for (let i = 0; i < w.length; i++) window.cubesDebug.setBlock(x + i, 4, zz, 18 + w.charCodeAt(i) - 65);
+    },
+    [word, x0, z] as const,
+  );
+}
+
+const checkWriting = (page: Page) => page.evaluate(() => window.cubesDebug.checkWriting());
+
+/** Passe l'étape en cours (accès de test) et attend la suivante (la mission avance après la consigne en cours). */
+async function skipStep(page: Page): Promise<void> {
+  const before = (await state(page)).mission!.step;
+  expect(await page.evaluate(() => window.cubesDebug.skipMissionStep())).toBe(true);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(before + 1);
+}
+
+/** Attend que la consigne de l'étape d'écriture ait été dite ; renvoie le mot à écrire. */
+async function writingTarget(page: Page): Promise<string> {
+  await expect.poll(async () => (await state(page)).writing?.announced ?? false, { timeout: 20_000 }).toBe(true);
+  return (await state(page)).writing!.target;
+}
+
+test("mission 2, débutant : une lettre posée valide l'étape 0 ; mot 1 avec cases claires et modèle, lettre fausse signalée puis corrigée ; mot gardé même cassé ; mot collé validé avec le conseil d'espace", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  let s = await state(page);
+  expect(s.missionId).toBe("mots");
+  expect(s.letters).toEqual({ unlocked: true, open: false, hand: null, selected: false });
+  await expect(page.locator(".slot.letters")).toBeVisible();
+  await expect(page.locator(".slot.letters")).toHaveClass(/pulse-hint/);
+  await expect(page.locator("#app")).toHaveClass(/letters-on/);
+  // Étape 0 : « ABC » dans le bandeau, compteur 0 / 1 ; aide d'écran avec la touche 0.
+  await expect(page.locator(".companion-block.word")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".companion-progress")).toHaveText("0 / 1");
+  await expect(page.locator(".hint")).toContainText("0 : lettres");
+  // Une lettre choisie puis posée devant soi : rien n'est pris dans le sac.
+  expect(await page.evaluate(() => window.cubesDebug.chooseLetter("m"))).toBe(true);
+  s = await state(page);
+  expect(s.letters).toMatchObject({ hand: "M", selected: true, open: false });
+  expect(s.paused).toBe(false);
+  await expect(page.locator(".slot-name")).toHaveText("lettre M");
+  await expect(page.locator(".slot.letters")).toHaveClass(/selected/);
+  await page.evaluate(() => window.cubesDebug.look(0, -50));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const inv = (await state(page)).inventory;
+  await page.evaluate(() => window.cubesDebug.placeBlock());
+  expect(await page.evaluate(() => window.cubesDebug.countBlocks(30))).toBe(1);
+  expect((await state(page)).inventory).toEqual(inv);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
+  // Mot 1 : modèle dans le bandeau (lettre suivante entourée), cases claires devant l'enfant dès la consigne.
+  await page.evaluate(() => window.cubesDebug.look(0, 0));
+  const target = await writingTarget(page);
+  expect(target).toMatch(/^[A-Z]{3,4}$/);
+  s = await state(page);
+  expect(s.writing).toMatchObject({ mode: "copy", have: 0, ghosts: target.length });
+  await expect(page.locator(".companion-model .model-letter")).toHaveCount(target.length);
+  await expect(page.locator(".companion-model .model-letter").first()).toHaveClass(/next/);
+  expect(s.companionText).toContain(target);
+  // Une lettre fausse : contour orange et « Ici, il faut un … ».
+  const wrong = target[1] === "X" ? "Y" : "X";
+  await writeWord(page, `${target[0]}${wrong}`, 15, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: "WRONG_LETTER", have: 1, wrongCells: 1 });
+  expect((await state(page)).writing).toMatchObject({ have: 1, wrongCells: 1 });
+  await expect(page.locator(".message")).toContainText(`Ici, il faut un ${target[1]}.`);
+  await expect(page.locator(".companion-model .model-letter.done")).toHaveCount(1);
+  // Corrigée : la lettre fausse cassée (elle ne rapporte rien), puis la fin du mot.
+  await page.evaluate(() => window.cubesDebug.breakBlock(16, 4, 16));
+  expect((await state(page)).inventory).toEqual(inv);
+  expect((await state(page)).writing?.wrongCells).toBe(0);
+  await writeWord(page, target.slice(1), 16, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: true });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  s = await state(page);
+  expect(s.words).toEqual([target]);
+  expect(s.spoken.some((t) => t.includes("Bravo") && t.toLowerCase().includes(target.toLowerCase()))).toBe(true);
+  // Casser une lettre du mot ne le retire pas des mots écrits.
+  await page.evaluate(() => window.cubesDebug.breakBlock(15, 4, 16));
+  expect((await state(page)).words).toEqual([target]);
+  await page.evaluate(([x, id]) => window.cubesDebug.setBlock(x, 4, 16, id), [15, letterId(target[0]!)] as const);
+  // Mot 2 collé au mot 1, sans espace : validé, puis « Un espace entre les mots ! ».
+  const target2 = await writingTarget(page);
+  expect(target2).not.toBe(target);
+  await writeWord(page, target2, 15 + target.length, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: true });
+  await expect(page.locator(".message")).toContainText("Un espace entre les mots", { timeout: 15_000 });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
+  expect((await state(page)).words).toEqual([target, target2]);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 : un mot écrit à l'envers pour l'enfant est validé (« Fais le tour pour lire ! ») ; sans progrès, l'aide trace les cases claires puis met la lettre dans la main", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  await skipStep(page);
+  const target = await writingTarget(page);
+  // À l'envers vu de l'enfant : le mot ne se lit que de l'autre côté de la rangée.
+  await writeWord(page, reversedWord(target), 15, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: true });
+  await expect(page.locator(".message")).toContainText("Fais le tour pour lire", { timeout: 15_000 });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  // Mot 2 : rien au départ ; 31 s sans progrès, la ligne de cases claires ; 50 s, la lettre attendue est en main.
+  await page.evaluate(() => window.cubesDebug.look(0, 0));
+  const target2 = await writingTarget(page);
+  let s = await state(page);
+  expect(s.writing).toMatchObject({ stage: 0, ghosts: 0 });
+  expect(s.letters.hand).toBeNull();
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
+  s = await state(page);
+  expect(s.writing).toMatchObject({ stage: 2, ghosts: target2.length });
+  await expect(page.locator(".message")).toContainText("Remplis les cases claires");
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(20_000))).toBe(true);
+  s = await state(page);
+  expect(s.letters).toMatchObject({ hand: target2[0], selected: true });
+  await expect(page.locator(".message")).toContainText(`Voici la lettre ${target2[0]}`);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2, lecteur autonome : le mot est dicté même voix coupée, sans être écrit ; un essai faux reçoit un retour et un indice ; sans voix française, c'est une copie du mot affiché", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, `${M2}&lecture=autonome`);
+  let s = await state(page);
+  expect(s.level).toBe("autonome");
+  expect(s.voice).toBe(false);
+  await page.evaluate(() => window.cubesDebug.assumeVoice(true));
+  await skipStep(page);
+  const target = await writingTarget(page);
+  expect(target).toMatch(/^[A-Z]{5}$/);
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.toLowerCase().includes(target.toLowerCase()))).toBe(true);
+  s = await state(page);
+  expect(s.writing).toMatchObject({ mode: "dictation", stage: 0, help: { model: "none" } });
+  expect(s.companionText).toBe("Écris le mot que j'ai dit.");
+  await expect(page.locator(".companion-model")).toBeHidden();
+  // Un essai faux (une lettre changée) : retour sans dire où, le mot redit, et l'aide monte d'un palier (les cases).
+  const wrong = `${target[0]}${target[1] === "X" ? "Y" : "X"}${target.slice(2)}`;
+  await writeWord(page, wrong, 14, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: "DICT_WRONG", newTry: true, wrongCells: 0 });
+  await expect(page.locator(".message")).toContainText("Presque ! La deuxième lettre n'est pas la bonne.");
+  s = await state(page);
+  expect(s.writing).toMatchObject({ stage: 1, help: { model: "boxes" } });
+  await expect(page.locator(".companion-model .model-letter.box")).toHaveCount(target.length);
+  // Le mot redit (dictée : après la fin de la dictée en cours).
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.startsWith("Écoute bien")), { timeout: 15_000 }).toBe(true);
+  // Sans voix française : le mot suivant est une copie, et le jeu le dit.
+  await page.evaluate(() => window.cubesDebug.assumeVoice(false));
+  await skipStep(page);
+  const target2 = await writingTarget(page);
+  await expect(page.locator(".message")).toContainText("Je n'ai pas de voix ici");
+  s = await state(page);
+  expect(s.writing?.mode).toBe("copy");
+  expect(s.companionText).toBe(`Recopie le mot : ${target2}.`);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 jusqu'au bout : félicitations avec chaque mot écrit en lettres-blocs, et le cadeau", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  for (let i = 0; i < 5; i++) await skipStep(page);
+  let s = await state(page);
+  expect(s.mission).toEqual({ step: 5, done: true });
+  expect(s.words).toHaveLength(4);
+  await expect(page.locator(".celebration")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".celebration-recap li")).toHaveText([...s.words.map((w) => w.toLowerCase()), "Cadeau : 5 blocs arc-en-ciel !"]);
+  await expect(page.locator(".celebration-word")).toHaveCount(4);
+  await expect(page.locator(".celebration-subtitle")).toHaveText("Tes mots sont bien écrits.");
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.includes("Tu as écrit :"))).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("felicitations-mots.png") });
+  const button = page.getByRole("button", { name: "Continuer" });
+  await expect(button).toBeEnabled({ timeout: 5_000 });
+  await button.click();
+  s = await state(page);
+  expect(s.paused).toBe(false);
+  expect(invCount(s, B6.rainbow)).toBe(5);
+  // Jeu libre : la case ABC reste dans ce monde.
+  expect(s.letters.unlocked).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("accueil : un monde dont la mission 2 est réussie porte deux étoiles ; une mission 2 reprise garde son mot ; le mode parent liste les mots écrits", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    const world = (mission: object) => JSON.stringify({
+      version: 1, gen: 2, type: "prairie", seed: 1234, edits: "",
+      player: { x: 64.5, y: 30, z: 64.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(), mission,
+    });
+    localStorage.setItem("cubes:monde:p1:0", world({ id: "mots", step: 5, counts: {}, words: ["AMI", "LUNE", "TOIT", "LEA"] }));
+    localStorage.setItem("cubes:monde:p1:1", world({ id: "mots", step: 2, counts: {}, words: ["SOL"], word: "MOTO" }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveText("★★");
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveAttribute("aria-label", "2 missions réussies");
+  await expect(page.locator('.slot-card[data-slot="1"] .card-star')).toHaveText("★");
+  await expect(page.locator('.slot-card[data-slot="1"] .card-star')).toHaveAttribute("aria-label", "1 mission réussie");
+  // La mission 2 en cours reprend à son étape, avec son mot, et la case ABC.
+  await page.locator('.slot-card[data-slot="1"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  let s = await state(page);
+  expect(s.missionId).toBe("mots");
+  expect(s.mission).toEqual({ step: 2, done: false });
+  expect(s.letters.unlocked).toBe(true);
+  expect(s.writing?.target).toBe("MOTO");
+  expect(s.words).toEqual(["SOL"]);
+  // Mode parent : progression avec les mots écrits.
+  await page.locator(".home-btn").click();
+  const gear = page.locator(".parent-gear");
+  const box = (await gear.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+  await page.mouse.up();
+  await expect(page.locator(".parent-progress li")).toHaveText([
+    "Monde 1 (prairie) : mission 2 (les mots) réussie — mots écrits : AMI, LUNE, TOIT, LEA",
+    "Monde 2 (prairie) : mission 2 (les mots) : étape 3 sur 5 (écrire un deuxième mot) — mots écrits : SOL",
+  ]);
+  s = await state(page);
+  expect(s.home).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 au doigt : la case ABC ouvre la boîte (26 grosses lettres, sans défilement) ; une lettre choisie passe en main avec le mode Poser ; la barre à 10 cases ne chevauche ni le rond ni les boutons @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  test.setTimeout(90_000);
+  const vp = page.viewportSize()!;
+  const rect = async (sel: string) => (await page.locator(sel).boundingBox())!;
+  const bottomGap = async (sel: string) => {
+    const b = await rect(sel);
+    return vp.height - (b.y + b.height);
+  };
+  // Sans lettres (mission 1) : la disposition de la V1.
+  const errors1 = await openGame(page, "#monde=plat&graine=1&mission=1");
+  await expect(page.locator(".slot.letters")).toBeHidden();
+  await expect(page.locator("#app")).not.toHaveClass(/letters-on/);
+  expect(Math.round(await bottomGap(".joystick"))).toBe(28);
+  expect(Math.round(await bottomGap(".touch-buttons"))).toBe(28);
+  expect(errors1).toEqual([]);
+  // Mission 2 : dix cases, sans chevauchement ; en portrait, le rond et les boutons remontent.
+  await page.goto("about:blank");
+  const errors = await openGame(page, M2);
+  await expect(page.locator(".slot.letters")).toBeVisible();
+  const bar = await rect(".hotbar");
+  expect(overlaps(bar, await rect(".joystick"))).toBe(false);
+  expect(overlaps(bar, await rect(".touch-buttons"))).toBe(false);
+  expect(bar.x).toBeGreaterThanOrEqual(0);
+  expect(bar.x + bar.width).toBeLessThanOrEqual(vp.width);
+  if (vp.width <= 1120) expect(await bottomGap(".joystick")).toBeGreaterThan(bar.height + 14);
+  else expect(Math.round(await bottomGap(".joystick"))).toBe(28);
+  // La case ABC touchée : la boîte s'ouvre, le jeu se fige.
+  const touch = await touchDriver(context, page);
+  const abc = await rect(".slot.letters");
+  await touch.tap(abc.x + abc.width / 2, abc.y + abc.height / 2);
+  await expect(page.locator(".letter-tray")).toBeVisible();
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  let s = await state(page);
+  expect(s.paused).toBe(true);
+  expect(s.letters.open).toBe(true);
+  const keys = page.locator(".tray-key");
+  await expect(keys).toHaveCount(26);
+  for (const k of await keys.all()) {
+    const b = (await k.boundingBox())!;
+    expect(b.width).toBeGreaterThanOrEqual(64);
+    expect(b.height).toBeGreaterThanOrEqual(64);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(vp.width);
+    expect(b.y + b.height).toBeLessThanOrEqual(vp.height);
+  }
+  const scrolls = await page.evaluate(() => {
+    const c = document.querySelector(".letter-tray-card")!;
+    return c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1;
+  });
+  expect(scrolls).toBe(false);
+  await expect(page.locator(".letter-tray-keyboard")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("boite-a-lettres.png") });
+  // C choisi : en main, mode Poser, boîte fermée.
+  const c = await rect('.tray-key[data-letter="C"]');
+  await touch.tap(c.x + c.width / 2, c.y + c.height / 2);
+  await expect.poll(async () => (await state(page)).letters.hand).toBe("C");
+  s = await state(page);
+  expect(s.letters).toMatchObject({ open: false, selected: true });
+  expect(s.touchMode).toBe("place");
+  expect(s.paused).toBe(false);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  await expect(page.locator(".slot.letters canvas.letters-tile")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 au clavier : 0 ouvre la boîte (souris libérée) ; une lettre tapée la choisit (Z gardé ne fait pas marcher) et la souris est reprise ; clic droit pose la lettre ; 0 puis Échap ferme sans choisir", async ({ page }, testInfo) => {
+  test.skip(isTouch(testInfo), "clavier et souris : PC uniquement");
+  const errors = await openGame(page, M2);
+  await lockAndLookDown(page, -50);
+  await page.keyboard.press("Digit0");
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  let s = await state(page);
+  expect(s.paused).toBe(true);
+  expect(s.letters.open).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
+  await expect(page.locator(".letter-tray-keyboard")).toHaveText("Ou tape-la au clavier !");
+  // La touche Z (KeyW, « avancer ») gardée, boîte ouverte : elle écrit sa lettre, que la boîte prend (lue par
+  // KeyboardEvent.key : W sur le clavier QWERTY du test) ; le jeu ne la voit pas, le personnage ne marche pas.
+  const before = s.player;
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(600);
+  s = await state(page);
+  await page.keyboard.up("KeyW");
+  expect(Math.hypot(s.player.x - before.x, s.player.z - before.z)).toBeLessThan(0.01);
+  expect(s.letters).toMatchObject({ open: false, hand: "W" });
+  // Une lettre tapée (KeyboardEvent.key, seulement boîte ouverte) : choisie, la souris est capturée de nouveau.
+  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await page.keyboard.press("Digit0");
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  await page.keyboard.type("a");
+  await expect.poll(async () => (await state(page)).letters.hand).toBe("A");
+  s = await state(page);
+  expect(s.letters).toMatchObject({ open: false, selected: true });
+  expect(s.paused).toBe(false);
+  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await page.evaluate(() => window.cubesDebug.look(0, -50));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(() => page.evaluate(() => window.cubesDebug.countBlocks(18))).toBe(1);
+  // 0 puis Échap : fermée sans choix, la lettre reste en main.
+  await page.keyboard.press("Digit0");
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  s = await state(page);
+  expect(s.paused).toBe(false);
+  expect(s.letters).toMatchObject({ open: false, hand: "A" });
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 : les lettres ne sont jamais dans le sac (sac plein, lettre cassée, herbe cassée lettre en main)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, M2);
+  await page.evaluate((kit) => {
+    for (const id of kit) window.cubesDebug.give(id, 3);
+  }, FULL_KIT);
+  const inv = (await state(page)).inventory;
+  expect(inv.every((c) => c !== null)).toBe(true);
+  // Sac plein : la lettre se pose quand même, et se casse sans rien rapporter.
+  expect(await page.evaluate(() => window.cubesDebug.chooseLetter("B"))).toBe(true);
+  await page.evaluate(() => window.cubesDebug.look(0, -50));
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const t = (await state(page)).target!;
+  await page.evaluate(() => window.cubesDebug.placeBlock());
+  const pos = { x: t.x + t.nx, y: t.y + t.ny, z: t.z + t.nz };
+  expect(await blockAt(page, pos)).toBe(letterId("B"));
+  expect((await state(page)).inventory).toEqual(inv);
+  await page.evaluate(([x, y, z]) => window.cubesDebug.breakBlock(x, y, z), [pos.x, pos.y, pos.z] as const);
+  expect(await blockAt(page, pos)).toBe(B.air);
+  let s = await state(page);
+  expect(s.inventory).toEqual(inv);
+  expect(s.letters).toMatchObject({ hand: "B", selected: true });
+  // Sac vide, herbe cassée lettre en main : le bloc va dans le sac, la lettre reste en main.
+  await page.evaluate(() => window.cubesDebug.clearInventory());
+  await page.evaluate(([x, z]) => window.cubesDebug.breakBlock(x, 3, z), [pos.x + 1, pos.z] as const);
+  s = await state(page);
+  expect(s.inventory.filter((c) => c !== null)).toHaveLength(1);
+  expect(s.letters).toMatchObject({ hand: "B", selected: true });
+  expect(s.slot).toBe(9);
+  expect(s.inventory.every((c) => c === null || c.id < 18 || c.id > 43)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("bloc-lettre : une lettre L posée face à la caméra se lit à l'endroit (encre en haut à gauche, papier en haut à droite)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page);
+  const s0 = await state(page);
+  const bx = Math.floor(s0.player.x);
+  const bz = Math.floor(s0.player.z) - 3;
+  const by = Math.floor(s0.camera.y);
+  await page.evaluate(([x, y, z, id]) => {
+    window.cubesDebug.setBlock(x, y, z, id);
+    window.cubesDebug.look(0, 0);
+  }, [bx, by, bz, letterId("L")] as const);
+  await page.waitForTimeout(500);
+  const s = await state(page);
+  const vp = page.viewportSize()!;
+  const tan = Math.tan((s.fov * Math.PI) / 360);
+  // Projection d'un point de la face tournée vers +Z (z = bz + 1) sur l'image (caméra vers −Z, sans inclinaison).
+  const at = (x: number, y: number) => {
+    const d = s.camera.z - (bz + 1);
+    return [0.5 + (x - s.camera.x) / (d * tan * (vp.width / vp.height)) / 2, 0.5 - (y - s.camera.y) / (d * tan) / 2] as const;
+  };
+  // Tuile 16 × 16 : le jambage du L occupe les colonnes 3 et 4, en haut ; la ligne du haut est du papier à droite.
+  const ink = await pixel(page, ...at(bx + 0.22, by + 0.9));
+  const paper = await pixel(page, ...at(bx + 0.72, by + 0.9));
+  expect(luminance(paper) - luminance(ink)).toBeGreaterThan(80);
   expect(errors).toEqual([]);
 });

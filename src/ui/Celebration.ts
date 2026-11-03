@@ -5,6 +5,8 @@
  * pluie de confettis dessinée en CSS (aucune image). Le bouton n'est actif
  * qu'après un court instant : un enfant qui saute (Espace) ou tape l'écran au
  * moment où l'écran apparaît ne le ferme pas sans l'avoir vu.
+ * V2 lot 1 : une ligne peut montrer un mot écrit en blocs-lettres (icône large,
+ * classe .celebration-word).
  */
 
 export interface CelebrationLine {
@@ -126,7 +128,8 @@ export class Celebration {
   private line(l: CelebrationLine): HTMLLIElement {
     const li = document.createElement("li");
     if (l.icon) {
-      l.icon.classList.add("celebration-icon");
+      // Un mot en blocs-lettres (mission 2, classe .celebration-word) est large : il garde sa propre taille.
+      if (!l.icon.classList.contains("celebration-word")) l.icon.classList.add("celebration-icon");
       li.appendChild(l.icon);
     }
     const t = document.createElement("span");

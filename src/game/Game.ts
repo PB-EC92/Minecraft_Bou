@@ -1,5 +1,5 @@
 import { Sounds } from "../audio/sounds";
-import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isPlantId, isSolidId } from "../engine/blocks";
+import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isPlantId, isSolidId, letterBlockId, letterChar, LETTERS, Tile } from "../engine/blocks";
 import { craft, craftPlans, planCraft, RECIPES, recipeById, type CraftReserve, type RecipeId } from "../engine/crafting";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
@@ -19,6 +19,7 @@ import {
   pickupText,
   quantity,
   returnedText,
+  ordinalWord,
   rewardText,
   shouldSpeakPickup,
   stolenText,
@@ -27,6 +28,7 @@ import {
   BRAVO,
   CAMPAIGN,
   lampRevealed,
+  lettersUnlocked,
   MISSION_1,
   MISSION_2,
   MissionRunner,
@@ -34,10 +36,63 @@ import {
   resumeMission,
   stepText,
   TUTORIAL,
+  wordsSeen,
   type MissionDef,
   type MissionView,
+  type StepDef,
 } from "../edu/missions";
-import { MISSION_2_TOMORROW } from "../edu/wordTexts";
+import {
+  BREAK_TIP_TOUCH,
+  BREAK_TIP_MOUSE,
+  DICT_FAR,
+  DICT_HELP_ALL,
+  DICT_HELP_COUNT,
+  DICT_HELP_FIRST,
+  DICT_HELP_MORE,
+  DICT_MISSING,
+  DICT_SWAP,
+  DICT_WRONG,
+  EXTRA_LETTER,
+  fillSaid,
+  GHOST_LINE,
+  GIVE_LETTER,
+  HIDDEN_WORD,
+  LEFT_TO_RIGHT,
+  LETTER_IN_HAND_MOUSE,
+  LETTER_IN_HAND_TOUCH,
+  LETTERS_HINT,
+  LETTERS_LABEL,
+  LISTEN_AGAIN,
+  MISSION_2_TOMORROW,
+  NEXT_LETTER,
+  NO_VOICE_COPY,
+  PLACE_WHERE,
+  READ_OTHER_SIDE,
+  RECAP_SPOKEN,
+  recapVars,
+  recapWordLabel,
+  SPACE_BETWEEN,
+  TOWER,
+  TRAY_KEYBOARD,
+  TRAY_TITLE,
+  TRAY_WRONG_PICK,
+  WORD_DONE,
+  WORD_DONE_NAME,
+  WRONG_LETTER,
+  type SaidTemplate,
+} from "../edu/wordTexts";
+import { findEntry, fillWord, letterName, nameWord, wordVars, type WordVars } from "../edu/wordLists";
+import { BREAK_TIP_MS, LETTER_IN_HAND_EVERY_MS, LETTER_IN_HAND_MS, wordHelp, type HelpSay, type HelpShow, type WriteMode } from "../edu/wordHelp";
+import {
+  DICT_FEEDBACK_FULL_MS,
+  DICT_FEEDBACK_IDLE_MS,
+  newFeedbackMemory,
+  writingFeedback,
+  type FeedbackKey,
+  type FeedbackMemory,
+  type WritingFeedback,
+} from "../edu/writingFeedback";
+import { evaluateWriting, ghostCells, planLine, presentWords, type Cell, type Dir, type Reading, type WritingState } from "../engine/words";
 import {
   craftCardViews,
   craftIntroText,
@@ -120,13 +175,17 @@ import { HomeScreen } from "../ui/HomeScreen";
 import { Celebration, type CelebrationLine } from "../ui/Celebration";
 import { CRAFT_ARM_MS, CraftPanel, type CraftStatusTone } from "../ui/CraftPanel";
 import { setShelterParts, shelterIcon } from "../ui/shelterIcon";
-import { blockIcon } from "../render/textures";
+import { blockIcon, tileIcon } from "../render/textures";
+import { horizontalFov } from "../render/fov";
+import { LetterTray, trayModelCells, type TrayContent, type TrayLetter, type TrayModel } from "../ui/LetterTray";
+import { wordIcon } from "../ui/wordIcon";
+import { pixelFace } from "../ui/pixelFace";
 import { isInventoryBlockId } from "../engine/inventory";
 import { avatarDef } from "./avatars";
 import { thirdPersonCamera } from "./thirdPerson";
 import { companionGoal, landingSpot, stepCompanion, type CompanionState } from "./companion";
 import { showFatalError } from "../ui/fatal";
-import { HOUR_PRESETS, Hud } from "../ui/Hud";
+import { HOUR_PRESETS, Hud, LETTERS_CELL } from "../ui/Hud";
 import { Player } from "./Player";
 import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "./renderDistance";
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
@@ -193,6 +252,73 @@ const CRAFT_VOICE_DELAY_MS = PICKUP_VOICE_DELAY_MS;
 const CRAFT_HINT_BLOCKS = 10;
 /** Marteau (dessin original, en traits, viewBox 24) : manche, tête, cerclage. */
 const HAMMER_PATHS = '<path d="M4.5 19.5 13 11"/><path d="m11 6 3-3 7 7-3 3z"/><path d="m12.5 7.5 4 4"/>';
+
+/** Case ABC de la mission 2 (V2) : 10e position de la barre, après les 9 cases du sac ; la main tient alors une lettre. */
+const LETTER_SLOT = LETTERS_CELL;
+/** Mot réussi : le conseil « fais le tour » ou « un espace » vient au plus tôt ce délai après le « bravo » (ms). */
+const WORD_FOLLOW_UP_MS = 2500;
+/** Temps laissé pour lire (ou entendre) ce conseil avant la consigne suivante (ms). */
+const WORD_FOLLOW_UP_READ_MS = 3000;
+/** Dictée : l'indice gagné par un essai est dit un peu après le retour sur l'essai, pour le laisser lire (ms). */
+const HELP_AFTER_FEEDBACK_MS = 4000;
+
+/** Messages de la réaction à l'écriture d'un mot (writingFeedback), par clé. */
+const FEEDBACK_TEXTS: Readonly<Record<FeedbackKey, SaidTemplate | ChildText>> = {
+  HIDDEN_WORD,
+  TOWER,
+  LEFT_TO_RIGHT,
+  EXTRA_LETTER,
+  WRONG_LETTER,
+  DICT_MISSING,
+  DICT_WRONG,
+  DICT_SWAP,
+  DICT_FAR,
+};
+
+/**
+ * Écriture du mot d'une étape « write » de la mission 2 (V2) : mot, mode (copie ou dictée), aide progressive,
+ * avancement lu dans le monde, retours déjà donnés, cases claires. Rien de tout cela n'est enregistré, sauf ce que
+ * la mission garde (mot, palier, lettres dévoilées, passage en copie) : à la reprise, une nouvelle écriture repart.
+ */
+interface WritingRun {
+  def: MissionDef;
+  step: number;
+  target: string;
+  /** Le mot est le prénom de l'enfant (sans accent). */
+  isName: boolean;
+  /** Étape « prénom » sans prénom écrivable : un mot de la liste, avec ses textes. */
+  nameFallback: boolean;
+  mode: WriteMode;
+  /** Premier mot de la mission (la copie commence au palier 2 : cases claires et anneau d'emblée). */
+  firstWord: boolean;
+  stage: number;
+  revealed: number;
+  /** Temps sans progrès, hors pause (ms). */
+  ms: number;
+  show: HelpShow;
+  /** Lettres justes (début du mot) et meilleure lecture du côté de l'enfant. */
+  have: number;
+  best: Reading | null;
+  /** Lettres à revoir (copie : contour orange). */
+  wrongCells: Cell[];
+  memory: FeedbackMemory;
+  lastPlaceAt: number;
+  /** Vérifications prévues après la dernière pose (l'enfant s'est arrêté). */
+  checksAt: number[];
+  /** Ligne de cases claires tracée devant l'enfant (rien d'écrit), gardée tant que ses cases restent libres. */
+  planned: { cells: Cell[]; dir: Dir } | null;
+  /** Consigne dite : l'horloge d'aide tourne et les cases claires se montrent. */
+  announced: boolean;
+  /** Pas de voix française : la dictée devient une copie, dite une fois (« Je n'ai pas de voix ici »). */
+  noVoice: boolean;
+  noVoiceTold: boolean;
+  /** Lettre fausse : si elle est encore là à cette date, Pixel dit comment la casser. */
+  breakTip: { at: number; cell: Cell; id: number } | null;
+  /** Indice de la dictée gagné par un essai, dit un peu plus tard. */
+  helpSayAt: { at: number; say: HelpSay } | null;
+  /** Mot trouvé : lu du côté de l'enfant ? collé à un mot déjà écrit ? */
+  found: { facing: boolean; glued: boolean } | null;
+}
 
 /** Résultat d'une fabrication demandée (carte touchée ou accès de test). */
 type CraftResult =
@@ -349,7 +475,8 @@ export class Game {
   private lastStallHintAt = -Infinity;
   /** Icône du bloc demandé dans le bandeau de Pixel (J7) et bloc qu'elle montre. */
   private readonly companionIcon: HTMLCanvasElement;
-  private companionIconId: BlockId | null = null;
+  /** Ce que montre l'icône : « block:13 », « word:ABC » (mission 2, étape 0), ou rien. */
+  private companionIconKey = "";
   /** Début (temps réel) de la poussée en vain contre les parois d'un trou ou d'un abri fermé, et dernier conseil (J7). */
   private stuckSince: number | null = null;
   private lastStuckHintAt = -Infinity;
@@ -387,6 +514,34 @@ export class Game {
   /** Disponibilité du marteau à l'image précédente (l'aide d'écran en dépend). */
   private craftWasAvailable: boolean | null = null;
 
+  // ---------- V2 lot 1 : mission 2 « Les mots » ----------
+  /** Boîte à lettres (26 lettres illimitées) ouverte par la case ABC ou la touche 0. */
+  private readonly letterTray: LetterTray;
+  /** Lettre tenue dans la case ABC (jamais dans le sac, jamais enregistrée). */
+  private handLetter: BlockId | null = null;
+  /** La souris était capturée à l'ouverture de la boîte : elle l'est de nouveau au choix d'une lettre. */
+  private trayHadLock = false;
+  /** Écriture du mot de l'étape en cours (voir WritingRun). */
+  private writing: WritingRun | null = null;
+  /** Accès de test : voix française supposée présente (true) ou absente (false) ; null : celle du navigateur. */
+  private voiceOverride: boolean | null = null;
+  /** Lettre choisie et pas encore posée depuis (rappel du geste), et dernier rappel. */
+  private letterIdleSince: number | null = null;
+  private lastLetterHandHintAt = -Infinity;
+  /** Conseil qui suit le « bravo » d'un mot (« Fais le tour pour lire ! », « Un espace entre les mots ! »). */
+  private wordFollowUp: { at: number; text: ChildText } | null = null;
+  /** Cases du dernier mot réussi (contour vert, 1,2 s) et nombre de cases claires affichées. */
+  private doneMarks: Cell[] = [];
+  private ghostCount = 0;
+  /** Étape passée par l'accès de test (skipMissionStep) : ramasser et abri comptent comme atteints. */
+  private stepSkipped = false;
+  /** Case ABC visible à l'image précédente (l'aide d'écran en dépend). */
+  private lettersWereOn = false;
+  /** Modèle du mot dans le bandeau de Pixel (lettres-blocs, arcs des syllabes) et ce qu'il montre. */
+  private readonly companionModel: HTMLDivElement;
+  private companionModelKey = "";
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
@@ -421,7 +576,11 @@ export class Game {
       now: () => performance.now(),
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: (id) => window.clearTimeout(id),
+      // Dictée de la mission 2 : lue seulement s'il existe une voix française (sinon, copie).
+      canSpeak: () => this.canSpeak(),
     });
+    // Mode adresse : niveau de lecture choisi par l'adresse (&lecture=autonome), débutant sinon (V2).
+    if (this.urlMode && opts.lecture) this.narrator.setLevel(opts.lecture);
     this.sounds.attachUnlock(window);
     this.touch = new TouchControls(root);
     this.touch.enable(this.touchUi);
@@ -442,8 +601,11 @@ export class Game {
       progress: this.companionProgress,
       shelter: this.companionShelter,
       icon: this.companionIcon,
+      model: this.companionModel,
     } = this.buildCompanionPanel());
     this.celebration = new Celebration(root);
+    // Boîte à lettres (mission 2) : même niveau que le panneau de fabrication, sous les félicitations.
+    this.letterTray = new LetterTray(root, (t) => tileIcon(this.view.atlasCanvas, t), pixelFace);
     // Fabrication (V2) : au-dessus du jeu et du calque tactile, sous les félicitations.
     this.craftPanel = new CraftPanel(root, (id) => blockIcon(this.view.atlasCanvas, id));
     this.bubbleButton = this.topButton("bubble-btn", "Bulles", '<circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.2"/><circle cx="18.5" cy="17" r="2"/>');
@@ -482,7 +644,7 @@ export class Game {
     this.watchSaves();
     if (this.urlMode) {
       this.hud.showMessage(`Bienvenue dans ${GAME_NAME} (${VERSION})\n${pick(WELCOME, this.narrator.level)}`, 5000);
-      if (opts.mission !== undefined) this.startMission(undefined, opts.mission === 0 ? TUTORIAL : MISSION_1);
+      if (opts.mission !== undefined) this.startMission(undefined, opts.mission === 0 ? TUTORIAL : opts.mission === 1 ? MISSION_1 : MISSION_2);
     } else {
       // Accueil : qui joue, quel monde. Le jeu attend derrière, en pause.
       this.paused = true;
@@ -756,16 +918,43 @@ export class Game {
     this.watchSawScare = false;
     this.lastLampHintAt = -Infinity;
     this.shelterNow = null;
+    this.stepSkipped = false;
+    // Mission 2 : le mot de la nouvelle étape est tiré à la demande (writingRun) ; ses cases claires attendent la consigne.
+    this.writing = null;
+    this.refreshGhosts();
   }
 
-  /** Le compagnon lit la consigne de l'étape en cours (bouton « répète » compris), selon l'appareil. */
+  /**
+   * Le compagnon lit la consigne de l'étape en cours (bouton « répète » compris), selon l'appareil. Mission 2,
+   * dictée : la consigne est affichée sans voix et le mot est dicté (lu même voix coupée) ; sans voix française,
+   * Pixel dit une fois qu'il faut recopier le mot affiché.
+   */
   private announceStep(): void {
     const step = this.mission?.current();
     if (!step) return;
-    const t = stepText(step, this.touchUi);
-    this.tell(t.text, { spoken: t.spoken, ms: 4000, important: true });
+    const t = this.stepTexts(step);
+    const w = step.goal.kind === "write" ? this.writingRun() : null;
+    if (w) {
+      // Les cases claires se tracent là où regarde l'enfant quand il entend la consigne (la première fois).
+      w.announced = true;
+      if (w.noVoice && !w.noVoiceTold) {
+        w.noVoiceTold = true;
+        this.tell(NO_VOICE_COPY, { voice: false, ms: 5000 });
+      } else if (this.isDictated(w)) {
+        this.tell(t.text, { voice: false, ms: 4000 });
+        if (!this.narrator.dictate(pick(t.spoken, "autonome"))) this.dictationLost(w);
+      } else this.tell(t.text, { spoken: t.spoken, ms: 4000, important: true });
+      this.refreshWritingView();
+    } else this.tell(t.text, { spoken: t.spoken, ms: 4000, important: true });
     if (step.goal.kind === "watch") this.watchAnnounced = true;
     this.refreshCompanionPanel();
+  }
+
+  /** Consigne d'une étape selon l'appareil ; étape d'écriture : selon le mot, le mode et le prénom (mission 2). */
+  private stepTexts(step: StepDef): { text: ChildText; spoken: ChildText } {
+    const w = step.goal.kind === "write" && step === this.mission?.current() ? this.writingRun() : null;
+    if (!w) return stepText(step, this.touchUi);
+    return stepText(step, this.touchUi, { mode: w.mode, vars: this.wordVarsFor(w), nameFallback: w.nameFallback });
   }
 
   private refreshCompanionPanel(): void {
@@ -778,9 +967,10 @@ export class Game {
     }
     if (!m || !on) return;
     const step = m.current();
-    const text = pick(step ? stepText(step, this.touchUi).text : m.def.outro, this.narrator.level);
+    const text = pick(step ? this.stepTexts(step).text : m.def.outro, this.narrator.level);
     const goal = step?.goal;
-    const counted = goal && (goal.kind === "collect" || goal.kind === "place" || goal.kind === "break");
+    // Pas de compteur pour un mot à écrire (il trahirait la longueur du mot dicté) : le modèle le remplace.
+    const counted = goal && (goal.kind === "collect" || goal.kind === "place" || goal.kind === "break" || goal.kind === "letter");
     const p = counted ? m.progress(this.inventory) : null;
     const prog = p ? `${p.have} / ${p.need}` : "";
     // Écrire seulement ce qui change (le panneau est rafraîchi à chaque image).
@@ -790,17 +980,28 @@ export class Game {
     }
     if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
     const iconId = step?.icon ?? (goal && (goal.kind === "collect" || goal.kind === "place") && typeof goal.block === "number" ? goal.block : null);
-    if (iconId !== this.companionIconId) {
-      this.companionIconId = iconId;
-      this.companionIcon.style.display = iconId === null ? "none" : "";
-      this.companionIcon.dataset.block = iconId === null ? "" : String(iconId);
-      const g = this.companionIcon.getContext("2d");
-      if (g && iconId !== null) {
-        g.imageSmoothingEnabled = false;
-        g.clearRect(0, 0, 16, 16);
-        g.drawImage(blockIcon(this.view.atlasCanvas, iconId), 0, 0);
+    // Mission 2, étape 0 : « ABC » en tuiles de lettres (la case à toucher).
+    const word = goal?.kind === "letter" ? LETTERS_LABEL : null;
+    const iconKey = word !== null ? `word:${word}` : iconId !== null ? `block:${iconId}` : "";
+    if (iconKey !== this.companionIconKey) {
+      this.companionIconKey = iconKey;
+      const icon = this.companionIcon;
+      icon.style.display = iconKey === "" ? "none" : "";
+      icon.dataset.block = word === null && iconId !== null ? String(iconId) : "";
+      icon.classList.toggle("word", word !== null);
+      const src = word !== null ? wordIcon(this.view.atlasCanvas, word) : iconId !== null ? blockIcon(this.view.atlasCanvas, iconId) : null;
+      if (src) {
+        icon.width = src.width;
+        icon.height = src.height;
+        const g = icon.getContext("2d");
+        if (g) {
+          g.imageSmoothingEnabled = false;
+          g.clearRect(0, 0, icon.width, icon.height);
+          g.drawImage(src, 0, 0);
+        }
       }
     }
+    this.refreshCompanionModel();
     const sh = goal?.kind === "shelter";
     const display = sh ? "" : "none";
     if (this.companionShelter.style.display !== display) this.companionShelter.style.display = display;
@@ -921,6 +1122,7 @@ export class Game {
     progress: HTMLSpanElement;
     shelter: SVGSVGElement;
     icon: HTMLCanvasElement;
+    model: HTMLDivElement;
   } {
     const panel = document.createElement("div");
     panel.className = "companion";
@@ -965,10 +1167,19 @@ export class Game {
       if (m?.done) this.tell(m.def.outro, { ms: 4000, important: true });
       else this.announceStep();
     });
-    panel.append(face, text, icon, progress, shelter, repeat);
+    // Modèle du mot (mission 2) : sur sa propre ligne, sous la consigne ; toucher une lettre la dit.
+    const model = document.createElement("div");
+    model.className = "companion-model";
+    model.hidden = true;
+    for (const ev of ["mousedown", "touchstart"]) model.addEventListener(ev, (e) => e.stopPropagation());
+    model.addEventListener("click", (e) => {
+      const ch = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-letter]")?.dataset.letter : undefined;
+      if (ch) this.sayLetterName(ch);
+    });
+    panel.append(face, text, icon, progress, shelter, repeat, model);
     this.hud.root.appendChild(panel);
     window.addEventListener("resize", () => this.placeMessageBelowCompanion());
-    return { panel, text, progress, shelter, icon };
+    return { panel, text, progress, shelter, icon, model };
   }
 
   /**
@@ -988,15 +1199,29 @@ export class Game {
 
   /**
    * Ferme sans bruit ce qui est posé sur le jeu et oublie ce qui attendait (V2) : retour à l'accueil, nouveau
-   * monde, monde rechargé, adresse changée, autre onglet. Panneau de fabrication fermé, appui long annulé ; mission
-   * en attente du matin et suite des félicitations oubliées (la reprise du monde les retrouve depuis la sauvegarde).
+   * monde, monde rechargé, adresse changée, autre onglet. Panneau de fabrication et boîte à lettres fermés, appui
+   * long annulé ; mission en attente du matin et suite des félicitations oubliées (la reprise du monde les retrouve
+   * depuis la sauvegarde). Mission 2 : lettre en main, cases claires, contours et horloge d'aide remis à zéro (le mot
+   * en cours est gardé par la mission).
    */
   private closeOverlays(): void {
     this.closeCraft({ silent: true });
+    if (this.letterTray.visible) {
+      this.letterTray.close();
+      this.paused = false;
+      this.keyboard.clear();
+    }
     this.cancelSlotHold();
     this.pendingMission = null;
     this.afterCelebration = null;
     this.tomorrowAt = null;
+    this.handLetter = null;
+    this.letterIdleSince = null;
+    if (this.selectedSlot === LETTER_SLOT) this.setSlot(0);
+    this.writing = null;
+    this.wordFollowUp = null;
+    this.doneMarks = [];
+    this.refreshGhosts();
   }
 
   /** Annule l'appui long en cours (souris, doigt ou touche) et masque son anneau. */
@@ -1123,17 +1348,19 @@ export class Game {
         const ev = this.announceStepAt === null ? m.update(this.missionView) : null;
         if (ev?.kind === "step") {
           this.sounds.play("bravo");
-          // Objectif « ramasser » atteint : le compte réel est dit (« Six troncs ! Bravo ! ») ; sinon « Bravo ! ».
+          // Objectif « ramasser » atteint : le compte réel est dit (« Six troncs ! Bravo ! ») ; mot écrit (mission 2) :
+          // « Tu as écrit AMI ! » ; sinon « Bravo ! ».
           const done = m.def.steps[ev.index - 1]?.goal;
           let said = pick(BRAVO, this.narrator.level);
           if (done?.kind === "collect") {
             const t = goalReachedText(done.block, Math.max(done.count, this.inventory.count(done.block)));
             this.tell(t.text, { spoken: t.spoken, ms: 2000, important: true });
             said = pick(t.spoken, this.narrator.level);
-          } else this.tell(BRAVO, { ms: 1500, important: true });
+          } else if (done?.kind === "write") said = this.tellWordDone(now);
+          else this.tell(BRAVO, { ms: 1500, important: true });
           this.onStepStart(now);
-          // La consigne suivante attend la fin de la phrase (sinon la voix la couperait).
-          this.announceStepAt = now + Math.max(1600, this.narrator.voice ? speechMs(said) + 300 : 0);
+          // La consigne suivante attend la fin de la phrase (sinon la voix la couperait), et le conseil qui suit un mot.
+          this.announceStepAt = this.afterSaid(now, said);
           this.saveNow();
         } else if (ev?.kind === "done") this.onMissionDone(m.def, now);
         if (this.announceStepAt !== null && now >= this.announceStepAt) {
@@ -1150,6 +1377,13 @@ export class Game {
         }
         this.updatePendingMission(now, h);
         this.maybeIntroduceCraft(now);
+        this.updateWriting(now, dt * 1000);
+        this.letterHandReminder(now);
+        if (this.wordFollowUp && now >= this.wordFollowUp.at) {
+          const t = this.wordFollowUp.text;
+          this.wordFollowUp = null;
+          this.tell(t, { ms: WORD_FOLLOW_UP_READ_MS + 1000, important: true });
+        }
       }
       this.deliverReward(true);
     }
@@ -1201,9 +1435,14 @@ export class Game {
     return w.data[i] !== this.baseData[i];
   };
 
+  /** Ce que la mission observe ; une étape passée par l'accès de test (skipMissionStep) compte comme atteinte. */
   private readonly missionView: MissionView = {
-    count: (id) => this.inventory.count(id),
-    shelter: () => this.shelterNow,
+    count: (id) => {
+      const g = this.mission?.current()?.goal;
+      const n = this.inventory.count(id);
+      return this.stepSkipped && g?.kind === "collect" && g.block === id ? Math.max(n, g.count) : n;
+    },
+    shelter: () => (this.stepSkipped ? { roof: true, walls: 4, own: true, ok: true } : this.shelterNow),
   };
 
   /**
@@ -1233,7 +1472,7 @@ export class Game {
       return;
     }
     if (craftHint) this.tell(craftHint.text, { spoken: craftHint.spoken, ms: 4500, important: true });
-    else if (step.hint) this.tell(step.hint, { ms: 4500, important: true });
+    else if (step.hint) this.tell(step.hint, { spoken: step.hintSpoken ?? step.hint, ms: 4500, important: true });
   }
 
   /**
@@ -1376,11 +1615,19 @@ export class Game {
       if (this.touch.mode === "place") this.touch.setMode("break");
     }
     if (def.reward) {
-      this.rewardPending = { ...def.reward };
+      // Un cadeau précédent encore en attente (sac plein depuis la mission 1) : les deux s'additionnent.
+      const r = this.rewardPending;
+      this.rewardPending = r && r.block === def.reward.block ? { block: r.block, count: r.count + def.reward.count } : { ...def.reward };
       this.rewardSeenInventory = -1;
       this.deliverReward(false);
     }
-    if (def.recap) {
+    const lastGoal = def.steps[def.steps.length - 1]?.goal;
+    if (def.recap && lastGoal?.kind === "write") {
+      // Mission 2 : le dernier mot est félicité (« Tu as écrit LEA ! »), puis l'écran ; au doigt, retour au mode Casser.
+      const said = this.tellWordDone(now);
+      this.celebrationAt = this.afterSaid(now, said);
+      if (this.touch.mode === "place") this.touch.setMode("break");
+    } else if (def.recap) {
       // La découverte (logique) : dite par Pixel quand l'enfant a vu les Grignotes fuir la lampe (et pas redite aussitôt,
       // voir flee-lamp).
       if (this.watchSawScare) {
@@ -1433,12 +1680,24 @@ export class Game {
     const level = this.narrator.level;
     const title = bravoTitle(this.session?.profile.name ?? null);
     const icon = (id: BlockId) => blockIcon(this.view.atlasCanvas, id);
-    const recap: CelebrationLine[] = (def.recap ?? []).map((item) => {
-      if ("block" in item) return { icon: icon(item.block), text: capitalize(quantity(item.block, item.count)) };
+    const name = this.session?.profile.name ?? null;
+    const words = this.mission?.def === def ? this.mission.words : [];
+    const recap: CelebrationLine[] = (def.recap ?? []).flatMap((item): CelebrationLine[] => {
+      if ("block" in item) return [{ icon: icon(item.block), text: capitalize(quantity(item.block, item.count)) }];
+      if ("words" in item) {
+        // Mission 2 : chaque mot écrit, en blocs-lettres, avec sa forme en minuscules (« lampe (5 lettres) »).
+        return words.map((w) => {
+          const c = wordIcon(this.view.atlasCanvas, w);
+          c.classList.add("celebration-word");
+          c.setAttribute("aria-hidden", "true");
+          return { icon: c, text: recapWordLabel(w, level, name) };
+        });
+      }
       const house = shelterIcon(40);
       setShelterParts(house, true, 3, true);
-      return { icon: house, text: "Un abri" };
+      return [{ icon: house, text: "Un abri" }];
     });
+    const recapSaid = (def.recap ?? []).some((item) => "words" in item) ? fillWord(RECAP_SPOKEN, recapVars(words, level, name)) : null;
     const reward = def.reward ? rewardText(def.reward.block, def.reward.count) : null;
     this.freezeForOverlay();
     this.hud.message.classList.remove("visible"); // pas de message qui dépasse derrière la carte
@@ -1471,8 +1730,9 @@ export class Game {
     );
     this.sounds.play("bravo");
     window.setTimeout(() => this.sounds.play("bravo"), 500);
-    // Lu d'une traite (lecteur débutant, voix active) : le titre, la phrase de Pixel, le cadeau.
-    const joined = (l: "debutant" | "autonome") => [pick(title, l), pick(def.outro, l), reward ? pick(reward.spoken, l) : ""].join(" ").trim();
+    // Lu d'une traite (lecteur débutant, voix active) : le titre, la phrase de Pixel, les mots écrits, le cadeau.
+    const joined = (l: "debutant" | "autonome") =>
+      [pick(title, l), pick(def.outro, l), recapSaid ? pick(recapSaid, l) : "", reward ? pick(reward.spoken, l) : ""].filter((x) => x !== "").join(" ");
     this.narrator.say({ debutant: joined("debutant"), autonome: joined("autonome") }, { important: true });
   }
 
@@ -1716,6 +1976,645 @@ export class Game {
     return craftMoreBlocksText(this.touchUi);
   }
 
+  // ---------- Mission 2 « Les mots » (V2 lot 1) ----------
+
+  /** La case ABC est-elle là ? Compagnon actif et mission 2 (ou suivante) commencée, finie comprise. */
+  private lettersOn(): boolean {
+    return this.companionOn() && lettersUnlocked(this.mission?.def ?? null);
+  }
+
+  /** Une voix française peut lire la dictée (sinon, copie) ; l'accès de test peut le forcer (assumeVoice). */
+  private canSpeak(): boolean {
+    return this.voiceOverride ?? (this.speech.supported && this.speech.frenchVoices().length > 0);
+  }
+
+  /** À chaque image : case ABC montrée ou cachée, lettre tenue, anneau de l'étape 0 ; aide d'écran quand elle change. */
+  private syncLetters(): void {
+    const on = this.lettersOn();
+    if (!on) {
+      this.handLetter = null;
+      this.letterIdleSince = null;
+      if (this.selectedSlot === LETTER_SLOT) this.setSlot(0);
+    }
+    const hand = this.handLetter;
+    this.hud.setLettersCell({
+      visible: on,
+      tile: on && hand !== null ? Tile.LetterA + (hand - BlockId.LetterA) : null,
+      selected: this.selectedSlot === LETTER_SLOT,
+      hint: on && this.mission?.current()?.goal.kind === "letter",
+    });
+    if (on !== this.lettersWereOn) {
+      this.lettersWereOn = on;
+      this.updateHint();
+    }
+  }
+
+  /**
+   * Ouvre la boîte à lettres (case ABC, touche 0, poser sans lettre en main) : le jeu se fige dessous comme pour
+   * la fabrication. Refusée pendant une autre pause ou sans case ABC. La partie est enregistrée (une boîte laissée
+   * ouverte ne bloque pas la sauvegarde automatique). Renvoie vrai si elle s'ouvre.
+   */
+  private openLetters(): boolean {
+    if (this.paused || this.letterTray.visible || !this.lettersOn()) return false;
+    this.trayHadLock = this.mouse.locked;
+    this.freezeForOverlay();
+    this.hud.message.classList.remove("visible"); // pas de message qui dépasse derrière la boîte
+    this.saveNow();
+    this.letterTray.open(this.trayContent(), {
+      pick: (ch) => this.pickLetter(ch),
+      close: () => this.afterTrayClosed(),
+      repeat: () => this.repeatDictation(),
+      sayLetter: (ch) => this.sayLetterName(ch),
+    });
+    this.sounds.play("select");
+    return true;
+  }
+
+  /** Contenu de la boîte : titre, ligne du clavier (PC), modèle du mot, lettre attendue et son anneau, haut-parleur. */
+  private trayContent(): TrayContent {
+    const level = this.narrator.level;
+    const w = this.writingRun();
+    const expected = w && !w.found && w.mode === "copy" && w.have < w.target.length ? w.target.charAt(w.have) : null;
+    return {
+      title: pick(TRAY_TITLE, level),
+      keyboardLine: this.touchUi ? null : pick(TRAY_KEYBOARD, level),
+      model: w && !w.found ? this.wordModel(w) : null,
+      expected,
+      glow: w !== null && expected !== null && (w.show.trayGlow || w.firstWord),
+      speaker: w !== null && this.isDictated(w),
+    };
+  }
+
+  /** Boîte fermée sans choix (voile, croix, Échap, 0) : le jeu reprend. */
+  private afterTrayClosed(): void {
+    this.paused = false;
+    this.keyboard.clear();
+    this.touch.reset();
+    this.mouse.cancelPress();
+    this.updateHint();
+    if (!this.touchUi && !this.mouse.locked && !this.mouse.inFallback()) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
+  }
+
+  /**
+   * Lettre choisie dans la boîte (déjà fermée) : elle va dans la main (case ABC), son nom est dit. Au doigt, le mode
+   * Poser ; au PC, la souris est capturée de nouveau dans le même geste si elle l'était. En copie, une autre lettre que
+   * celle attendue reste en main, et Pixel dit laquelle chercher.
+   */
+  private pickLetter(ch: string): void {
+    this.paused = false;
+    this.keyboard.clear();
+    this.touch.reset();
+    this.mouse.cancelPress();
+    const id = letterBlockId(ch);
+    if (id === null || !this.lettersOn()) {
+      this.updateHint();
+      return;
+    }
+    this.handLetter = id;
+    this.letterIdleSince = performance.now();
+    this.setSlot(LETTER_SLOT, true); // son « select », « lettre M » au-dessus de la barre
+    this.syncLetters();
+    if (this.touchUi) {
+      if (this.touch.mode !== "place") this.touch.setMode("place");
+    } else if (this.trayHadLock && !this.mouse.locked) this.mouse.requestLock();
+    this.updateHint();
+    const w = this.writingRun();
+    const want = w && !w.found && w.mode === "copy" ? w.target.charAt(w.have) : "";
+    if (w && want !== "" && want !== ch) {
+      const t = fillSaid(TRAY_WRONG_PICK, { ...this.wordVarsFor(w), L: want, nom: letterName(want), nomChoisi: letterName(ch) });
+      this.tell(t.text, { spoken: t.spoken, ms: 3000, dedupe: true, important: true });
+      return;
+    }
+    this.sayLetterName(ch);
+    if (!this.touchUi && !this.trayHadLock && !this.mouse.locked && !this.mouse.inFallback()) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
+  }
+
+  /** Accès de test : comme un choix dans la boîte (ouverte ou non). */
+  private debugChooseLetter(ch: string): boolean {
+    const up = typeof ch === "string" ? ch.toUpperCase() : "";
+    if (letterBlockId(up) === null || !this.lettersOn()) return false;
+    if (this.letterTray.visible) this.letterTray.close();
+    else if (this.paused) return false;
+    this.pickLetter(up);
+    return true;
+  }
+
+  /** Nom d'une lettre (« emme »), lu si la voix est active. */
+  private sayLetterName(ch: string): void {
+    const n = letterName(ch);
+    this.narrator.say({ debutant: n, autonome: n });
+  }
+
+  /** Haut-parleur de la boîte : le mot est dicté de nouveau. */
+  private repeatDictation(): void {
+    const step = this.mission?.current();
+    const w = this.writingRun();
+    if (!step || !w || !this.isDictated(w)) return;
+    this.narrator.dictate(pick(this.stepTexts(step).spoken, "autonome"));
+  }
+
+  /**
+   * Poser la lettre tenue (case ABC choisie) : mêmes refus qu'un bloc (bord du monde, pas de place), sans rien
+   * prendre dans le sac (les lettres sont illimitées). Sans lettre en main, la boîte s'ouvre.
+   */
+  private placeLetter(): void {
+    const id = this.handLetter;
+    if (id === null) {
+      this.openLetters();
+      return;
+    }
+    if (!this.target) return;
+    const t = this.target;
+    const w = this.world;
+    const onPlant = isPlantId(w.get(t.x, t.y, t.z));
+    const x = onPlant ? t.x : t.x + t.nx;
+    const y = onPlant ? t.y : t.y + t.ny;
+    const z = onPlant ? t.z : t.z + t.nz;
+    if (!w.inBounds(x, y, z)) {
+      this.deny(WORLD_EDGE);
+      return;
+    }
+    if (boxesIntersect(blockBox(x, y, z), this.player.box())) {
+      this.deny(NO_SPACE);
+      return;
+    }
+    const replaced = w.get(x, y, z);
+    if (replaced === id || !w.set(x, y, z, id)) return;
+    this.mission?.notePlaced(id);
+    this.letterIdleSince = null;
+    this.sounds.play("place", id);
+    if (isPlantId(replaced)) this.collect(replaced);
+    this.afterBlockChange(true);
+  }
+
+  /** Un bloc posé ou cassé pendant une étape d'écriture : le mot est relu (après une lettre posée, de nouveau plus tard). */
+  private afterBlockChange(letterPlaced: boolean): void {
+    const w = this.writingRun();
+    if (!w || w.found) return;
+    if (letterPlaced) {
+      const now = performance.now();
+      w.lastPlaceAt = now;
+      // Dictée : retour quand l'enfant s'arrête (mot de la bonne longueur, ou plus long arrêt).
+      w.checksAt = w.mode === "dictation" ? [now + DICT_FEEDBACK_FULL_MS + 50, now + DICT_FEEDBACK_IDLE_MS + 50] : [now + DICT_FEEDBACK_IDLE_MS + 50];
+    }
+    this.checkWriting("change");
+  }
+
+  /** Écriture du mot de l'étape « write » en cours, préparée au besoin (mot tiré, mode, aide enregistrée) ; null sinon. */
+  private writingRun(): WritingRun | null {
+    const m = this.mission;
+    const g = m?.current()?.goal;
+    if (!m || g?.kind !== "write" || !this.companionOn()) return null;
+    const w = this.writing;
+    if (w && w.def === m.def && w.step === m.stepIndex) return w;
+    this.writing = this.prepareWriting(m, g.source);
+    return this.writing;
+  }
+
+  /**
+   * Prépare le mot d'une étape d'écriture : tiré au sort hors des mots déjà dans ce monde et dans les autres mondes de
+   * l'enfant (ou repris), mode (débutant : copie ; autonome : dictée s'il y a une voix française, sinon copie ;
+   * prénom à accents : copie), aide enregistrée, lettres déjà posées.
+   */
+  private prepareWriting(m: MissionRunner, source: "list" | "name"): WritingRun {
+    const level = this.narrator.level;
+    const name = this.session?.profile.name ?? null;
+    const exclude = presentWords(this.world);
+    const s = this.session;
+    if (s) for (const word of wordsSeen(this.store.worlds(s.profile.id).filter((_, i) => i !== s.slot))) exclude.add(word);
+    const target = m.prepare({ level, name, seed: this.gen.seed, exclude }) ?? "";
+    const written = nameWord(name);
+    const isName = source === "name" && written !== null && target === written;
+    const saved = m.help();
+    let mode: WriteMode = "dictation";
+    let noVoice = false;
+    if (level === "debutant" || saved.copy) mode = "copy";
+    else if (isName) mode = name !== null && written !== name.trim().toUpperCase() ? "copy" : "dictation";
+    else if (!this.canSpeak()) {
+      mode = "copy";
+      noVoice = true;
+    }
+    const w: WritingRun = {
+      def: m.def,
+      step: m.stepIndex,
+      target,
+      isName,
+      nameFallback: source === "name" && !isName,
+      mode,
+      firstWord: m.words.length === 0,
+      stage: saved.stage,
+      revealed: saved.revealed,
+      ms: 0,
+      show: { model: "none", revealed: 0, nextRing: false, ghostLine: false, ghostNext: false, trayGlow: false },
+      have: 0,
+      best: null,
+      wrongCells: [],
+      memory: newFeedbackMemory(),
+      lastPlaceAt: performance.now(),
+      checksAt: [],
+      planned: null,
+      announced: false,
+      noVoice,
+      noVoiceTold: false,
+      breakTip: null,
+      helpSayAt: null,
+      found: null,
+    };
+    // Reprise : les lettres déjà posées comptent (sans message).
+    const st = this.evaluate(w);
+    w.best = st.best?.reading ?? null;
+    w.have = st.best?.match.have ?? 0;
+    const out = wordHelp({ mode, firstWord: w.firstWord, length: target.length, have: w.have, stage: w.stage, revealed: w.revealed, prevMs: 0, ms: 0, newTry: false });
+    w.mode = out.mode;
+    w.stage = out.stage;
+    w.revealed = out.revealed;
+    w.show = out.show;
+    return w;
+  }
+
+  /** Le mot est dicté (lu même voix coupée) : dictée d'un mot de la liste, pas le prénom. */
+  private isDictated(w: WritingRun): boolean {
+    return w.mode === "dictation" && !w.isName;
+  }
+
+  /** Variables des gabarits pour ce mot (spoken : l'astuce dite). */
+  private wordVarsFor(w: WritingRun, spoken = false): WordVars {
+    return wordVars(this.narrator.level, w.target, this.session?.profile.name ?? null, spoken);
+  }
+
+  private evaluate(w: WritingRun): WritingState {
+    const p = this.player;
+    return evaluateWriting(this.world, { x: p.x, y: p.y, z: p.z }, w.target, { x: p.x, z: p.z }, this.mission?.words ?? []);
+  }
+
+  /**
+   * Relit le mot autour de l'enfant (après une pose ou une casse, quand il s'arrête, ou par l'accès de test) : mot
+   * trouvé (l'étape se valide), sinon un retour au plus (writingFeedback), lettres à revoir, avancement. Un progrès
+   * remet l'horloge d'aide à zéro ; en dictée, un essai qui reçoit un retour fait monter l'aide d'un palier.
+   */
+  private checkWriting(cause: "change" | "idle" | "debug"): WritingFeedback | null {
+    const w = this.writingRun();
+    const m = this.mission;
+    if (!w || !m || w.found) return null;
+    const now = performance.now();
+    const st = this.evaluate(w);
+    // Accès de test : comme si l'enfant s'était arrêté depuis longtemps.
+    const since = cause === "debug" ? Infinity : now - w.lastPlaceAt;
+    const f = writingFeedback(st, w.mode, w.target, now, since, w.memory);
+    if (f.found && st.found) {
+      m.noteWord(w.target);
+      w.found = { facing: f.foundFacing, glued: f.glued };
+      w.have = w.target.length;
+      w.wrongCells = [];
+      w.checksAt = [];
+      w.breakTip = null;
+      w.helpSayAt = null;
+      this.doneMarks = st.found.cells.map((c): Cell => [c[0], c[1], c[2]]);
+      this.refreshWritingView();
+      return f;
+    }
+    w.best = st.best?.reading ?? null;
+    w.wrongCells = f.wrongCells;
+    if (f.key) this.sayFeedback(w, f, now);
+    if (f.have > w.have) w.ms = 0; // un progrès : l'aide repart de zéro
+    w.have = f.have;
+    if (f.newTry) {
+      m.noteTry();
+      this.applyHelp(w, w.ms, true, now + HELP_AFTER_FEEDBACK_MS);
+    }
+    this.refreshWritingView();
+    return f;
+  }
+
+  /** Retour sur l'essai (lettre fausse, en trop, mot caché…) ; en dictée, le mot est redit. */
+  private sayFeedback(w: WritingRun, f: WritingFeedback, now: number): void {
+    const key = f.key;
+    if (!key) return;
+    const L = f.vars.L;
+    const vars: WordVars = {
+      ...this.wordVarsFor(w),
+      ...(L ? { L, nom: letterName(L) } : {}),
+      ...(f.vars.rang !== undefined ? { rang: ordinalWord(f.vars.rang) } : {}),
+    };
+    const t = fillSaid(FEEDBACK_TEXTS[key], vars);
+    this.tell(t.text, { spoken: t.spoken, ms: 4000, important: true, dedupe: true });
+    if (key === "WRONG_LETTER") {
+      const cell = f.wrongCells[0];
+      if (cell) w.breakTip = { at: now + BREAK_TIP_MS, cell, id: this.world.get(cell[0], cell[1], cell[2]) };
+    }
+    if (this.isDictated(w) && (key === "DICT_WRONG" || key === "DICT_MISSING" || key === "DICT_FAR")) {
+      this.narrator.dictate(pick(fillWord(LISTEN_AGAIN, vars), "autonome"));
+    }
+  }
+
+  /**
+   * Aide progressive (wordHelp) pour le temps passé sans progrès : palier, lettres dévoilées, passage en copie,
+   * retenus par la mission ; ce que Pixel dit (tout de suite, ou à sayAt après un retour de la dictée).
+   */
+  private applyHelp(w: WritingRun, prevMs: number, newTry: boolean, sayAt: number | null = null): void {
+    const out = wordHelp({
+      mode: w.mode,
+      firstWord: w.firstWord,
+      length: w.target.length,
+      have: w.have,
+      stage: w.stage,
+      revealed: w.revealed,
+      prevMs,
+      ms: w.ms,
+      newTry,
+    });
+    const changed = out.stage !== w.stage || out.revealed !== w.revealed || out.mode !== w.mode;
+    w.mode = out.mode;
+    w.stage = out.stage;
+    w.revealed = out.revealed;
+    w.show = out.show;
+    if (out.resetClock) w.ms = 0;
+    if (changed) {
+      this.mission?.noteHelp({ stage: w.stage, revealed: w.revealed, copy: w.mode === "copy" });
+      this.refreshWritingView();
+    }
+    if (!out.say) return;
+    if (sayAt !== null) w.helpSayAt = { at: sayAt, say: out.say };
+    else this.sayHelp(w, out.say);
+  }
+
+  /** Ce que dit l'aide : lettre suivante, cases claires, lettre donnée (copie) ; indices de la dictée. */
+  private sayHelp(w: WritingRun, say: HelpSay): void {
+    const base = this.wordVarsFor(w);
+    const next = w.target.charAt(Math.min(w.have, w.target.length - 1));
+    const letter = (ch: string) => ({ L: ch, nom: letterName(ch) });
+    switch (say) {
+      case "next": {
+        const t = fillSaid(NEXT_LETTER, { ...base, ...letter(next) });
+        this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
+        return;
+      }
+      case "ghosts": {
+        const t = fillSaid(GHOST_LINE, base);
+        this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
+        return;
+      }
+      case "give":
+        this.giveLetter(w, next);
+        return;
+      default: {
+        // Indices de la dictée : écrits, et dits par la dictée (même voix coupée) pour un mot dicté.
+        const tpl = say === "count" ? DICT_HELP_COUNT : say === "first" ? DICT_HELP_FIRST : say === "more" ? DICT_HELP_MORE : DICT_HELP_ALL;
+        const k = say === "more" ? Math.max(1, w.revealed) : 1;
+        const extra = { ...letter(w.target.charAt(k - 1)), rang: ordinalWord(k) };
+        const t = fillSaid(tpl, { ...base, ...extra }, { ...this.wordVarsFor(w, true), ...extra });
+        const text = trimText(t.text);
+        const spoken = trimText(t.spoken);
+        if (!w.isName && this.narrator.level === "autonome") {
+          this.tell(text, { voice: false, ms: 4500 });
+          this.narrator.dictate(pick(spoken, "autonome"));
+        } else this.tell(text, { spoken, ms: 4500, important: true });
+      }
+    }
+  }
+
+  /** Copie, au bout de 50 s sans progrès : la lettre attendue est mise dans la main (mode Poser au doigt). */
+  private giveLetter(w: WritingRun, ch: string): void {
+    const id = letterBlockId(ch);
+    if (id === null || !this.lettersOn()) return;
+    this.handLetter = id;
+    this.letterIdleSince = performance.now();
+    this.setSlot(LETTER_SLOT);
+    this.hud.showSlotName(this.hud.blockName(id));
+    if (this.touchUi && this.touch.mode !== "place") this.touch.setMode("place");
+    this.updateHint();
+    this.syncLetters();
+    this.refreshGhosts();
+    const ou = this.ghostCount > 0 ? PLACE_WHERE.ghost : PLACE_WHERE.ahead;
+    const t = fillSaid(GIVE_LETTER, { ...this.wordVarsFor(w), L: ch, nom: letterName(ch), ou });
+    this.tell(t.text, { spoken: t.spoken, ms: 4500, important: true });
+  }
+
+  /** La dictée n'a pas pu être lue (plus de voix) : le mot passe en copie, et Pixel le dit. */
+  private dictationLost(w: WritingRun): void {
+    w.mode = "copy";
+    w.stage = 0;
+    w.noVoice = true;
+    w.noVoiceTold = true;
+    this.applyHelp(w, w.ms, false);
+    this.mission?.noteHelp({ stage: w.stage, revealed: w.revealed, copy: true });
+    this.tell(NO_VOICE_COPY, { voice: false, ms: 5000 });
+    this.refreshWritingView();
+  }
+
+  /**
+   * À chaque image d'une étape d'écriture (hors pause, consigne dite) : vérifications prévues après une pose, indice
+   * en attente, conseil pour casser une lettre fausse restée là, puis horloge d'aide.
+   */
+  private updateWriting(now: number, dtMs: number): void {
+    const w = this.writingRun();
+    if (!w || w.found || !w.announced || this.announceStepAt !== null) return;
+    const due = w.checksAt[0];
+    if (due !== undefined && now >= due) {
+      w.checksAt.shift();
+      this.checkWriting("idle");
+      if (w.found) return;
+    }
+    // L'indice gagné par un essai attend aussi que la voix ait fini (le mot redit par la dictée, par exemple).
+    if (w.helpSayAt && now >= w.helpSayAt.at && !this.narrator.busy) {
+      const say = w.helpSayAt.say;
+      w.helpSayAt = null;
+      this.sayHelp(w, say);
+    }
+    const tip = w.breakTip;
+    if (tip && now >= tip.at) {
+      w.breakTip = null;
+      // Au doigt, seulement en mode Poser : en mode Casser, garder le doigt dessus suffit.
+      const still = this.world.get(tip.cell[0], tip.cell[1], tip.cell[2]) === tip.id;
+      if (still && (!this.touchUi || this.touch.mode === "place")) {
+        this.tell(this.touchUi ? BREAK_TIP_TOUCH : BREAK_TIP_MOUSE, { ms: 4000, dedupe: true, important: true });
+      }
+    }
+    const prev = w.ms;
+    w.ms += dtMs;
+    this.applyHelp(w, prev, false);
+  }
+
+  /** Lettre choisie et pas posée depuis 6 s pendant la mission 2 : rappel du geste (au plus toutes les 20 s). */
+  private letterHandReminder(now: number): void {
+    const since = this.letterIdleSince;
+    const m = this.mission;
+    if (since === null || this.selectedSlot !== LETTER_SLOT || this.handLetter === null) return;
+    if (!m || m.def !== MISSION_2 || m.done || this.announceStepAt !== null || this.narrator.busy) return;
+    if (now - since < LETTER_IN_HAND_MS || now - this.lastLetterHandHintAt < LETTER_IN_HAND_EVERY_MS) return;
+    this.lastLetterHandHintAt = now;
+    this.tell(this.touchUi ? LETTER_IN_HAND_TOUCH : LETTER_IN_HAND_MOUSE, { ms: 3500, dedupe: true });
+  }
+
+  /**
+   * Mot écrit (étape validée) : « Tu as écrit AMI ! » (dit : épelé, le mot et sa phrase ; le prénom tel qu'il est
+   * enregistré). Lu de l'autre côté ou collé à un mot déjà écrit : le conseil suit, après le bravo. Renvoie ce qui est dit.
+   */
+  private tellWordDone(now: number): string {
+    const m = this.mission;
+    const w = this.writing;
+    const word = w?.target ?? m?.words[m.words.length - 1] ?? "";
+    const name = this.session?.profile.name ?? null;
+    const level = this.narrator.level;
+    const t = fillSaid(name !== null && nameWord(name) === word ? WORD_DONE_NAME : WORD_DONE, wordVars(level, word, name));
+    this.tell(t.text, { spoken: t.spoken, ms: 3000, important: true });
+    const said = pick(t.spoken, level);
+    const found = w?.found ?? null;
+    const follow = found ? (!found.facing ? READ_OTHER_SIDE : found.glued ? SPACE_BETWEEN : null) : null;
+    this.wordFollowUp = follow
+      ? { at: Math.max(now + WORD_FOLLOW_UP_MS, now + (this.narrator.voice ? speechMs(said) + 300 : 0)), text: follow }
+      : null;
+    return said;
+  }
+
+  /** Date de la suite (consigne, écran) : après la phrase dite, et après le conseil qui suit un mot s'il y en a un. */
+  private afterSaid(now: number, said: string): number {
+    let at = now + Math.max(1600, this.narrator.voice ? speechMs(said) + 300 : 0);
+    const f = this.wordFollowUp;
+    if (f) {
+      const read = Math.max(WORD_FOLLOW_UP_READ_MS, this.narrator.voice ? speechMs(pick(f.text, this.narrator.level)) + 300 : 0);
+      at = Math.max(at, f.at + read);
+    }
+    return at;
+  }
+
+  /**
+   * Modèle du mot (bandeau de Pixel et boîte) : copie, le mot entier avec les lettres justes et la suivante entourée ;
+   * dictée, rien, puis des cases vides, puis les lettres dévoilées. Arcs sous les syllabes.
+   */
+  private wordModel(w: WritingRun): TrayModel | null {
+    if (w.show.model === "none") return null;
+    const level = this.narrator.level;
+    const entry = findEntry(level, w.target) ?? findEntry(level === "debutant" ? "autonome" : "debutant", w.target);
+    const syllables = entry ? entry.syllables.map((x) => x.length) : [];
+    const boxes = w.show.model === "boxes";
+    const letters: TrayLetter[] = Array.from(w.target, (ch, i): TrayLetter => {
+      if (boxes) return i < w.show.revealed ? { ch, state: "todo" } : { ch: null, state: "box" };
+      return { ch, state: i < w.have ? "done" : i === w.have && w.show.nextRing ? "next" : "todo" };
+    });
+    return { letters, syllables };
+  }
+
+  private refreshWritingView(): void {
+    this.refreshGhosts();
+    this.refreshCompanionModel();
+  }
+
+  /**
+   * Cases claires et contours : rien d'écrit, une ligne tracée devant l'enfant (gardée tant que ses cases restent
+   * libres) ; sinon, la suite du mot après les lettres justes. Palier 1 : seulement la case suivante. Contours orange
+   * sur les lettres à revoir (copie), vert sur le mot réussi.
+   */
+  private refreshGhosts(): void {
+    const ghosts = this.view.ghosts;
+    const w = this.writing;
+    const m = this.mission;
+    const active = w !== null && !w.found && w.announced && m !== null && m.def === w.def && m.stepIndex === w.step;
+    const list: { x: number; y: number; z: number; id: BlockId }[] = [];
+    if (active && (w.show.ghostLine || w.show.ghostNext)) {
+      const len = w.target.length;
+      let cells: Cell[];
+      let offset = 0;
+      if (w.have > 0 && w.best) {
+        cells = ghostCells(this.world, w.best, w.have, len);
+        offset = w.have;
+      } else {
+        if (w.planned?.cells.some(([x, y, z]) => isSolidId(this.world.get(x, y, z)))) w.planned = null;
+        if (!w.planned) {
+          // Le mot doit tenir dans les 60° du milieu du regard (moins si l'écran est plus étroit) : la ligne se pose
+          // alors à 4 ou 5 blocs, visible sans baisser les yeux (avec tout le champ d'un PC, elle serait à 2 blocs).
+          const p = this.player;
+          const cam = this.view.camera;
+          w.planned = planLine(this.world, { x: p.x, y: p.y, z: p.z }, p.yaw, len, Math.min(60, horizontalFov(cam.fov, cam.aspect)));
+        }
+        cells = w.planned?.cells ?? [];
+      }
+      if (!w.show.ghostLine) cells = cells.slice(0, 1);
+      cells.forEach(([x, y, z], k) => {
+        const id = letterBlockId(w.target.charAt(offset + k));
+        if (id !== null) list.push({ x, y, z, id });
+      });
+    }
+    ghosts.setGhosts(list, list[0] ?? null);
+    ghosts.setMarks({ wrong: active && w.mode === "copy" ? w.wrongCells : [], done: this.doneMarks });
+    this.ghostCount = list.length;
+  }
+
+  /** Modèle du bandeau de Pixel, redessiné seulement quand il change (sa hauteur peut déplacer le message central). */
+  private refreshCompanionModel(): void {
+    const w = this.mission?.current()?.goal.kind === "write" ? this.writingRun() : null;
+    const model = w && !w.found ? this.wordModel(w) : null;
+    const key = model ? JSON.stringify(model) : "";
+    if (key === this.companionModelKey) return;
+    this.companionModelKey = key;
+    const box = this.companionModel;
+    box.replaceChildren();
+    box.hidden = model === null;
+    this.companionPanel.classList.toggle("with-model", model !== null);
+    if (model) {
+      box.classList.toggle("long", model.letters.length > 5);
+      for (const group of trayModelCells(model)) {
+        const syllable = document.createElement("span");
+        syllable.className = "model-syllable";
+        for (const cell of group) {
+          const span = document.createElement("span");
+          span.className = `model-letter ${cell.state}`;
+          span.setAttribute("role", "img");
+          if (cell.letter !== null) {
+            span.dataset.letter = cell.letter;
+            span.setAttribute("aria-label", `lettre ${cell.letter}`);
+            const t = tileIcon(this.view.atlasCanvas, Tile.LetterA + LETTERS.indexOf(cell.letter));
+            t.setAttribute("aria-hidden", "true");
+            span.appendChild(t);
+          } else span.setAttribute("aria-label", "case vide");
+          syllable.appendChild(span);
+        }
+        box.appendChild(syllable);
+      }
+    }
+    this.placeMessageBelowCompanion();
+  }
+
+  /**
+   * Accès de test : valide l'étape en cours comme si l'objectif était atteint (la mission avance à l'image suivante,
+   * après la consigne en cours). Renvoie faux sans mission.
+   */
+  private skipMissionStep(): boolean {
+    const m = this.mission;
+    const g = m?.current()?.goal;
+    if (!m || !g || !this.companionOn()) return false;
+    switch (g.kind) {
+      case "collect":
+      case "shelter":
+        this.stepSkipped = true;
+        break;
+      case "place":
+        for (let i = 0; i < g.count; i++) m.notePlaced(g.block === "any" ? BlockId.Dirt : g.block);
+        break;
+      case "break":
+        for (let i = 0; i < g.count; i++) m.noteBroken(g.block === "any" ? BlockId.Dirt : g.block);
+        break;
+      case "walk":
+        m.noteWalked(g.distance);
+        break;
+      case "watch":
+        m.noteSignal(g.signal);
+        break;
+      case "letter":
+        for (let i = 0; i < g.count; i++) m.notePlaced(BlockId.LetterA);
+        break;
+      case "write": {
+        const w = this.writingRun();
+        if (!w) return false;
+        m.noteWord(w.target);
+        w.found = { facing: true, glued: false };
+        this.refreshWritingView();
+        break;
+      }
+    }
+    return true;
+  }
+
   private updateHint(): void {
     const h = this.touchUi
       ? this.touch.mode === "place"
@@ -1725,8 +2624,9 @@ export class Game {
         ? HINTS.mouseFallback
         : HINTS.mouse;
     let hint = pick(h, this.narrator.level);
-    // Au clavier, la touche F une fois le marteau là (V2).
+    // Au clavier, la touche F une fois le marteau là, et la touche 0 une fois la boîte à lettres là (V2).
     if (!this.touchUi && this.craftAvailable()) hint += ` · ${pick(HINT_EXTRAS.craft, this.narrator.level)}`;
+    if (!this.touchUi && this.lettersOn()) hint += ` · ${pick(LETTERS_HINT, this.narrator.level)}`;
     this.hud.setHint(hint);
   }
 
@@ -1791,6 +2691,11 @@ export class Game {
         this.openCraft();
         return;
       }
+      // 0 : la boîte à lettres (mission 2). Ouverte, elle prend elle-même ses touches (0 et Échap la ferment).
+      if ((code === "Digit0" || code === "Numpad0") && this.lettersOn()) {
+        this.openLetters();
+        return;
+      }
       const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
       if (m) {
         const i = Number(m[1]) - 1;
@@ -1809,7 +2714,13 @@ export class Game {
       this.craftButton.blur();
       this.openCraft();
     });
-    this.hud.onSelectSlot((i) => this.setSlot(i, true));
+    // Case ABC touchée (mission 2) : la boîte s'ouvre si la case est déjà choisie ou sans lettre en main ; sinon,
+    // la case est choisie (la lettre tenue revient dans la main).
+    this.hud.onSelectSlot((i) => {
+      if (i !== LETTER_SLOT) this.setSlot(i, true);
+      else if (this.selectedSlot === LETTER_SLOT || this.handLetter === null) this.openLetters();
+      else this.setSlot(LETTER_SLOT, true);
+    });
     this.view.renderer.domElement.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     // Aussi sur la barre : c'est là que l'enfant tourne la molette pour choisir (souris non capturée).
     this.hud.hotbar.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
@@ -1960,7 +2871,8 @@ export class Game {
     this.wheelAccum = 0;
     this.lastWheelStepAt = now;
     this.lastWheelDir = dir;
-    const n = this.inventory.size;
+    // Avec la case ABC (mission 2), la molette parcourt dix positions.
+    const n = this.lettersOn() ? LETTER_SLOT + 1 : this.inventory.size;
     this.setSlot((this.selectedSlot + dir + n) % n, true);
   }
 
@@ -1988,7 +2900,8 @@ export class Game {
    * autre case est annulé (molette, autre touche, case choisie par le jeu) (V2).
    */
   private setSlot(i: number, byUser = false): void {
-    if (i < 0 || i >= this.inventory.size) return;
+    // La case ABC (mission 2) n'est choisie que si elle est là.
+    if (i < 0 || i >= (this.lettersOn() ? LETTER_SLOT + 1 : this.inventory.size)) return;
     if (this.keyHold && this.keyHold.slot !== i) this.keyHold = null;
     const held = this.hud.slotHold;
     if (held && held.slot !== i) this.hud.cancelSlotHold();
@@ -1996,20 +2909,25 @@ export class Game {
     this.hud.setSelectedSlot(i);
     if (!byUser) return;
     this.sounds.play("select");
+    if (i === LETTER_SLOT) {
+      this.hud.showSlotName(this.handLetter !== null ? this.hud.blockName(this.handLetter) : LETTERS_LABEL);
+      return;
+    }
     const s = this.inventory.slot(i);
     this.hud.showSlotName(s ? this.hud.blockName(s.id) : "case vide");
   }
 
   /**
-   * La main ne tient rien : le prochain bloc ramassé ou fabriqué y passe. (Mission 2 : la case ABC tenue n'est pas
-   * une main vide, à ajouter ici avec elle.)
+   * La main ne tient rien : le prochain bloc ramassé ou fabriqué y passe. La case ABC choisie (mission 2) n'est pas
+   * une main vide : une casse ou une fabrication ne retire pas la lettre de la main.
    */
   private handEmpty(): boolean {
-    return !this.inventory.slot(this.selectedSlot);
+    return this.selectedSlot !== LETTER_SLOT && !this.inventory.slot(this.selectedSlot);
   }
 
   /** Texte du bloc tenu pour la ligne d'infos. */
   private heldLabel(): string {
+    if (this.selectedSlot === LETTER_SLOT) return this.handLetter !== null ? this.hud.blockName(this.handLetter) : LETTERS_LABEL;
     const s = this.inventory.slot(this.selectedSlot);
     return s ? `${this.hud.blockName(s.id)} ×${s.count}` : "(case vide)";
   }
@@ -2185,10 +3103,12 @@ export class Game {
     // puis la fleur posée dessus, qui tombe avec lui et rejoint le sac sans message.
     const above = w.get(x, y + 1, z);
     // Ce que rapporte le bloc (J5) : la pierre brillante donne une lampe, un tronc donne aussi une clôture (sans message).
+    // Une lettre ne rapporte rien : elle retourne dans la boîte (mission 2).
     const drops = dropsOf(id);
     if (drops.main !== null) this.collect(drops.main);
     if (drops.extra !== null) this.collect(drops.extra, false);
     if (isPlantId(above) && w.set(x, y + 1, z, BlockId.Air)) this.collect(above, false);
+    this.afterBlockChange(false);
   }
 
   /**
@@ -2232,6 +3152,11 @@ export class Game {
   }
 
   private placeBlock(): void {
+    // Case ABC choisie (mission 2) : la lettre tenue, sans rien prendre dans le sac.
+    if (this.selectedSlot === LETTER_SLOT) {
+      this.placeLetter();
+      return;
+    }
     if (!this.target) return;
     const t = this.target;
     const w = this.world;
@@ -2282,6 +3207,8 @@ export class Game {
       this.glassHintDone = true;
       this.tell(GLASS_SEE_THROUGH, { ms: 3500 });
     }
+    // Un bloc posé devant un mot peut le cacher (mission 2) : le mot est relu.
+    this.afterBlockChange(false);
   }
 
   private testStorage(): void {
@@ -2395,6 +3322,33 @@ export class Game {
           cards: this.craftPanel.visible ? this.craftCards.map((c) => ({ id: c.id, state: c.state })) : [],
           intro: this.craftIntroTold,
         },
+        /** Mission 2 (V2) : case ABC là, boîte ouverte, lettre tenue, case ABC choisie. */
+        letters: {
+          unlocked: this.lettersOn(),
+          open: this.letterTray.visible,
+          hand: this.handLetter !== null ? letterChar(this.handLetter) : null,
+          selected: this.selectedSlot === LETTER_SLOT,
+        },
+        /** Mission 2 : mot de l'étape d'écriture en cours, mode, aide, avancement, cases claires et lettres à revoir. */
+        writing: (() => {
+          const w = this.writingRun();
+          if (!w) return null;
+          return {
+            target: w.target,
+            mode: w.mode,
+            stage: w.stage,
+            revealed: w.revealed,
+            have: w.have,
+            words: [...(this.mission?.words ?? [])],
+            ghosts: this.ghostCount,
+            wrongCells: w.mode === "copy" ? w.wrongCells.length : 0,
+            help: { ...w.show },
+            announced: w.announced,
+            found: w.found !== null,
+          };
+        })(),
+        /** Mots écrits dans la mission en cours (mission 2). */
+        words: [...(this.mission?.words ?? [])],
         tutorialDone: this.session?.profile.tutorialDone ?? null,
         craftSeen: this.session ? this.session.profile.craftSeen === true : null,
         companionText: this.companionPanel.hidden ? null : this.companionText.textContent,
@@ -2424,6 +3378,30 @@ export class Game {
       closeCraft: () => this.closeCraft(),
       /** Fabrique une fois (« planches », « cloture », « verre ») avec les règles du jeu, réserve comprise, sans les délais du doigt (V2). */
       craft: (id: string) => this.doCraft(id as RecipeId, true),
+      /** Ouvre la boîte à lettres comme la case ABC (mêmes refus) ; vrai si elle s'est ouverte (mission 2). */
+      openLetters: () => this.openLetters(),
+      /** Choisit une lettre comme dans la boîte (ouverte ou non) ; vrai si elle est en main (mission 2). */
+      chooseLetter: (ch: string) => this.debugChooseLetter(ch),
+      /** Voix française supposée présente (true) ou absente (false) pour la dictée ; null : celle du navigateur. */
+      assumeVoice: (v: boolean | null) => {
+        this.voiceOverride = v;
+      },
+      /** Relit le mot de l'étape (après setBlock), comme si l'enfant s'était arrêté ; renvoie la réaction, ou null. */
+      checkWriting: () => {
+        const f = this.checkWriting("debug");
+        return f ? { found: f.found, key: f.key, have: f.have, wrongCells: f.wrongCells.length, newTry: f.newTry } : null;
+      },
+      /** Avance l'horloge d'aide de l'étape d'écriture (ms) ; faux hors d'une étape d'écriture. */
+      advanceWritingClock: (ms: number) => {
+        const w = this.writingRun();
+        if (!w || w.found || !Number.isFinite(ms)) return false;
+        const prev = w.ms;
+        w.ms += Math.max(0, ms);
+        this.applyHelp(w, prev, false);
+        return true;
+      },
+      /** Valide l'étape en cours comme si son objectif était atteint (la mission avance après la consigne en cours). */
+      skipMissionStep: () => this.skipMissionStep(),
       /** Pose un bloc sans passer par le sac (préparer un scénario de test). */
       setBlock: (x: number, y: number, z: number, id: number) => {
         this.lampsDirty = true;
@@ -2525,8 +3503,11 @@ export class Game {
     else if (this.keyHold || this.hud.slotHold) this.cancelSlotHold();
     this.refreshInventory();
     this.syncCraftButtons();
+    this.syncLetters();
     if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
     this.updateLiving(performance.now(), dt);
+    // Cases claires de la mission 2 : la case suivante « respire », le contour vert d'un mot réussi s'efface.
+    this.view.ghosts.update(dt, this.reducedMotion.matches);
 
     // Monde : sections à (re)mailler, les plus proches d'abord
     const pendingNear = this.view.chunks.pendingNear(this.player.x, this.player.z, LOADING_RADIUS);
@@ -2634,4 +3615,9 @@ function writeStorage(key: string, value: string): void {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Gabarit rempli sans espace en trop (une astuce absente laisse une espace finale). */
+function trimText(t: ChildText): ChildText {
+  return { debutant: t.debutant.trim(), autonome: t.autonome.trim() };
 }
