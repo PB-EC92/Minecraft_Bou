@@ -259,14 +259,23 @@ export const DICT_SWAP: ChildText = {
   autonome: `Presque${NBSP}! Deux lettres ont échangé leur place${NBSP}: redis le mot lentement pour retrouver l'ordre des sons.`,
 };
 
+/**
+ * Une lettre en trop au milieu du mot (LAMMPE pour LAMPE). En trop au début ou à la fin, le mot entier est là : c'est
+ * EXTRA_LETTER, comme en copie.
+ */
+export const DICT_EXTRA: ChildText = {
+  debutant: `Une lettre en trop${NBSP}!`,
+  autonome: `Presque${NBSP}! Il y a une lettre en trop dans ton mot. Redis-le tout bas, son par son.`,
+};
+
 export const DICT_FAR: ChildText = {
   debutant: `Écoute encore le mot${NBSP}!`,
   autonome: "Ce n'est pas encore ce mot. Écoute-le encore une fois, puis corrige tes lettres.",
 };
 
 /**
- * Dit (dictate) après DICT_WRONG, DICT_MISSING et DICT_FAR. Jamais affiché, et dit seulement au lecteur autonome
- * (le débutant est toujours en copie) : les deux variantes sont identiques.
+ * Dit (dictate) après DICT_WRONG, DICT_MISSING, DICT_EXTRA et DICT_FAR. Jamais affiché, et dit seulement au lecteur
+ * autonome (le débutant est toujours en copie) : les deux variantes sont identiques.
  */
 export const LISTEN_AGAIN: ChildText = {
   debutant: `Écoute bien${NBSP}: {mot}.`,

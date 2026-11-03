@@ -90,6 +90,8 @@ interface DebugState {
     have: number;
     words: string[];
     ghosts: number;
+    /** Cases claires affichées (x, y, z), dans l'ordre du mot. */
+    ghostCells: [number, number, number][];
     wrongCells: number;
     help: { model: "full" | "boxes" | "none"; revealed: number; nextRing: boolean; ghostLine: boolean; ghostNext: boolean; trayGlow: boolean };
     /** Consigne dite (l'horloge d'aide tourne et les cases claires peuvent se montrer). */
@@ -2702,6 +2704,10 @@ async function writeWord(page: Page, word: string, x0: number, z: number): Promi
 
 const checkWriting = (page: Page) => page.evaluate(() => window.cubesDebug.checkWriting());
 
+/** Pose une lettre (accès de test, sans relecture) dans une case. */
+const putLetter = (page: Page, c: readonly [number, number, number], ch: string) =>
+  page.evaluate(([x, y, z, id]) => window.cubesDebug.setBlock(x, y, z, id), [c[0], c[1], c[2], letterId(ch)] as const);
+
 /** Passe l'étape en cours (accès de test) et attend la suivante (la mission avance après la consigne en cours). */
 async function skipStep(page: Page): Promise<void> {
   const before = (await state(page)).mission!.step;
@@ -2812,6 +2818,91 @@ test("mission 2 : un mot écrit à l'envers pour l'enfant est validé (« Fais l
   expect(errors).toEqual([]);
 });
 
+test("mission 2, cases claires : une lettre fausse dans la première case est signalée et la ligne reste en place ; trois mots écrits de suite dans leurs cases, sans bouger, sont tous trouvés", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  // Dos au mur de planches du monde plat (z = 12) : vers +Z, la place devant l'enfant est libre sur 10 blocs.
+  await page.evaluate(() => window.cubesDebug.look(180, 0));
+  await skipStep(page);
+  const target = await writingTarget(page);
+  let s = await state(page);
+  const line = s.writing!.ghostCells;
+  expect(line).toHaveLength(target.length);
+  // Une lettre fausse dans la case de la première lettre : « Ici, il faut un … », contour orange, la ligne ne bouge pas.
+  const wrong = target[0] === "B" ? "C" : "B";
+  await putLetter(page, line[0]!, wrong);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: "WRONG_LETTER", have: 0, wrongCells: 1 });
+  await expect(page.locator(".message")).toContainText(`Ici, il faut un ${target[0]}.`);
+  expect((await state(page)).writing?.ghostCells).toEqual(line.slice(1));
+  // Cassée : la ligne entière revient, au même endroit.
+  await page.evaluate(([x, y, z]) => window.cubesDebug.breakBlock(x, y, z), line[0]!);
+  s = await state(page);
+  expect(s.writing).toMatchObject({ wrongCells: 0, ghostCells: line });
+  // La deuxième lettre posée d'abord, à sa place : rien à dire, la ligne reste.
+  await putLetter(page, line[1]!, target[1]!);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: null, have: 0, wrongCells: 0 });
+  expect((await state(page)).writing?.ghostCells).toEqual([line[0], ...line.slice(2)]);
+  await putLetter(page, line[0]!, target[0]!);
+  expect(await checkWriting(page)).toMatchObject({ have: 2, key: null });
+  for (let k = 2; k < target.length; k++) await putLetter(page, line[k]!, target[k]!);
+  expect(await checkWriting(page)).toMatchObject({ found: true });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  // Mots 2 et 3, depuis la même place : chaque ligne tracée se remplit lettre après lettre et le mot est trouvé.
+  for (const step of [2, 3]) {
+    const word = await writingTarget(page);
+    expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
+    const cells = (await state(page)).writing!.ghostCells;
+    expect(cells, word).toHaveLength(word.length);
+    for (let k = 0; k < word.length; k++) {
+      await putLetter(page, cells[k]!, word[k]!);
+      const f = await checkWriting(page);
+      if (k < word.length - 1) expect(f, `${word} : ${k + 1} lettre(s)`).toMatchObject({ found: false, key: null, have: k + 1 });
+      else expect(f, word).toMatchObject({ found: true });
+    }
+    await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(step + 1);
+  }
+  expect((await state(page)).words).toHaveLength(3);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2, étape « prénom » : un prénom déjà écrit devant l'enfant valide l'étape dès son début, sans autre pose", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    // Monde plat en mission 2, au troisième mot (l'étape « prénom » suit).
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4.01, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(),
+      mission: { id: "mots", step: 3, counts: {}, words: ["AMI", "LUNE"] },
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).mission).toEqual({ step: 3, done: false });
+  // Pendant le troisième mot, l'enfant écrit son prénom (sans accent) devant lui ; rien ne le relit (pose de test).
+  await writeWord(page, "LEA", 15, 16);
+  await skipStep(page);
+  // Étape « prénom » : le mot est relu à son début ; validée sans nouvelle pose, sans consigne ni aide à faux.
+  await expect.poll(async () => (await state(page)).mission, { timeout: 20_000 }).toEqual({ step: 5, done: true });
+  const s = await state(page);
+  expect(s.words).toHaveLength(4);
+  expect(s.words.slice(0, 2)).toEqual(["AMI", "LUNE"]);
+  expect(s.words[3]).toBe("LEA");
+  expect(s.spoken.some((t) => t.includes("Léa") && t.includes("Bravo"))).toBe(true);
+  expect(s.spoken.some((t) => t.startsWith("Écris ton prénom") || t.startsWith("Maintenant"))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test("mission 2, lecteur autonome : le mot est dicté même voix coupée, sans être écrit ; un essai faux reçoit un retour et un indice ; sans voix française, c'est une copie du mot affiché", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   test.setTimeout(120_000);
@@ -2838,6 +2929,10 @@ test("mission 2, lecteur autonome : le mot est dicté même voix coupée, sans �
   await expect(page.locator(".companion-model .model-letter.box")).toHaveCount(target.length);
   // Le mot redit (dictée : après la fin de la dictée en cours).
   await expect.poll(async () => (await state(page)).spoken.some((t) => t.startsWith("Écoute bien")), { timeout: 15_000 }).toBe(true);
+  // Une lettre en trop au milieu du mot : « une lettre en trop dans ton mot » (et pas « le mot est là »).
+  await writeWord(page, `${target.slice(0, 3)}${target[2]}${target.slice(3)}`, 14, 13);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: "DICT_EXTRA", newTry: true, wrongCells: 0 });
+  await expect(page.locator(".message")).toContainText("Presque ! Il y a une lettre en trop dans ton mot.");
   // Sans voix française : le mot suivant est une copie, et le jeu le dit.
   await page.evaluate(() => window.cubesDebug.assumeVoice(false));
   await skipStep(page);

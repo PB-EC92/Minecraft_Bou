@@ -518,6 +518,24 @@ describe("fantômes des lettres (mission 2)", () => {
     expect(lines().length).toBe(MAX_MARKS);
   });
 
+  it("contour vert : un nouveau mot réussi dans les mêmes cases (autre doneId) le relance ; même doneId, rien", () => {
+    const g = new LetterGhosts(atlas);
+    const word: Cell[] = [[10, 4, 10], [11, 4, 10], [12, 4, 10]];
+    g.setMarks({ wrong: [], done: word, doneId: 1 });
+    expect(g.shown.done).toBe(3);
+    g.update(DONE_SECONDS + 0.1, false);
+    expect(g.shown.done).toBe(0);
+    // Rappelé à chaque image avec la même réussite : le contour ne revient pas.
+    g.setMarks({ wrong: [[11, 4, 10]], done: [...word], doneId: 1 });
+    g.setMarks({ wrong: [], done: [...word], doneId: 1 });
+    expect(g.shown.done).toBe(0);
+    // Mot suivant écrit dans les mêmes cases : nouvelle réussite, le contour vert revient pour 1,2 s.
+    g.setMarks({ wrong: [], done: [...word], doneId: 2 });
+    expect(g.shown.done).toBe(3);
+    g.update(DONE_SECONDS + 0.1, false);
+    expect(g.shown.done).toBe(0);
+  });
+
   it("la luminosité du jour et de la nuit s'applique à la couleur des matériaux", () => {
     const g = new LetterGhosts(atlas);
     g.setGhosts([A, M], A);

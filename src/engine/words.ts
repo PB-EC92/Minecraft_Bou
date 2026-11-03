@@ -297,11 +297,17 @@ export interface WritingState {
   foundFacing: boolean;
   /** Trouvé en retirant un mot déjà écrit, collé au nouveau (pas d'espace entre les deux). */
   glued: boolean;
-  /** Bonnes lettres, mais aucune face de lecture visible (un bloc les cache). */
+  /**
+   * Bonnes lettres, mais aucune face de lecture visible (un bloc les cache), et l'enfant ne les voit pas non plus à
+   * l'envers de son côté (sinon c'est reversed).
+   */
   hidden: boolean;
   /** Colonne qui se lit juste de bas en haut (au moins deux lettres), mais pas de haut en bas. */
   tower: boolean;
-  /** Au moins deux lettres justes, mais lues seulement de l'autre côté (écrit de droite à gauche pour l'enfant). */
+  /**
+   * Au moins deux lettres justes, mais lues seulement de l'autre côté (écrit de droite à gauche pour l'enfant) : la
+   * face de lecture se voit, ou, cachée derrière, les lettres se voient à l'envers du côté de l'enfant.
+   */
   reversed: boolean;
   /** Meilleur essai visible du côté de l'enfant (le plus long début juste), ou null. */
   best: { reading: Reading; match: WordMatch } | null;
@@ -324,8 +330,9 @@ const RANK: Readonly<Record<WordMatch["kind"], number>> = { exact: 3, extra: 2, 
 
 /**
  * Évalue l'écriture du mot `target` autour de l'enfant (boîte around ± radius, ± height en y) : chaque lecture
- * est comparée telle quelle, puis (si elle n'est pas exacte) privée des mots déjà écrits collés (`previous`), un
- * mot après l'autre ; chaque noyau intermédiaire compte (« SOLSOLEIL » avec [SOL] donne SOLEIL avant EIL).
+ * est comparée telle quelle, puis (si elle n'est pas exacte) privée des mots déjà écrits collés (`previous`, lus dans
+ * un sens ou dans l'autre : « IMALUNE » avec [AMI] donne LUNE), un mot après l'autre ; chaque noyau intermédiaire
+ * compte (« SOLSOLEIL » avec [SOL] donne SOLEIL avant EIL).
  * Les lectures qui sont un mot déjà écrit, dans un sens ou dans l'autre, ne comptent ni comme essai (best), ni
  * pour reversed et tower : seulement pour retrouver le mot attendu.
  */
@@ -351,6 +358,8 @@ export function evaluateWriting(
     Math.min(w.sizeZ - 1, az + radius),
   );
   const oldWords = new Set(previous.filter((p) => p !== target));
+  // Un mot déjà écrit peut être collé au nouveau dans un sens ou dans l'autre (lu de l'autre côté, il est à l'envers).
+  const known = [...previous, ...previous.map(reverse)].filter((k) => k !== target);
   const cands: Candidate[] = [];
   const add = (reading: Reading, glued: boolean, old: boolean) => {
     const c = centre(reading);
@@ -373,7 +382,7 @@ export function evaluateWriting(
     const old = r.text !== target && (oldWords.has(r.text) || oldWords.has(reverse(r.text)));
     add(r, false, old);
     if (r.text === target) continue;
-    for (const step of coreSteps(r.text, previous)) {
+    for (const step of coreSteps(r.text, known)) {
       const end = step.start + step.text.length;
       add({ text: step.text, cells: r.cells.slice(step.start, end), dir: r.dir, side: r.side }, true, old);
     }
@@ -396,7 +405,8 @@ export function evaluateWriting(
   const found = foundC?.reading ?? null;
 
   // Meilleur essai : visible, face à l'enfant ; le plus long début juste, puis exact > en trop > début ou erreur,
-  // puis le plus proche, puis le plus en face (lettre seule : le sens qui regarde le plus l'enfant).
+  // puis le noyau privé d'un mot déjà écrit (ses lettres ne sont pas à revoir), puis le plus proche, puis le plus en
+  // face (lettre seule : le sens qui regarde le plus l'enfant).
   let best: { c: Candidate; match: WordMatch } | null = null;
   for (const c of cands) {
     if (c.old || !c.visible || !c.facing) continue;
@@ -408,6 +418,7 @@ export function evaluateWriting(
     const d =
       match.have - best.match.have ||
       RANK[match.kind] - RANK[best.match.kind] ||
+      Number(c.glued) - Number(best.c.glued) ||
       best.c.dist - c.dist ||
       c.cos - best.c.cos ||
       best.c.order - c.order;
@@ -422,16 +433,21 @@ export function evaluateWriting(
       return commonPrefix(reverse(r.text), target) >= MIN_WORD && commonPrefix(r.text, target) < MIN_WORD;
     });
 
+  // Lecture de l'autre côté dont les lettres se voient du côté de l'enfant (à l'envers pour lui), même si la face
+  // de lecture, derrière, est cachée (mot écrit de droite à gauche contre un mur).
+  const seenBackwards = (c: Candidate) =>
+    !c.facing && c.reading.side !== null && sideVisible(w, c.reading.cells, -c.reading.side.nx, -c.reading.side.nz);
   const reversed =
     !found &&
     (best === null || best.match.have === 0) &&
-    cands.some((c) => !c.old && c.visible && !c.facing && commonPrefix(c.reading.text, target) >= MIN_WORD);
+    cands.some((c) => !c.old && !c.facing && commonPrefix(c.reading.text, target) >= MIN_WORD && (c.visible || seenBackwards(c)));
 
   return {
     found,
     foundFacing: found ? foundC!.facing : false,
     glued: found ? foundC!.glued : false,
-    hidden: !found && equal.length > 0,
+    // Caché : le mot est là, mais l'enfant ne le voit ni de face ni à l'envers (sinon, c'est « de gauche à droite »).
+    hidden: !found && equal.some((c) => !seenBackwards(c)),
     tower,
     reversed,
     best: best ? { reading: best.c.reading, match: best.match } : null,
@@ -478,7 +494,12 @@ const DEFAULT_HFOV = 60;
  * - sur l'axe dominant du regard f, à une distance où tout le mot tient dans le champ horizontal ;
  * - lue de gauche à droite pour l'enfant (sens d = (−f.z, f.x)), sa face de lecture tournée vers lui ;
  * - centrée sur l'axe du regard, toutes les cases à la même hauteur, dans l'air ou une fleur (ni eau, ni bloc plein),
- *   chacune posée sur un bloc opaque.
+ *   chacune posée sur un bloc opaque qui n'est pas un bloc-lettre (jamais sur un mot déjà écrit).
+ * Le mot écrit dans ces cases doit se lire de face et seul (voir isVisible et readingsThrough) :
+ * - la case voisine côté enfant (−f) est dans le monde et n'est pas opaque (sinon la face de lecture n'est pas
+ *   dessinée : rigole d'un cran, tronc, mot déjà écrit juste devant) ;
+ * - aucune lettre juste derrière une case (+f), ni juste avant la première ou après la dernière (sens d) : le mot
+ *   ne se colle à aucune lettre déjà posée.
  * On essaie les distances minD … minD + 3 et, pour chacune, les hauteurs des pieds, un cran plus bas, un cran plus
  * haut. Aucune place : null (pas de cases claires, seulement la consigne).
  */
@@ -509,6 +530,8 @@ export function planLine(
     const sx = bx + fx * dist - dx * back;
     const sz = bz + fz * dist - dz * back;
     for (const y of [y0, y0 - 1, y0 + 1]) {
+      // Rien de collé aux deux bouts de la ligne.
+      if (letterAt(w, sx - dx, y, sz - dz) || letterAt(w, sx + dx * length, y, sz + dz * length)) continue;
       const cells: Cell[] = [];
       for (let i = 0; i < length; i++) {
         const x = sx + dx * i;
@@ -516,7 +539,11 @@ export function planLine(
         if (!inWorld(w, x, y, z) || y < 1) break;
         const id = w.get(x, y, z);
         if (id !== BlockId.Air && !isPlantId(id)) break;
-        if (!isOpaqueId(w.get(x, y - 1, z))) break;
+        const below = w.get(x, y - 1, z);
+        if (!isOpaqueId(below) || isLetterId(below)) break;
+        // Face de lecture dessinée (côté enfant), et pas de lettre juste derrière.
+        if (!inWorld(w, x - fx, y, z - fz) || isOpaqueId(w.get(x - fx, y, z - fz))) break;
+        if (letterAt(w, x + fx, y, z + fz)) break;
         cells.push([x, y, z]);
       }
       if (cells.length === length) return { cells, dir: [dx as -1 | 0 | 1, 0, dz as -1 | 0 | 1] };

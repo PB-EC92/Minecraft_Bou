@@ -6,9 +6,10 @@ import {
   LEFT_TO_RIGHT_EVERY_MS,
   newFeedbackMemory,
   writingFeedback,
+  type PlannedLetters,
 } from "../../src/edu/writingFeedback";
-import { letterBlockId } from "../../src/engine/blocks";
-import { evaluateWriting, type Reading, type WritingState } from "../../src/engine/words";
+import { BlockId, letterBlockId, letterChar } from "../../src/engine/blocks";
+import { evaluateWriting, type Cell, type Reading, type WritingState } from "../../src/engine/words";
 import { World } from "../../src/engine/World";
 
 /** Enfant devant le côté +Z d'une rangée posée à z = 10 (il lit vers +X). */
@@ -124,6 +125,72 @@ describe("writingFeedback : copie", () => {
     const f = writingFeedback(stateOf("LAP", "LAPIN"), "copy", "LAPIN", 0, 0, newFeedbackMemory());
     expect(f).toMatchObject({ found: false, key: null, wrongCells: [], have: 3, attempt: "LAP" });
   });
+
+  it("lettre en trop après un mot collé, l'enfant près du mot déjà écrit : seule la lettre en trop est en orange", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    "AMILUNES".split("").forEach((ch, i) => w.set(5 + i, 4, 10, letterBlockId(ch)!));
+    const viewer = { x: 8.5, y: 4, z: 15 };
+    const f = writingFeedback(evaluateWriting(w, viewer, "LUNE", viewer, ["AMI"]), "copy", "LUNE", 0, 0, newFeedbackMemory());
+    expect(f).toMatchObject({ key: "EXTRA_LETTER", wrongCells: [[12, 4, 10]], have: 4, attempt: "LUNES" });
+  });
+
+  it("mot écrit de droite à gauche contre un bloc : « de gauche à droite », pas « caché »", () => {
+    const w = World.createFlat(32, 16, 32, 4);
+    "IMA".split("").forEach((ch, i) => w.set(10 + i, 4, 10, letterBlockId(ch)!));
+    w.set(11, 4, 9, BlockId.Stone);
+    const f = writingFeedback(evaluateWriting(w, SOUTH, "AMI", SOUTH, []), "copy", "AMI", 0, 0, newFeedbackMemory());
+    expect(f.key).toBe("LEFT_TO_RIGHT");
+  });
+});
+
+describe("writingFeedback : copie, lettres posées dans les cases claires (rien de juste encore)", () => {
+  /** Ligne tracée devant l'enfant pour AMI (x = 15 à 17, z = 16), lue vers +X depuis +Z. */
+  const LINE: Cell[] = [
+    [15, 4, 16],
+    [16, 4, 16],
+    [17, 4, 16],
+  ];
+  const child = { x: 16.5, y: 4, z: 20.5 };
+  /** Pose des lettres dans les cases de la ligne (null : case vide), puis donne l'état et les lettres de la ligne. */
+  function onLine(letters: (string | null)[], stray: [string, Cell] | null = null) {
+    const w = World.createFlat(32, 16, 32, 4);
+    letters.forEach((ch, k) => {
+      const [x, y, z] = LINE[k]!;
+      if (ch) w.set(x, y, z, letterBlockId(ch)!);
+    });
+    if (stray) w.set(stray[1][0], stray[1][1], stray[1][2], letterBlockId(stray[0])!);
+    const planned: PlannedLetters = { cells: LINE, letters: LINE.map(([x, y, z]) => letterChar(w.get(x, y, z))) };
+    return { s: evaluateWriting(w, child, "AMI", child, []), planned };
+  }
+
+  it("B posé dans la case du A : mauvaise lettre au rang 1, contour orange sur cette case", () => {
+    const m = newFeedbackMemory();
+    const { s, planned } = onLine(["B", null, null]);
+    expect(s.best?.match.have ?? 0).toBe(0);
+    const f = writingFeedback(s, "copy", "AMI", 0, 0, m, planned);
+    expect(f).toMatchObject({ key: "WRONG_LETTER", vars: { L: "A", rang: 1 }, wrongCells: [[15, 4, 16]], have: 0 });
+    // Une fois par couple position-lettre ; la case reste orange tant que la lettre est là.
+    expect(writingFeedback(s, "copy", "AMI", 1000, 0, m, planned)).toMatchObject({ key: null, wrongCells: [[15, 4, 16]] });
+    // Sans la ligne (pas de cases claires montrées) : rien, comme avant.
+    expect(writingFeedback(s, "copy", "AMI", 0, 0, newFeedbackMemory())).toMatchObject({ key: null, wrongCells: [] });
+  });
+
+  it("M posé dans sa case avant le A : rien à dire, rien en orange ; le A posé ensuite donne AM (deux lettres justes)", () => {
+    const { s, planned } = onLine([null, "M", null]);
+    expect(writingFeedback(s, "copy", "AMI", 0, 0, newFeedbackMemory(), planned)).toMatchObject({ key: null, wrongCells: [], have: 0 });
+    const next = onLine(["A", "M", null]);
+    expect(writingFeedback(next.s, "copy", "AMI", 0, 0, newFeedbackMemory(), next.planned)).toMatchObject({ key: null, wrongCells: [], have: 2, attempt: "AM" });
+  });
+
+  it("une lettre qui traîne loin de la ligne n'est jamais en orange", () => {
+    const { s, planned } = onLine([null, null, null], ["Z", [5, 4, 18]]);
+    expect(writingFeedback(s, "copy", "AMI", 0, 0, newFeedbackMemory(), planned)).toMatchObject({ key: null, wrongCells: [], have: 0 });
+  });
+
+  it("en dictée, la ligne ne compte pas (jamais de cases à revoir)", () => {
+    const { s, planned } = onLine(["B", "M", null]);
+    expect(writingFeedback(s, "dictation", "AMI", 0, 9000, newFeedbackMemory(), planned).wrongCells).toEqual([]);
+  });
 });
 
 describe("writingFeedback : dictée", () => {
@@ -148,11 +215,19 @@ describe("writingFeedback : dictée", () => {
       newTry: true,
       wrongCells: [],
     });
+    // Lettre en trop au milieu : le mot n'est pas là (DICT_EXTRA) ; au début ou à la fin, il l'est (EXTRA_LETTER).
     expect(writingFeedback(stateOf("LAMMPE", "LAMPE"), "dictation", "LAMPE", 0, 1500, m)).toMatchObject({
-      key: "EXTRA_LETTER",
+      key: "DICT_EXTRA",
       newTry: true,
       wrongCells: [],
     });
+    for (const text of ["LAMPEE", "XLAMPE"]) {
+      expect(writingFeedback(stateOf(text, "LAMPE"), "dictation", "LAMPE", 0, 1500, m), text).toMatchObject({
+        key: "EXTRA_LETTER",
+        newTry: true,
+        wrongCells: [],
+      });
+    }
     expect(writingFeedback(stateOf("TOTOR", "LAMPE"), "dictation", "LAMPE", 0, 1500, m)).toMatchObject({
       key: "DICT_FAR",
       newTry: true,

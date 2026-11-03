@@ -135,11 +135,13 @@ export class LetterGhosts {
   /**
    * Contours : lettres à revoir (orange, tant qu'elles sont données) et mot
    * réussi (vert, pendant DONE_SECONDS à partir du premier appel qui le
-   * donne ; le rappeler avec les mêmes cases ne relance pas le délai).
+   * donne ; le rappeler avec les mêmes cases et le même doneId ne relance pas
+   * le délai). doneId identifie la réussite : un nouveau mot réussi dans les
+   * mêmes cases que le précédent (autre doneId) relance le contour.
    */
-  setMarks(m: { wrong: readonly MarkCell[]; done: readonly MarkCell[] }): void {
+  setMarks(m: { wrong: readonly MarkCell[]; done: readonly MarkCell[]; doneId?: number }): void {
     const wk = m.wrong.map(cellKey).join(";");
-    const dk = m.done.map(cellKey).join(";");
+    const dk = `${m.doneId ?? 0}|${m.done.map(cellKey).join(";")}`;
     if (wk === this.wrongKey && dk === this.doneKey) return;
     if (dk !== this.doneKey) {
       this.doneKey = dk;

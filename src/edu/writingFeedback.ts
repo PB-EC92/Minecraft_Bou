@@ -7,7 +7,8 @@ import { diagnose, type Cell, type WritingState } from "../engine/words";
  * 2. mot caché par un bloc (une fois par mot) ;
  * 3. mot écrit en colonne de bas en haut (une fois par mot) ;
  * 4. mot écrit de droite à gauche pour l'enfant (au plus toutes les 15 s) ;
- * 5. en copie : lettre en trop ou mauvaise lettre, avec les cases à revoir (en orange) ;
+ * 5. en copie : lettre en trop ou mauvaise lettre, avec les cases à revoir (en orange) ; rien de juste encore, une
+ *    lettre fausse dans une case claire de la ligne tracée devant l'enfant ;
  * 6. en dictée, seulement quand l'enfant a fini ou s'est arrêté : ce qui ne va pas, sans jamais montrer où.
  * Les messages « une fois par … » sont retenus dans `FeedbackMemory` (une mémoire par mot). Les cases à revoir
  * sont données à chaque évaluation tant que l'erreur est là : seul le message n'est dit qu'une fois.
@@ -35,7 +36,18 @@ export type FeedbackKey =
   | "DICT_MISSING"
   | "DICT_WRONG"
   | "DICT_SWAP"
+  | "DICT_EXTRA"
   | "DICT_FAR";
+
+/**
+ * Copie : cases de la ligne tracée devant l'enfant quand rien de juste n'est encore écrit (`planLine`), dans l'ordre
+ * du mot, avec la lettre posée dans chacune (null : pas de lettre). Le jeu ne la donne que si cette ligne est montrée
+ * (cases claires) : une lettre posée ailleurs n'est jamais signalée ainsi.
+ */
+export interface PlannedLetters {
+  cells: readonly Cell[];
+  letters: readonly (string | null)[];
+}
 
 /** Ce qui a déjà été dit pour le mot en cours (une mémoire par mot). */
 export interface FeedbackMemory {
@@ -70,15 +82,23 @@ export interface WritingFeedback {
   attempt: string | null;
 }
 
+/**
+ * Dictée : clé du retour selon l'écart. Une lettre en trop au début ou à la fin (le mot entier est là) : EXTRA_LETTER
+ * (« le mot est là, une lettre en trop est collée ») ; au milieu : DICT_EXTRA.
+ */
 const DICT_KEYS = {
   missing: "DICT_MISSING",
-  extra: "EXTRA_LETTER",
+  extra: "DICT_EXTRA",
   wrong: "DICT_WRONG",
   swap: "DICT_SWAP",
   far: "DICT_FAR",
 } as const satisfies Partial<Record<ReturnType<typeof diagnose>["kind"], FeedbackKey>>;
 
-/** Réaction à l'état de l'écriture ; met `memory` à jour. `now` et `msSinceLastPlace` en ms. */
+/**
+ * Réaction à l'état de l'écriture ; met `memory` à jour. `now` et `msSinceLastPlace` en ms. `planned` (copie) :
+ * lettres posées dans les cases claires de la ligne tracée devant l'enfant ; quand aucune lettre juste n'est lue,
+ * une lettre fausse dans une de ces cases est signalée comme une mauvaise lettre (jamais une lettre posée ailleurs).
+ */
 export function writingFeedback(
   s: WritingState,
   mode: "copy" | "dictation",
@@ -86,6 +106,7 @@ export function writingFeedback(
   now: number,
   msSinceLastPlace: number,
   memory: FeedbackMemory,
+  planned: PlannedLetters | null = null,
 ): WritingFeedback {
   const best = s.best;
   const out: WritingFeedback = {
@@ -134,28 +155,41 @@ export function writingFeedback(
     }
     return out;
   }
-  if (!best) return out;
-  const { reading, match } = best;
-
   if (mode === "copy") {
-    if (match.kind === "extra" || match.kind === "inside") {
+    const match = best?.match;
+    if (best && (match?.kind === "extra" || match?.kind === "inside")) {
       const start = match.kind === "inside" ? match.at : 0;
       const end = start + target.length;
-      out.wrongCells = reading.cells.filter((_, i) => i < start || i >= end);
-      once(`x:${reading.text}`, "EXTRA_LETTER");
-    } else if (match.kind === "wrong") {
-      const cell = reading.cells[match.have];
+      out.wrongCells = best.reading.cells.filter((_, i) => i < start || i >= end);
+      once(`x:${best.reading.text}`, "EXTRA_LETTER");
+    } else if (best && match?.kind === "wrong") {
+      const cell = best.reading.cells[match.have];
       if (cell) out.wrongCells = [cell];
       if (once(`w:${match.have}:${match.got}`, "WRONG_LETTER")) out.vars = { L: match.want, rang: match.have + 1 };
+    } else if (out.have === 0 && planned) {
+      // Rien de juste n'est lu : une lettre fausse posée dans une case claire (la première, par exemple) est
+      // signalée comme une mauvaise lettre à cette place. Une lettre qui traîne ailleurs ne compte pas.
+      const wrong: { cell: Cell; k: number; got: string }[] = [];
+      planned.cells.forEach((cell, k) => {
+        const got = planned.letters[k] ?? null;
+        if (got !== null && k < target.length && got !== target.charAt(k)) wrong.push({ cell, k, got });
+      });
+      out.wrongCells = wrong.map((x) => x.cell);
+      const first = wrong[0];
+      if (first && once(`w:${first.k}:${first.got}`, "WRONG_LETTER")) out.vars = { L: target.charAt(first.k), rang: first.k + 1 };
     }
     return out;
   }
 
+  if (!best) return out;
+  const { reading } = best;
   // Dictée : rien tant que l'enfant n'a pas fini ou ne s'est pas arrêté ; jamais de cases à revoir.
   if (!feedbackDue(reading.text.length, target.length, msSinceLastPlace)) return out;
   const d = diagnose(reading.text, target);
   if (d.kind === "exact" || d.kind === "prefix") return out;
-  if (once(`d:${reading.text}`, DICT_KEYS[d.kind])) {
+  // Lettre en trop au bout du mot (le mot entier est là) : le même message qu'en copie.
+  const key = d.kind === "extra" && (reading.text.startsWith(target) || reading.text.endsWith(target)) ? "EXTRA_LETTER" : DICT_KEYS[d.kind];
+  if (once(`d:${reading.text}`, key)) {
     out.newTry = true;
     if (d.kind === "wrong" && d.at !== null) out.vars = { rang: d.at + 1 };
   }

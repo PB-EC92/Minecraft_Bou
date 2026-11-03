@@ -1,5 +1,5 @@
 import { Sounds } from "../audio/sounds";
-import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isPlantId, isSolidId, letterBlockId, letterChar, LETTERS, Tile } from "../engine/blocks";
+import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isLetterId, isPlantId, isSolidId, letterBlockId, letterChar, LETTERS, Tile } from "../engine/blocks";
 import { craft, craftPlans, planCraft, RECIPES, recipeById, type CraftReserve, type RecipeId } from "../engine/crafting";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
@@ -44,6 +44,7 @@ import {
 import {
   BREAK_TIP_TOUCH,
   BREAK_TIP_MOUSE,
+  DICT_EXTRA,
   DICT_FAR,
   DICT_HELP_ALL,
   DICT_HELP_COUNT,
@@ -90,6 +91,7 @@ import {
   writingFeedback,
   type FeedbackKey,
   type FeedbackMemory,
+  type PlannedLetters,
   type WritingFeedback,
 } from "../edu/writingFeedback";
 import { evaluateWriting, ghostCells, planLine, presentWords, type Cell, type Dir, type Reading, type WritingState } from "../engine/words";
@@ -272,6 +274,7 @@ const FEEDBACK_TEXTS: Readonly<Record<FeedbackKey, SaidTemplate | ChildText>> = 
   DICT_MISSING,
   DICT_WRONG,
   DICT_SWAP,
+  DICT_EXTRA,
   DICT_FAR,
 };
 
@@ -530,9 +533,15 @@ export class Game {
   private lastLetterHandHintAt = -Infinity;
   /** Conseil qui suit le « bravo » d'un mot (« Fais le tour pour lire ! », « Un espace entre les mots ! »). */
   private wordFollowUp: { at: number; text: ChildText } | null = null;
-  /** Cases du dernier mot réussi (contour vert, 1,2 s) et nombre de cases claires affichées. */
+  /**
+   * Cases du dernier mot réussi (contour vert, 1,2 s) et numéro de cette réussite : un mot réussi dans les mêmes cases
+   * que le précédent relance quand même le contour. Cases claires affichées (accès de test : leur nombre et leurs cases).
+   */
   private doneMarks: Cell[] = [];
+  private doneSerial = 0;
   private ghostCount = 0;
+  private ghostCellsShown: Cell[] = [];
+  private ghostNextShown = false;
   /** Étape passée par l'accès de test (skipMissionStep) : ramasser et abri comptent comme atteints. */
   private stepSkipped = false;
   /** Case ABC visible à l'image précédente (l'aide d'écran en dépend). */
@@ -1365,8 +1374,11 @@ export class Game {
         } else if (ev?.kind === "done") this.onMissionDone(m.def, now);
         if (this.announceStepAt !== null && now >= this.announceStepAt) {
           this.announceStepAt = null;
-          // Étape déjà atteinte (7 pierres dans le sac en arrivant à « ramasse 4 pierres ») : pas de consigne, le
-          // « bravo » arrive à l'image suivante.
+          // Étape d'écriture dont le mot est déjà lisible (prénom écrit plus tôt, pendant les mots 1 à 3) : il est
+          // relu ici, sans attendre qu'un bloc change, et l'étape est atteinte.
+          if (m.current()?.goal.kind === "write") this.checkWritingAtStart();
+          // Étape déjà atteinte (7 pierres dans le sac en arrivant à « ramasse 4 pierres », mot déjà écrit) : pas de
+          // consigne, le « bravo » arrive à l'image suivante.
           const p = m.progress(this.missionView);
           if (!(p && p.have >= p.need)) this.announceStep();
         }
@@ -2260,7 +2272,7 @@ export class Game {
     const st = this.evaluate(w);
     // Accès de test : comme si l'enfant s'était arrêté depuis longtemps.
     const since = cause === "debug" ? Infinity : now - w.lastPlaceAt;
-    const f = writingFeedback(st, w.mode, w.target, now, since, w.memory);
+    const f = writingFeedback(st, w.mode, w.target, now, since, w.memory, this.plannedLetters(w));
     if (f.found && st.found) {
       m.noteWord(w.target);
       w.found = { facing: f.foundFacing, glued: f.glued };
@@ -2269,6 +2281,7 @@ export class Game {
       w.checksAt = [];
       w.breakTip = null;
       w.helpSayAt = null;
+      this.doneSerial++;
       this.doneMarks = st.found.cells.map((c): Cell => [c[0], c[1], c[2]]);
       this.refreshWritingView();
       return f;
@@ -2284,6 +2297,26 @@ export class Game {
     }
     this.refreshWritingView();
     return f;
+  }
+
+  /**
+   * Début d'une étape d'écriture (avant sa consigne) : si le mot est déjà lisible autour de l'enfant (le prénom écrit
+   * plus tôt), il est validé tout de suite. Rien d'autre n'est dit ici : pas de retour sur un essai avant la consigne.
+   * Jamais appelé depuis prepareWriting (checkWriting repasse par writingRun, qui n'a pas encore son écriture).
+   */
+  private checkWritingAtStart(): void {
+    const w = this.writingRun();
+    if (w && !w.found && this.evaluate(w).found) this.checkWriting("idle");
+  }
+
+  /**
+   * Copie, ligne de cases claires tracée devant l'enfant (rien de juste écrit) : la lettre posée dans chacune de ses
+   * cases, pour signaler une lettre fausse à sa place (writingFeedback). null si la ligne n'est pas montrée.
+   */
+  private plannedLetters(w: WritingRun): PlannedLetters | null {
+    if (w.mode !== "copy" || !w.planned || !w.announced || !(w.show.ghostLine || w.show.ghostNext)) return null;
+    const cells = w.planned.cells;
+    return { cells, letters: cells.map(([x, y, z]) => letterChar(this.world.get(x, y, z))) };
   }
 
   /** Retour sur l'essai (lettre fausse, en trop, mot caché…) ; en dictée, le mot est redit. */
@@ -2302,7 +2335,7 @@ export class Game {
       const cell = f.wrongCells[0];
       if (cell) w.breakTip = { at: now + BREAK_TIP_MS, cell, id: this.world.get(cell[0], cell[1], cell[2]) };
     }
-    if (this.isDictated(w) && (key === "DICT_WRONG" || key === "DICT_MISSING" || key === "DICT_FAR")) {
+    if (this.isDictated(w) && (key === "DICT_WRONG" || key === "DICT_MISSING" || key === "DICT_EXTRA" || key === "DICT_FAR")) {
       this.narrator.dictate(pick(fillWord(LISTEN_AGAIN, vars), "autonome"));
     }
   }
@@ -2385,7 +2418,8 @@ export class Game {
     this.updateHint();
     this.syncLetters();
     this.refreshGhosts();
-    const ou = this.ghostCount > 0 ? PLACE_WHERE.ghost : PLACE_WHERE.ahead;
+    // « Dans la case claire » seulement si la case de cette lettre est montrée (pas une lettre fausse à sa place).
+    const ou = this.ghostNextShown ? PLACE_WHERE.ghost : PLACE_WHERE.ahead;
     const t = fillSaid(GIVE_LETTER, { ...this.wordVarsFor(w), L: ch, nom: letterName(ch), ou });
     this.tell(t.text, { spoken: t.spoken, ms: 4500, important: true });
   }
@@ -2501,9 +2535,11 @@ export class Game {
   }
 
   /**
-   * Cases claires et contours : rien d'écrit, une ligne tracée devant l'enfant (gardée tant que ses cases restent
-   * libres) ; sinon, la suite du mot après les lettres justes. Palier 1 : seulement la case suivante. Contours orange
-   * sur les lettres à revoir (copie), vert sur le mot réussi.
+   * Cases claires et contours : rien de juste écrit, une ligne tracée devant l'enfant (gardée tant qu'aucun bloc
+   * plein autre qu'une lettre n'occupe ses cases : une lettre posée dedans, juste ou fausse, ne la déplace pas) ;
+   * sinon, la suite du mot après les lettres justes. Une case pleine n'a pas de case claire ; une lettre fausse sur la
+   * ligne (contour orange) passe avant la case suivante, qui ne clignote pas tant qu'elle est là. Palier 1 : seulement
+   * la première case à remplir. Contours orange sur les lettres à revoir (copie), vert sur le mot réussi.
    */
   private refreshGhosts(): void {
     const ghosts = this.view.ghosts;
@@ -2511,6 +2547,7 @@ export class Game {
     const m = this.mission;
     const active = w !== null && !w.found && w.announced && m !== null && m.def === w.def && m.stepIndex === w.step;
     const list: { x: number; y: number; z: number; id: BlockId }[] = [];
+    let next: { x: number; y: number; z: number; id: BlockId } | null = null;
     if (active && (w.show.ghostLine || w.show.ghostNext)) {
       const len = w.target.length;
       let cells: Cell[];
@@ -2519,7 +2556,8 @@ export class Game {
         cells = ghostCells(this.world, w.best, w.have, len);
         offset = w.have;
       } else {
-        if (w.planned?.cells.some(([x, y, z]) => isSolidId(this.world.get(x, y, z)))) w.planned = null;
+        const blocked = (id: number) => isSolidId(id) && !isLetterId(id);
+        if (w.planned?.cells.some(([x, y, z]) => blocked(this.world.get(x, y, z)))) w.planned = null;
         if (!w.planned) {
           // Le mot doit tenir dans les 60° du milieu du regard (moins si l'écran est plus étroit) : la ligne se pose
           // alors à 4 ou 5 blocs, visible sans baisser les yeux (avec tout le champ d'un PC, elle serait à 2 blocs).
@@ -2529,15 +2567,28 @@ export class Game {
         }
         cells = w.planned?.cells ?? [];
       }
-      if (!w.show.ghostLine) cells = cells.slice(0, 1);
-      cells.forEach(([x, y, z], k) => {
+      // Cases encore à remplir (libres) ou à corriger (lettre fausse) ; une case déjà juste est passée.
+      let wrongBefore = false;
+      for (let k = 0; k < cells.length; k++) {
+        const [x, y, z] = cells[k]!;
         const id = letterBlockId(w.target.charAt(offset + k));
-        if (id !== null) list.push({ x, y, z, id });
-      });
+        if (id === null) continue;
+        const here = this.world.get(x, y, z);
+        if (here === id) continue;
+        if (isSolidId(here)) wrongBefore = true;
+        else {
+          const g = { x, y, z, id };
+          list.push(g);
+          if (!wrongBefore && !next) next = g;
+        }
+        if (!w.show.ghostLine) break;
+      }
     }
-    ghosts.setGhosts(list, list[0] ?? null);
-    ghosts.setMarks({ wrong: active && w.mode === "copy" ? w.wrongCells : [], done: this.doneMarks });
+    ghosts.setGhosts(list, next);
+    ghosts.setMarks({ wrong: active && w.mode === "copy" ? w.wrongCells : [], done: this.doneMarks, doneId: this.doneSerial });
     this.ghostCount = list.length;
+    this.ghostCellsShown = list.map((g): Cell => [g.x, g.y, g.z]);
+    this.ghostNextShown = next !== null;
   }
 
   /** Modèle du bandeau de Pixel, redessiné seulement quand il change (sa hauteur peut déplacer le message central). */
@@ -3341,6 +3392,7 @@ export class Game {
             have: w.have,
             words: [...(this.mission?.words ?? [])],
             ghosts: this.ghostCount,
+            ghostCells: this.ghostCellsShown.map((c) => [c[0], c[1], c[2]]),
             wrongCells: w.mode === "copy" ? w.wrongCells.length : 0,
             help: { ...w.show },
             announced: w.announced,
