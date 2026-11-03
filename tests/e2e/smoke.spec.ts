@@ -3595,8 +3595,12 @@ test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la bar
   expect(heldHud.map((b) => b.name)).toEqual(expect.arrayContaining(["anneau de l'appui long", "aide d'écran", "barre"]));
 
   // Panneau de fabrication : la feuille au-dessus de la barre à 10 cases, ses cartes entières dans l'écran ;
-  // la barre reste touchable (au-dessus du voile).
-  await page.evaluate(() => window.cubesDebug.give(6, 2)); // case 4
+  // la barre reste touchable (au-dessus du voile). Sac refait (sous charge, l'appui ci-dessus a pu vider sa case).
+  await page.evaluate(() => {
+    window.cubesDebug.clearInventory();
+    for (const id of [2, 3, 5]) window.cubesDebug.give(id, 3); // cases 1 à 3
+    window.cubesDebug.give(6, 2); // case 4
+  });
   expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
   await expect(page.locator(".craft")).toBeVisible();
   const sheet = (await page.locator(".craft-sheet").boundingBox())!;
