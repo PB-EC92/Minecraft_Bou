@@ -227,6 +227,8 @@ export function savedLabel(savedAt: number, now: number): string {
 
 /** Au-delà de ce nombre de jours sans export, le mode parent rappelle d'exporter (V2, décision de Pierre 7). */
 export const EXPORT_REMINDER_DAYS = 7;
+/** Avance tolérée de la date du dernier export sur l'horloge (petite dérive) ; au-delà, la date est incertaine. */
+export const EXPORT_FUTURE_TOLERANCE_MS = 86_400_000;
 
 /** Date du dernier export lue dans le stockage (`{ at }`, at nombre fini > 0), sinon null. Ne lève jamais. */
 export function parseLastExport(raw: unknown): number | null {
@@ -241,13 +243,19 @@ export function parseLastExport(raw: unknown): number | null {
 
 /** État de l'export pour le mode parent (V2). Textes pour l'adulte : une seule variante. */
 export interface ExportStatus {
-  /** Date du dernier export retenue (ramenée à `now` si elle est dans le futur), null si jamais. */
+  /**
+   * Date du dernier export retenue (ramenée à `now` si elle n'a pas plus d'un jour d'avance), null si jamais ou si
+   * la date est incertaine (plus d'un jour dans le futur).
+   */
   at: number | null;
-  /** Jours de calendrier depuis le dernier export (0 = aujourd'hui), null si jamais. */
+  /** Jours de calendrier depuis le dernier export (0 = aujourd'hui), null si jamais ou date incertaine. */
   days: number | null;
-  /** Rappel à montrer : des mondes existent et ils n'ont jamais été exportés, ou plus de 7 jours ont passé. */
+  /**
+   * Rappel à montrer : des mondes existent et ils n'ont jamais été exportés, ou plus de 7 jours ont passé, ou la date
+   * du dernier export est incertaine.
+   */
   due: boolean;
-  /** « Dernier export : … » avec la date (JJ/MM/AAAA, heure locale). */
+  /** « Dernier export : … » avec la date (JJ/MM/AAAA, heure locale), « jamais » ou « date incertaine ». */
   label: string;
   /** Texte du rappel, null si `due` est faux. */
   reminder: string | null;
@@ -256,10 +264,27 @@ export interface ExportStatus {
 /**
  * État de l'export : `at` date du dernier export (null = jamais), `now` maintenant, `worldCount` nombre de mondes
  * enregistrés. Rappel s'il y a des mondes et qu'ils n'ont jamais été exportés, ou plus de EXPORT_REMINDER_DAYS
- * jours plus tôt (exactement 7 jours ne suffit pas). Une date dans le futur (horloge reculée) compte pour maintenant.
+ * jours plus tôt (exactement 7 jours ne suffit pas). Une date dans le futur (horloge réglée en avance pendant
+ * l'export, puis corrigée) : jusqu'à un jour d'avance (petite dérive de l'horloge), elle compte pour maintenant ;
+ * au-delà, elle est incertaine et le rappel s'affiche (sinon il resterait caché jusqu'à ce que l'horloge rattrape
+ * la date, et le libellé dirait « aujourd'hui » pendant tout ce temps).
  */
 export function exportStatus(at: number | null, now: number, worldCount: number): ExportStatus {
-  const when = at !== null && Number.isFinite(at) && at > 0 ? Math.min(at, now) : null;
+  const known = at !== null && Number.isFinite(at) && at > 0 ? at : null;
+  if (known !== null && known - now > EXPORT_FUTURE_TOLERANCE_MS) {
+    const due = worldCount > 0;
+    return {
+      at: null,
+      days: null,
+      due,
+      label: `Dernier export${NBSP}: date incertaine (l'horloge de l'ordinateur a changé).`,
+      reminder: due
+        ? `Rappel${NBSP}: la date du dernier export est incertaine (l'horloge de l'ordinateur a changé). ` +
+          "Un fichier d'export protège les mondes des enfants si le navigateur est vidé ou si le fichier du jeu change de place."
+        : null,
+    };
+  }
+  const when = known === null ? null : Math.min(known, now);
   const due = worldCount > 0 && (when === null || now - when > EXPORT_REMINDER_DAYS * 86_400_000);
   if (when === null) {
     return {

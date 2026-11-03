@@ -2238,6 +2238,17 @@ test("mode parent : rappel du geste au premier réglage ; date du dernier export
   await expect(page.locator(".parent-status")).toHaveText("Sauvegarde importée.");
   await expect(page.locator(".parent-export-date")).toContainText("aujourd'hui");
   await expect(page.locator(".parent-reminder")).toHaveCount(0);
+  // Horloge en avance de 40 jours pendant un export, remise à l'heure depuis : date incertaine et rappel tout de
+  // suite (constat 12 de la revue du J8 ; avant, « aujourd'hui » sans rappel jusqu'à ce que l'horloge la rattrape).
+  await page.evaluate(() => localStorage.setItem("cubes:dernier-export", JSON.stringify({ at: Date.now() + 40 * 86_400_000 })));
+  await page.getByRole("button", { name: "Fermer sans enregistrer" }).click();
+  await openParent();
+  await expect(page.locator(".parent-export-date")).toHaveText("Dernier export : date incertaine (l'horloge de l'ordinateur a changé).");
+  await expect(page.locator(".parent-reminder")).toContainText("la date du dernier export est incertaine");
+  // Exporter maintenant remet la date du jour.
+  await Promise.all([page.waitForEvent("download"), page.locator(".parent-reminder").getByRole("button", { name: "Exporter maintenant" }).click()]);
+  await expect(page.locator(".parent-reminder")).toHaveCount(0);
+  await expect(page.locator(".parent-export-date")).toContainText("aujourd'hui");
   expect(errors).toEqual([]);
 });
 
