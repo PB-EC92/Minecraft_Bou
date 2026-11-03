@@ -100,7 +100,8 @@ Ordre : WP0 d'abord. Ensuite WP1, WP2, WP3, WP4a, WP4b et WP4c en parallèle. WP
 - Tous gèlent le jeu par `freezeForOverlay()`. Effets : souris libérée, casse, doigts et appui « casser » remis à zéro, clavier vidé, appui long annulé, `paused = true`.
 - Tous se ferment sans bruit dans `goHome`, `newWorld`, `loadSave`, `hashchange` et l'événement `storage` (`closeOverlays`). Avec eux : lettre en main, fantômes, horloge d'aide sont remis à zéro, et le doigt revient au mode Casser (le mode Poser pris pour une lettre ne passe pas à la partie suivante). `pendingMission` et `afterCelebration` (la suite de la campagne) ne sont oubliés que par `goHome` (accueil, autre onglet) : en mode adresse, un nouveau monde garde la mission 2 en attente ; une partie d'enfant la relit dans sa sauvegarde (revue du J8, constats 3 et 9).
 - Panneau de fabrication ouvert : la barre passe au-dessus du voile (z 26), avec l'anneau de l'appui long. L'appui long reste actif, au doigt, à la souris et au clavier (touches 1 à 9), et les annonces vont dans la ligne d'état (`Game.notify`). La feuille laisse la place de l'anneau et des pastilles « −1 » / « +2 » entre elle et la barre (son bas à `--slot` + 94 px).
-- Au doigt, la boîte et le panneau suivent le dernier doigt posé sur la croix, une lettre ou une carte : il reprend le geste, l'ancien n'agit plus (un doigt dont la fin se perd ne bloque jamais l'écran). Un doigt posé sur le voile, ou sur rien qui agisse, pendant que le doigt suivi est encore posé (pouce qui tient l'appareil) ne reprend pas le geste. La fenêtre qui perd le focus oublie le doigt suivi.
+- Au doigt, la boîte et le panneau suivent le dernier doigt posé sur la croix, une lettre ou une carte : il reprend le geste, l'ancien n'agit plus (un doigt dont la fin se perd ne bloque jamais l'écran). Un doigt posé sur le voile, ou sur rien qui agisse, pendant qu'un autre doigt est posé (le doigt suivi, ou un doigt sur la barre, que le panneau ne voit pas : pouce qui tient l'appareil) ne reprend pas le geste ; un doigt suivi sur le voile du panneau est oublié quand un doigt se pose sur la barre. La fenêtre qui perd le focus oublie le doigt suivi.
+- Après la fermeture au doigt d'un écran posé sur le jeu (lettre choisie, boîte ou panneau fermés, félicitations), un doigt posé sur le jeu dans les 400 ms regarde mais ne pose ni ne casse (`TouchControls.guardAfterOverlay`) : le second toucher d'un double toucher sur une lettre ou sur la croix ne pose pas la lettre ou le bloc en main.
 - Clavier :
   - F et Échap sont traités avant le test de pause, seulement pour fermer le panneau ;
   - la boîte capture le clavier en phase de capture sur `window` (Échap, 0, lettres par `event.key` normalisé). C'est la seule exception à la règle 4, et c'est de la saisie, pas du déplacement.
@@ -151,7 +152,7 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 - **Portrait 1080 × 1802 sans lettres** :
   - barre de 212 à 868 px ;
   - colonne de 28 à 476 px depuis le bas ;
-  - feuille de fabrication de x 60 à 1020, bas à 118 px.
+  - feuille de fabrication de x 60 à 1020, bas à 158 px (`--slot` + 94, voir §4.1).
 - **Avec la case ABC** (classe `.letters-on`, `--slot` sur 10 cases) :
   - barre de 738 px (171 à 909) ;
   - jusqu'à 1120 px de large, le rond et la colonne remontent au-dessus de la barre (+90 px) ;
@@ -215,7 +216,8 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 - Cases claires (`planLine`, revue du J8) :
   - tracées seulement là où le mot se lira de face et seul : case côté enfant dans le monde et non opaque, appui qui n'est pas un bloc-lettre, aucune lettre juste derrière une case ni collée aux deux bouts ;
   - toujours posables d'où se tient l'enfant (`canAimAt` : visée depuis l'œil, portée `REACH` = 6 blocs, lettres d'avant posées) : jamais derrière un mot déjà écrit ni derrière un mur ;
-  - sinon, une ligne décalée sur le côté, sa première case dans le champ ; sinon pas de ligne, seulement la consigne, et un nouvel essai toutes les 0,5 s quand l'enfant tourne la tête ou se déplace. Sans case claire montrée, l'aide dit la lettre suivante au lieu de « Remplis les cases claires ! » ;
+  - sinon, une ligne décalée sur le côté, sa première case dans le champ ; sinon une ligne dont une case au moins est dans le champ, la première case la plus près du regard (un mot long, à portée, déborde des deux côtés du champ : 10 lettres à 3 blocs vont de 59° à gauche à 53° à droite ; regard en biais de 30° ou plus, aussi sur l'autre axe) ; sinon pas de ligne, seulement la consigne, et un nouvel essai toutes les 0,5 s quand l'enfant tourne la tête ou se déplace ;
+  - copie : la ligne est montrée dès la consigne au premier mot seulement ; aux mots 2 et 3 et au prénom, la case suivante après 15 s sans progrès, « Maintenant, la lettre N ! » à 25 s, toute la ligne à 30 s. Sans case claire possible au seuil des 30 s, l'aide dit de se tourner vers un sol plat (« Tourne-toi vers un sol plat ! ») au lieu de « Remplis les cases claires ! » ;
   - la ligne reste en place quand on y pose des lettres ; une lettre fausse dans une de ses cases est signalée (« Ici, il faut un … », contour orange), jamais une lettre qui traîne ailleurs ;
   - les cases claires voisines ne dessinent pas leur face commune (y compris avec la case suivante) : pas de lettre écrasée entre deux lettres. Les blocs du monde ne cachent rien.
 - Un mot déjà lisible au début d'une étape d'écriture (le prénom écrit plus tôt) la valide sans consigne.
@@ -250,7 +252,7 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
   - `celebrate: true` → l'écran de la mission 1 passe d'abord ;
   - monde repris entre 17 h et 18 h avant l'abri → heure figée.
 - **Retour à la 1.0-rc (à éviter)** : un monde contenant du verre ou des lettres a des octets 17 à 43 dans son écart. `applyDiff` renvoie alors −1 : la 1.0-rc garde une copie de secours, régénère le monde et prévient l'adulte. À écrire dans le JOURNAL, avec la consigne d'exporter avant la mise à jour.
-- **Juste après la mise à jour**, le mode parent dira « jamais exporté », faute de trace des exports faits avec la 1.0-rc.
+- **Juste après la mise à jour**, le mode parent dira « Dernier export : jamais. » et, en tête, « Rappel : les mondes des enfants n'ont encore jamais été exportés. », faute de trace des exports faits avec la 1.0-rc.
 
 ## 7. Tests
 
@@ -290,14 +292,14 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 
 ## 9. Risques principaux (non vérifiés)
 
-- **Firefox sous Windows au doigt** : appui long transformé en clic droit, ou `touchcancel` vers 1 s. Parade faite pendant la revue du J8 : un `touchcancel` reçu après au moins 900 ms d'appui sur une case vaut un appui allé au bout ; la case est vidée avec les règles de `discardVerdict` (refus dit pour la lampe, le cadeau ou le bloc de l'étape). Avant 900 ms, l'appui est abandonné. Une perte de focus au même moment ne l'empêche pas. Reste possible si nécessaire : passer l'appui à 800 ms. À vérifier sur le convertible (protocole J8).
-- **Doigt perdu sur un écran posé sur le jeu** (geste de Windows sans `touchcancel`, paume ou pouce sur le voile) : parade faite (§4.1, dernier doigt posé, voile ignoré tant que le doigt suivi est posé, oubli sur perte de focus). À vérifier sur le convertible.
+- **Firefox sous Windows au doigt** : appui long transformé en clic droit, ou `touchcancel` vers 1 s. Parade faite pendant la revue du J8 : un `touchcancel` reçu après au moins 900 ms d'appui sur une case vaut un appui allé au bout ; la case est vidée avec les règles de `discardVerdict` (refus dit pour la lampe, le cadeau ou le bloc de l'étape). Avant 900 ms, l'appui est abandonné. Une perte de focus au même moment ne l'empêche pas, qu'elle arrive avant ou après l'annulation (`slotHoldAfterBlur`, contre-vérification V6). Reste possible si nécessaire : passer l'appui à 800 ms. À vérifier sur le convertible (protocole J8).
+- **Doigt perdu sur un écran posé sur le jeu** (geste de Windows sans `touchcancel`, paume ou pouce sur le voile) : parade faite (§4.1, dernier doigt posé, voile ignoré tant qu'un autre doigt est posé, y compris sur la barre, oubli sur perte de focus ; 400 ms sans poser ni casser après la fermeture d'un écran). À vérifier sur le convertible.
 - **Vidage involontaire** par l'enfant de 6 ans.
 - **Barre à 10 cases en portrait** : le rond et la colonne remontent.
 - **Visée au doigt** pour poser les lettres.
 - **Durée de la mission 2** avec le petit : environ 15 lettres posées (estimation).
 - **Tri des faces de verre** dans une même section ; halo de lampe et bulles légèrement teintés derrière une vitre ; bulle ou halo de lampe placé devant une vitre, dessiné derrière son cadre (le verre est toujours dessiné après les bulles et les halos) ; vitre au sec vue à travers un verre noyé, qui peut passer devant lui ; verre noyé un peu plus bleu qu'une pierre noyée (la face d'eau collée au verre s'ajoute à la surface) ; une vitre posée dans l'air derrière de l'eau (derrière un aquarium, ou vue d'un bassin à travers sa surface) n'est pas teintée par l'eau : elle se dessine par-dessus (ordre 2, après toute l'eau ; seules les faces au contact de l'eau passent avant, ordre 0,5). Défauts acceptés.
 - **Gains des sons** `craft` et `discard` : à mesurer.
-- **Taille du fichier** : `dist/cubes.html` grossit (estimation : quelques dizaines de ko ; mesuré : 813 ko à la 1.1-rc, 819 ko après les corrections de la revue, contre 706 ko à la 1.0-rc).
+- **Taille du fichier** : `dist/cubes.html` grossit (estimation : quelques dizaines de ko ; mesuré : 813 ko à la 1.1-rc, 819 ko après les corrections de la revue, 821 ko après la seconde contre-vérification, contre 706 ko à la 1.0-rc).
 - **Le rapport 1 tronc → 4 planches** est celui du jeu d'inspiration : c'est un nombre dans une table, à changer en une ligne.
 - **Huit cases occupées sur neuf** dès la mission 1 avec la fabrication : l'appui long est la soupape, à observer en séance.
