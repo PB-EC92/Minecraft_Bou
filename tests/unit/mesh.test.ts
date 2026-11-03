@@ -176,6 +176,7 @@ describe("verre (V2 lot 1)", () => {
     expect(m.opaque).toBeNull();
     expect(m.cutout).toBeNull();
     expect(m.water).toBeNull();
+    expect(m.glassWet).toBeNull();
     expect(m.faces).toBe(6);
     expect(trianglesOutward(m.glass!, new THREE.Vector3(1.5, 1.5, 1.5))).toBe(true);
   });
@@ -251,13 +252,57 @@ describe("verre (V2 lot 1)", () => {
     expect(cols.has(Math.round(srgbToLinear(0.55) * 255))).toBe(true);
   });
 
-  it("verre contre eau (aquarium) : la face de contact est dessinée des deux côtés", () => {
+  // Ce cas attendait 6 faces dans la couche glass : la face de verre au contact de l'eau passe désormais dans la
+  // couche glassWet, dessinée avant l'eau (constat 15 de la revue du J8).
+  it("verre contre eau (aquarium) : la face de contact est dessinée des deux côtés ; côté verre, dans la couche glassWet", () => {
     const w = new World(4, 3, 3);
     w.set(1, 1, 1, BlockId.Water);
     w.set(2, 1, 1, BlockId.Glass);
     const m = meshSection(w, 0, 0, 0);
     expect(m.water!.faces).toBe(6);
-    expect(m.glass!.faces).toBe(6);
+    expect(m.glass!.faces).toBe(5);
+    expect(m.glassWet!.faces).toBe(1);
+    expect(m.faces).toBe(12);
+    // La face mouillée est celle tournée vers l'eau (−x), dans le plan x = 2.
+    const [q] = quads(m.glassWet!);
+    expect(q!.n.x).toBeCloseTo(-1, 6);
+    expect(q!.p.every((p) => p.x === 2)).toBe(true);
+    expect(quads(m.glass!).some((g) => g.n.x < -0.5)).toBe(false);
+  });
+
+  it("verre noyé : un verre entouré d'eau ne donne que des faces glassWet (même tuile, mêmes sommets et même ombrage qu'au sec)", () => {
+    const w = new World(3, 3, 3);
+    for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) for (let x = 0; x < 3; x++) w.set(x, y, z, BlockId.Water);
+    w.set(1, 1, 1, BlockId.Glass);
+    const m = meshSection(w, 0, 0, 0);
+    expect(m.glass).toBeNull();
+    expect(m.glassWet!.faces).toBe(6);
+    expect(trianglesOutward(m.glassWet!, new THREE.Vector3(1.5, 1.5, 1.5))).toBe(true);
+    expect(uvsInTile(m.glassWet!, Tile.Glass)).toBe(true);
+    const dry = new World(3, 3, 3);
+    dry.set(1, 1, 1, BlockId.Glass);
+    const d = meshSection(dry, 0, 0, 0).glass!;
+    expect(Array.from(m.glassWet!.positions)).toEqual(Array.from(d.positions));
+    expect(Array.from(m.glassWet!.colors)).toEqual(Array.from(d.colors));
+  });
+
+  it("choix face par face, jamais bloc par bloc : une vitre qui sort de l'eau a ses faces mouillées sous l'eau seulement", () => {
+    // Bassin : eau en x = 1 sur deux niveaux (y = 1 et 2) ; vitre de trois blocs en x = 2 (y = 1 à 3), air en x = 3.
+    const w = World.createFlat(5, 6, 3, 1);
+    w.set(1, 1, 1, BlockId.Water);
+    w.set(1, 2, 1, BlockId.Water);
+    for (const y of [1, 2, 3]) w.set(2, y, 1, BlockId.Glass);
+    const m = meshSection(w, 0, 0, 0);
+    const wet = quads(m.glassWet!);
+    // Seules les faces −x de y = 1 et y = 2 touchent l'eau ; celle de y = 3 touche l'air.
+    expect(wet.length).toBe(2);
+    for (const q of wet) expect(q.n.x).toBeCloseTo(-1, 6);
+    expect(wet.map((q) => Math.min(...q.p.map((p) => p.y))).sort()).toEqual([1, 2]);
+    // Côté air : 3 faces +x, 1 face −x (y = 3), 3 faces avant, 3 arrière, le dessus ; dessous contre le sol, verre
+    // contre verre caché.
+    const dry = quads(m.glass!);
+    expect(dry.length).toBe(11);
+    expect(dry.filter((q) => q.n.x < -0.5).map((q) => Math.min(...q.p.map((p) => p.y)))).toEqual([3]);
   });
 
   it("fleur posée sur un verre : 2 faces en découpe, le dessus du verre reste dessiné", () => {
@@ -341,12 +386,16 @@ describe("blocs-lettres (V2 lot 1)", () => {
     }
   });
 
-  it("cubes fantômes : 6 faces par cube, mêmes UV que le bloc, gris 255, positions absolues", () => {
+  // Ce cas posait les deux cubes côte à côte (x = 20 et 21) et attendait 12 faces : il figeait le défaut des faces
+  // communes dessinées (constat 16 de la revue du J8). Les cubes sont maintenant séparés d'une case ; les cases
+  // voisines ont leur propre cas, juste après.
+  it("cubes fantômes : 6 faces par cube isolé, mêmes UV que le bloc, gris 255, positions absolues", () => {
     const g = ghostCubes([
       { x: 20, y: 5, z: 30, id: BlockId.LetterA },
-      { x: 21, y: 5, z: 30, id: BlockId.LetterB },
+      { x: 22, y: 5, z: 30, id: BlockId.LetterB },
     ]);
     expect(g.faces).toBe(12);
+    expect(g.cubes).toBe(2);
     expect(new Set(Array.from(g.colors))).toEqual(new Set([255]));
     const w = new World(3, 3, 3);
     w.set(1, 1, 1, BlockId.LetterA);
@@ -358,7 +407,33 @@ describe("blocs-lettres (V2 lot 1)", () => {
     expect(trianglesOutward({ ...g, indices: g.indices.subarray(0, 36) } as MeshData, new THREE.Vector3(20.5, 5.5, 30.5))).toBe(true);
     const ps = vertices(g);
     expect(Math.min(...ps.map((p) => p.x))).toBe(20);
-    expect(Math.max(...ps.map((p) => p.x))).toBe(22);
+    expect(Math.max(...ps.map((p) => p.x))).toBe(23);
+  });
+
+  it("cubes fantômes voisins : la face commune est cachée des deux côtés (pas de lettre écrasée entre deux cases)", () => {
+    const a = { x: 20, y: 5, z: 30, id: BlockId.LetterA };
+    const b = { x: 21, y: 5, z: 30, id: BlockId.LetterB };
+    const both = ghostCubes([a, b]);
+    expect(both.faces).toBe(10);
+    expect(both.cubes).toBe(2);
+    const onShared = (m: MeshData) => quads(m).filter((q) => q.p.every((p) => p.x === 21)).length;
+    expect(onShared(both)).toBe(0);
+    // Deux maillages (case suivante, autres cases claires) : chacun cache sa face vers l'autre grâce à `around`.
+    const next = ghostCubes([a], [b]);
+    const rest = ghostCubes([b], [a]);
+    expect([next.faces, rest.faces]).toEqual([5, 5]);
+    expect([next.cubes, rest.cubes]).toEqual([1, 1]);
+    expect(onShared(next) + onShared(rest)).toBe(0);
+    // Sans `around`, chaque maillage garde sa face commune (c'était le défaut).
+    expect(ghostCubes([a]).faces).toBe(6);
+    // Seules les six cases qui touchent une face comptent : en diagonale ou à deux cases, rien n'est caché.
+    expect(ghostCubes([a, { x: 21, y: 6, z: 30, id: BlockId.LetterB }]).faces).toBe(12);
+    expect(ghostCubes([a, { x: 20, y: 5, z: 32, id: BlockId.LetterB }]).faces).toBe(12);
+    // Au-dessus et au-dessous : la face du dessus de l'un et celle du dessous de l'autre sont cachées.
+    expect(ghostCubes([a, { x: 20, y: 6, z: 30, id: BlockId.LetterB }]).faces).toBe(10);
+    // Une case hors registre (ou d'air) n'est pas dessinée et ne cache rien.
+    expect(ghostCubes([a], [{ x: 21, y: 5, z: 30, id: 250 as BlockId }]).faces).toBe(6);
+    expect(ghostCubes([a, { x: 21, y: 5, z: 30, id: BlockId.Air }])).toMatchObject({ faces: 6, cubes: 1 });
   });
 
   it("cubes fantômes : aucune case, maillage vide ; identifiant hors registre ignoré", () => {
@@ -422,6 +497,53 @@ describe("rendu par sections", () => {
     expect((r.group.getObjectByName("water 1,0,1") as THREE.Mesh).renderOrder).toBe(1);
     expect((r.group.getObjectByName("opaque 1,0,1") as THREE.Mesh).renderOrder).toBe(0);
     expect(r.group.getObjectByName("glass 0,0,0")).toBeUndefined(); // section sans verre : pas de maillage
+    expect(r.group.getObjectByName("glassWet 1,0,1")).toBeUndefined(); // verre sans eau autour : pas de face mouillée
+  });
+
+  it("faces de verre au contact de l'eau : maillage « glassWet 1,0,1 », matériau du verre, dessiné avant l'eau ; les autres après", () => {
+    const w = World.createFlat(48, 32, 48, 4);
+    w.set(20, 4, 20, BlockId.Water); // flaque au ras du sol, section (1, 0, 1)
+    w.set(21, 4, 20, BlockId.Glass); // vitre qui la borde : une face dans l'eau, quatre à l'air
+    const r = new ChunkRenderer(w, mats);
+    r.update(24, 10, 24, 1e9);
+    const wet = r.group.getObjectByName("glassWet 1,0,1") as THREE.Mesh;
+    const water = r.group.getObjectByName("water 1,0,1") as THREE.Mesh;
+    const glass = r.group.getObjectByName("glass 1,0,1") as THREE.Mesh;
+    expect(wet).toBeDefined();
+    expect(wet.material).toBe(mats.glass);
+    expect(glass.material).toBe(mats.glass);
+    // Three.js trie la liste transparente par renderOrder avant la distance : verre mouillé, eau, puis verre.
+    expect(wet.renderOrder).toBe(0.5);
+    expect(water.renderOrder).toBe(1);
+    expect(glass.renderOrder).toBe(2);
+    expect(wet.renderOrder).toBeGreaterThan(0); // après l'opaque et la découpe (ordre 0), qui écrivent la profondeur
+    expect(wet.geometry.getIndex()!.count / 6).toBe(1);
+    expect(glass.geometry.getIndex()!.count / 6).toBe(4);
+    expect(r.stats.faces).toBe(48 * 48 + 5 + 5); // sol, eau (5 faces), verre (1 + 4)
+    // Caméra sous l'eau : les faces mouillées sont vues de l'intérieur de l'eau, dessinées après elle avec le verre ;
+    // y compris celles d'une section maillée pendant ce temps. Ressortie : de nouveau avant l'eau.
+    r.setCameraUnderwater(true);
+    expect(wet.renderOrder).toBe(2);
+    w.set(4, 4, 4, BlockId.Water);
+    w.set(5, 4, 4, BlockId.Glass);
+    r.update(24, 10, 24, 1e9);
+    const wet0 = r.group.getObjectByName("glassWet 0,0,0") as THREE.Mesh;
+    expect(wet0.renderOrder).toBe(2);
+    r.setCameraUnderwater(true);
+    expect(wet.renderOrder).toBe(2);
+    r.setCameraUnderwater(false);
+    expect([wet.renderOrder, wet0.renderOrder]).toEqual([0.5, 0.5]);
+    expect(water.renderOrder).toBe(1);
+    expect(glass.renderOrder).toBe(2);
+    w.set(4, 4, 4, BlockId.Air);
+    w.set(5, 4, 4, BlockId.Air);
+    r.update(24, 10, 24, 1e9);
+    // L'eau retirée : la face redevient sèche, la couche mouillée disparaît.
+    w.set(20, 4, 20, BlockId.Air);
+    r.update(24, 10, 24, 1e9);
+    expect(r.group.getObjectByName("glassWet 1,0,1")).toBeUndefined();
+    expect((r.group.getObjectByName("glass 1,0,1") as THREE.Mesh).geometry.getIndex()!.count / 6).toBe(5);
+    expect(r.stats.faces).toBe(48 * 48 + 5);
   });
 
   it("casser le dernier verre d'une section retire le maillage de la couche verre", () => {
@@ -449,17 +571,45 @@ describe("fantômes des lettres (mission 2)", () => {
   const I = { x: 12, y: 4, z: 10, id: BlockId.LetterI };
   const meshNamed = (g: LetterGhosts, name: string) => g.group.getObjectByName(name) as THREE.Mesh;
 
-  it("cases claires et case suivante : la suivante n'est pas dessinée deux fois", () => {
+  // La case suivante comptait 36 indices (6 faces), dont sa face contre M : le cas figeait le défaut du constat 16 de
+  // la revue du J8. Elle en a maintenant 30 (5 faces), et les cases claires 9 faces pour 2 cubes.
+  it("cases claires et case suivante : la suivante n'est pas dessinée deux fois ; faces communes cachées", () => {
     const g = new LetterGhosts(atlas);
     g.setGhosts([A, M, I], A);
     expect(g.shown).toMatchObject({ ghosts: 2, next: true });
     const next = meshNamed(g, "case suivante");
-    expect(next.geometry.getIndex()!.count).toBe(36);
+    expect(next.geometry.getIndex()!.count).toBe(30);
+    expect(meshNamed(g, "cases claires").geometry.getIndex()!.count).toBe(9 * 6);
     expect(g.group.getObjectByName("contour suivant")!.visible).toBe(true);
     expect(g.group.getObjectByName("contour suivant")!.position.toArray()).toEqual([10.5, 4.5, 10.5]);
     g.setGhosts([], null);
     expect(g.shown).toMatchObject({ ghosts: 0, next: false });
     expect(g.group.getObjectByName("contour suivant")!.visible).toBe(false);
+  });
+
+  it("faces communes : chaque maillage suit aussi les cases de l'autre (aide « case suivante seule » puis « ligne entière », et retour)", () => {
+    const g = new LetterGhosts(atlas);
+    const nextFaces = () => meshNamed(g, "case suivante").geometry.getIndex()!.count / 6;
+    const restFaces = () => meshNamed(g, "cases claires").geometry.getIndex()?.count ?? 0;
+    g.setGhosts([A], A); // palier 1 : la case suivante seule
+    expect(nextFaces()).toBe(6);
+    expect(g.shown).toMatchObject({ ghosts: 0, next: true });
+    // La ligne entière apparaît : la case suivante ne change pas, mais sa face contre M doit disparaître.
+    g.setGhosts([A, M, I], A);
+    expect(nextFaces()).toBe(5);
+    expect(restFaces() / 6).toBe(9);
+    // Retour à la case suivante seule : sa face contre M revient.
+    g.setGhosts([A], A);
+    expect(nextFaces()).toBe(6);
+    expect(g.shown).toMatchObject({ ghosts: 0, next: true });
+    // La case suivante avance (A posée, M suivante) : les cases claires (I seule) cachent leur face contre M.
+    g.setGhosts([M, I], M);
+    expect(nextFaces()).toBe(5);
+    expect(restFaces() / 6).toBe(5);
+    // Plus de case suivante : I retrouve sa face, M n'est plus dessinée.
+    g.setGhosts([I], null);
+    expect(restFaces() / 6).toBe(6);
+    expect(g.shown).toMatchObject({ ghosts: 1, next: false });
   });
 
   it("ne reconstruit la géométrie que si les cases changent ; au plus 10 cubes", () => {

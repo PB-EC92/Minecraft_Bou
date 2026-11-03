@@ -126,7 +126,8 @@ export class SceneView {
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
-      // Verre : face avant (défaut), pas d'alphaTest ni d'opacité de matériau (l'alpha vient de la tuile).
+      // Verre : face avant (défaut), pas d'alphaTest ni d'opacité de matériau (l'alpha vient de la tuile). Sert aussi
+      // aux faces de verre au contact de l'eau (couche glassWet de ChunkRenderer).
       glass: new THREE.MeshBasicMaterial({ map: this.atlas, vertexColors: true, transparent: true, depthWrite: false }),
     };
     this.chunks = new ChunkRenderer(world, this.materials);
@@ -217,6 +218,7 @@ export class SceneView {
   /** Sous l'eau : brouillard bleu et court. */
   setUnderwater(on: boolean): void {
     this.underwater = on;
+    this.chunks.setCameraUnderwater(on); // ordre des faces de verre au contact de l'eau (ChunkRenderer)
     this.applyFog();
   }
 
