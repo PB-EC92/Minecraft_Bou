@@ -1,10 +1,13 @@
+import { parseReadingLevel, type ReadingLevel } from "../edu/texts";
 import { parseWorldType, type WorldTypeId } from "../engine/terrain";
 
 /**
  * Options de démarrage lues dans l'adresse, après le « # » (fonctionne en
  * `file://`) : `cubes.html#monde=ile&graine=1234&heure=20&distance=48`.
  * Sert aux tests et à retrouver un monde précis (même type + même graine =
- * même monde). Les valeurs invalides sont ignorées.
+ * même monde). Les valeurs invalides sont ignorées. Mode adresse (V2 lot 1) :
+ * `#mission=2` lance la mission 2 « Les mots », `&lecture=autonome` choisit le
+ * niveau de lecture (débutant par défaut).
  */
 export interface UrlOptions {
   type?: WorldTypeId;
@@ -13,8 +16,10 @@ export interface UrlOptions {
   distance?: number;
   /** Mode adresse : Grignotes (J5) seulement si demandées (#creatures=1), pour ne pas perturber les tests. */
   creatures?: boolean;
-  /** Mode adresse : compagnon et mission seulement si demandés : #mission=0 (tutoriel, J6) ou #mission=1 (mission 1). */
-  mission?: 0 | 1;
+  /** Mode adresse : compagnon et mission seulement si demandés : #mission=0 (tutoriel, J6), 1 (mission 1) ou 2 (mission 2, V2 lot 1). */
+  mission?: 0 | 1 | 2;
+  /** Mode adresse : niveau de lecture (&lecture=debutant ou autonome, accents et casse tolérés) (V2 lot 1). */
+  lecture?: ReadingLevel;
 }
 
 export const MAX_SEED = 999_999;
@@ -38,7 +43,9 @@ export function parseUrlOptions(hash: string): UrlOptions {
   if (distance !== undefined) out.distance = distance;
   if (params.get("creatures") === "1") out.creatures = true;
   const mission = params.get("mission");
-  if (mission === "0" || mission === "1") out.mission = mission === "0" ? 0 : 1;
+  if (mission === "0" || mission === "1" || mission === "2") out.mission = mission === "0" ? 0 : mission === "1" ? 1 : 2;
+  const lecture = parseReadingLevel(params.get("lecture"));
+  if (lecture) out.lecture = lecture;
   return out;
 }
 
