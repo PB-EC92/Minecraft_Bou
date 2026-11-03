@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { BlockId } from "../engine/blocks";
-import { ghostCubes, srgbToLinear, type MeshData } from "./mesher";
+import { ghostCubes, isGhostDrawable, srgbToLinear, type MeshData } from "./mesher";
 
 /** Une case claire : position du bloc (coin bas) et lettre attendue. */
 export interface GhostCell {
@@ -75,6 +75,8 @@ export class LetterGhosts {
   /** Contours des lettres à revoir et du mot réussi (réserve fixe, au plus MAX_MARKS). */
   private readonly marks: THREE.LineSegments[] = [];
   private ghostKey = "";
+  /** Cubes dessinés dans le maillage des cases claires (leurs faces communes sont cachées : faces / 6 ne les compte plus). */
+  private ghostCubesShown = 0;
   private nextKey = "";
   private wrongKey = "";
   private doneKey = "";
@@ -118,15 +120,21 @@ export class LetterGhosts {
   setGhosts(cells: readonly GhostCell[], next: GhostCell | null): void {
     const nextAt = next ? cellKey([next.x, next.y, next.z]) : null;
     const rest = cells.filter((c) => cellKey([c.x, c.y, c.z]) !== nextAt).slice(0, MAX_GHOSTS - (next ? 1 : 0));
-    const key = rest.map((c) => cellKey([c.x, c.y, c.z, c.id])).join(";");
+    // Les faces communes entre deux cases voisines sont cachées, y compris entre la case suivante et les autres
+    // (deux maillages) : chaque clé contient donc aussi les positions de l'autre liste (celles qui cachent, c'est-à-dire
+    // dessinables). Sinon, quand une seule des deux change (aide « case suivante seule » puis « ligne entière »),
+    // l'autre garderait un masquage périmé.
+    const restAt = rest.filter((c) => isGhostDrawable(c.id)).map((c) => cellKey([c.x, c.y, c.z])).join(";");
+    const nextHides = next && isGhostDrawable(next.id) ? nextAt : "";
+    const key = `${rest.map((c) => cellKey([c.x, c.y, c.z, c.id])).join(";")}|${nextHides}`;
     if (key !== this.ghostKey) {
       this.ghostKey = key;
-      this.replace(this.ghostMesh, rest);
+      this.ghostCubesShown = this.replace(this.ghostMesh, rest, next ? [next] : []);
     }
-    const nk = next ? cellKey([next.x, next.y, next.z, next.id]) : "";
+    const nk = next ? `${cellKey([next.x, next.y, next.z, next.id])}|${restAt}` : "";
     if (nk !== this.nextKey) {
       this.nextKey = nk;
-      this.replace(this.nextMesh, next ? [next] : []);
+      this.replace(this.nextMesh, next ? [next] : [], rest);
       this.nextOutline.visible = next !== null;
       if (next) this.nextOutline.position.set(next.x + 0.5, next.y + 0.5, next.z + 0.5);
     }
@@ -184,7 +192,7 @@ export class LetterGhosts {
   get shown(): { ghosts: number; next: boolean; wrong: number; done: number; brightness: number } {
     const doneShown = this.doneLeft > 0 ? this.doneCells.length : 0;
     return {
-      ghosts: this.ghostMesh.visible ? this.faces(this.ghostMesh) / 6 : 0,
+      ghosts: this.ghostMesh.visible ? this.ghostCubesShown : 0,
       next: this.nextMesh.visible,
       wrong: Math.min(this.wrongCells.length, MAX_MARKS - doneShown),
       done: doneShown,
@@ -204,16 +212,13 @@ export class LetterGhosts {
     this.doneLeft = 0;
   }
 
-  private faces(mesh: THREE.Mesh): number {
-    const idx = mesh.geometry.getIndex();
-    return idx ? idx.count / 6 : 0;
-  }
-
-  private replace(mesh: THREE.Mesh, cells: readonly GhostCell[]): void {
+  /** Reconstruit un maillage ; `around` : cases de l'autre maillage, qui cachent les faces communes. Renvoie le nombre de cubes. */
+  private replace(mesh: THREE.Mesh, cells: readonly GhostCell[], around: readonly GhostCell[]): number {
     mesh.geometry.dispose();
-    const data = ghostCubes(cells);
+    const data = ghostCubes(cells, around);
     mesh.geometry = data.faces > 0 ? toGeometry(data) : new THREE.BufferGeometry();
     mesh.visible = data.faces > 0;
+    return data.cubes;
   }
 
   /** Place les contours : d'abord le mot réussi (s'il est encore affiché), puis les lettres à revoir. */

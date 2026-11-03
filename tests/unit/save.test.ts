@@ -9,6 +9,7 @@ import { THIRD_PERSON_DISTANCE, thirdPersonCamera } from "../../src/game/thirdPe
 import {
   cleanName,
   defaultProfiles,
+  EXPORT_FUTURE_TOLERANCE_MS,
   EXPORT_REMINDER_DAYS,
   exportFileName,
   exportStatus,
@@ -482,18 +483,42 @@ describe("date du dernier export (V2)", () => {
     }
   });
 
-  it("horloge reculée (export daté du futur) : compte pour aujourd'hui, sans rappel", () => {
-    expect(exportStatus(NOW + 40 * DAY, NOW, 2)).toEqual({
-      at: NOW,
-      days: 0,
-      due: false,
-      label: `Dernier export${NB}: aujourd'hui (01/11/2026).`,
-      reminder: null,
-    });
+  // Ce cas remplace « horloge reculée : compte pour aujourd'hui, sans rappel », qui figeait le défaut (constat 12 de
+  // la revue du J8) : une date d'export de 40 jours dans le futur cachait le rappel jusqu'à ce que l'horloge la
+  // rattrape, avec le libellé « aujourd'hui » pendant tout ce temps.
+  it("export daté du futur : moins d'un jour d'avance, compté pour aujourd'hui ; plus d'un jour, date incertaine avec rappel", () => {
+    expect(EXPORT_FUTURE_TOLERANCE_MS).toBe(DAY);
+    for (const ahead of [1, 3 * 3_600_000, DAY]) {
+      expect(exportStatus(NOW + ahead, NOW, 2)).toEqual({
+        at: NOW,
+        days: 0,
+        due: false,
+        label: `Dernier export${NB}: aujourd'hui (01/11/2026).`,
+        reminder: null,
+      });
+    }
+    const uncertain = {
+      at: null,
+      days: null,
+      due: true,
+      label: `Dernier export${NB}: date incertaine (l'horloge de l'ordinateur a changé).`,
+      reminder:
+        `Rappel${NB}: la date du dernier export est incertaine (l'horloge de l'ordinateur a changé). ` +
+        "Un fichier d'export protège les mondes des enfants si le navigateur est vidé ou si le fichier du jeu change de place.",
+    };
+    expect(exportStatus(NOW + DAY + 1, NOW, 2)).toEqual(uncertain);
+    // Horloge en avance de 40 jours pendant l'export, remise à l'heure : le rappel est là tout de suite, et chaque
+    // jour jusqu'à ce que l'horloge rattrape la date (avant : « aujourd'hui », sans rappel, pendant 40 jours).
+    const at = NOW + 40 * DAY;
+    for (const d of [0, 1, 7, 20, 38]) expect(exportStatus(at, NOW + d * DAY, 1)).toEqual(uncertain);
+    // Aucun monde : la date reste incertaine, mais pas de rappel.
+    expect(exportStatus(at, NOW, 0)).toMatchObject({ due: false, reminder: null, label: uncertain.label });
+    // Un nouvel export (date du jour) remet tout d'aplomb.
+    expect(exportStatus(NOW, NOW, 2)).toMatchObject({ at: NOW, days: 0, due: false, reminder: null });
   });
 
   it("textes pour l'adulte : espace insécable devant « : », jamais d'espace simple devant la ponctuation", () => {
-    for (const s of [exportStatus(null, NOW, 1), exportStatus(NOW - 9 * DAY, NOW, 1)]) {
+    for (const s of [exportStatus(null, NOW, 1), exportStatus(NOW - 9 * DAY, NOW, 1), exportStatus(NOW + 40 * DAY, NOW, 1)]) {
       for (const t of [s.label, s.reminder ?? ""]) {
         expect(t).toContain(`${NB}:`);
         expect(t).not.toMatch(/ [:;!?]/);

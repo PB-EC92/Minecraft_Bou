@@ -6,12 +6,30 @@ export interface ChunkMaterials {
   opaque: THREE.Material;
   cutout: THREE.Material;
   water: THREE.Material;
-  /** Verre (V2 lot 1) : transparent, sans écriture de profondeur, dessiné après l'eau. */
+  /**
+   * Verre (V2 lot 1) : transparent, sans écriture de profondeur. Sert aussi à la couche glassWet (faces de verre au
+   * contact de l'eau, dessinées avant l'eau quand la caméra est hors de l'eau) ; les autres faces de verre sont
+   * dessinées après l'eau.
+   */
   glass: THREE.Material;
 }
 
-type Layer = keyof ChunkMaterials;
-const LAYERS: Layer[] = ["opaque", "cutout", "water", "glass"];
+type Layer = "opaque" | "cutout" | "glassWet" | "water" | "glass";
+const LAYERS: Layer[] = ["opaque", "cutout", "glassWet", "water", "glass"];
+/** Matériau de chaque couche : les faces de verre au contact de l'eau gardent le matériau du verre. */
+const MATERIAL_OF: Record<Layer, keyof ChunkMaterials> = { opaque: "opaque", cutout: "cutout", glassWet: "glass", water: "water", glass: "glass" };
+/**
+ * Ordre de dessin des couches transparentes (Three.js trie d'abord par cet ordre, puis par distance), caméra hors de
+ * l'eau : faces de verre au contact de l'eau (0,5), eau (1), autres faces de verre (2). Jamais le même ordre pour l'eau
+ * et le verre : dans une même section, la distance est la même et l'ordre retomberait sur l'identifiant de l'objet.
+ */
+export const LAYER_RENDER_ORDER: Readonly<Record<Layer, number>> = { opaque: 0, cutout: 0, glassWet: 0.5, water: 1, glass: 2 };
+/**
+ * Caméra sous l'eau : les faces de verre au contact de l'eau sont vues de l'intérieur de l'eau (le voile sous l'eau
+ * les teinte déjà) ; dessinées avant l'eau, elles passeraient sous la face d'eau collée à la vitre et l'intérieur d'un
+ * aquarium deviendrait presque opaque. Elles retrouvent alors l'ordre du verre, après l'eau.
+ */
+export const WET_GLASS_ORDER_UNDERWATER = LAYER_RENDER_ORDER.glass;
 
 interface Section {
   sx: number;
@@ -52,6 +70,8 @@ export class ChunkRenderer {
   readonly stats: ChunkStats = { sections: 0, pending: 0, faces: 0, visibleSections: 0, lastRemeshed: 0, lastRemeshMs: 0 };
   private sections: Section[] = [];
   private world: World;
+  /** Ordre de dessin actuel des faces de verre au contact de l'eau (selon la caméra, voir setCameraUnderwater). */
+  private wetGlassOrder = LAYER_RENDER_ORDER.glassWet;
 
   constructor(
     world: World,
@@ -66,6 +86,21 @@ export class ChunkRenderer {
     this.clear();
     this.world = world;
     this.init();
+  }
+
+  /**
+   * Caméra dans l'eau ou non (appelé à chaque image) : hors de l'eau, les faces de verre au contact de l'eau se voient
+   * à travers l'eau et sont dessinées avant elle (verre noyé, vitre du fond d'un aquarium : teintés) ; sous l'eau,
+   * elles sont dessinées après l'eau, comme le reste du verre.
+   */
+  setCameraUnderwater(on: boolean): void {
+    const order = on ? WET_GLASS_ORDER_UNDERWATER : LAYER_RENDER_ORDER.glassWet;
+    if (order === this.wetGlassOrder) return;
+    this.wetGlassOrder = order;
+    for (const s of this.sections) {
+      const m = s.meshes.glassWet;
+      if (m) m.renderOrder = order;
+    }
   }
 
   private init(): void {
@@ -178,17 +213,19 @@ export class ChunkRenderer {
       old.geometry = geo;
       return;
     }
-    const m = new THREE.Mesh(geo, this.materials[layer]);
+    const m = new THREE.Mesh(geo, this.materials[MATERIAL_OF[layer]]);
     m.position.set(s.sx * SECTION_SIZE, s.sy * SECTION_SIZE, s.sz * SECTION_SIZE);
     m.matrixAutoUpdate = false;
     m.updateMatrix();
     m.name = `${layer} ${s.sx},${s.sy},${s.sz}`;
-    // Couches transparentes : l'eau, puis le verre (on voit l'eau d'un aquarium derrière sa vitre). Three.js trie
-    // la liste transparente par renderOrder, puis par distance au centre de la sphère de la section (fixée plus
-    // haut) : les sections de verre vont de la plus lointaine à la plus proche. À l'intérieur d'une section, pas de
-    // tri par face : l'ordre du maillage est fixe, rien ne clignote (défaut accepté, voir docs/V2-LOT1.md).
-    if (layer === "water") m.renderOrder = 1;
-    else if (layer === "glass") m.renderOrder = 2;
+    // Couches transparentes, caméra hors de l'eau : les faces de verre au contact de l'eau (on ne les voit qu'à
+    // travers l'eau : verre noyé, vitre du fond d'un aquarium), puis l'eau, puis les autres faces de verre (on voit
+    // l'eau d'un aquarium derrière sa vitre) ; caméra sous l'eau, tout le verre après l'eau (setCameraUnderwater).
+    // Three.js trie la liste transparente par renderOrder, puis par distance au centre de la sphère de la section
+    // (fixée plus haut) : dans une couche, les sections vont de la plus lointaine à la plus proche. À l'intérieur
+    // d'une section, pas de tri par face : l'ordre du maillage est fixe, rien ne clignote (défaut accepté, voir
+    // docs/V2-LOT1.md).
+    m.renderOrder = layer === "glassWet" ? this.wetGlassOrder : LAYER_RENDER_ORDER[layer];
     s.meshes[layer] = m;
     this.group.add(m);
   }
