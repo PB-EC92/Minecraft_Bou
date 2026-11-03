@@ -3625,6 +3625,60 @@ test("boîte à lettres au doigt : un doigt dont la fin se perd ne la bloque pas
   expect(errors).toEqual([]);
 });
 
+test("au doigt, un pouce posé sur le voile pendant qu'un doigt touche une lettre ou une carte : la lettre est choisie, la carte fabrique, rien ne se ferme @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page, M2);
+  // Boîte à lettres : doigt 1 sur N, le pouce (2) se pose sur le voile, 1 se lève sur N, puis le pouce se lève.
+  expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  const N = '.tray-key[data-letter="N"]';
+  await synthTouches(page, [
+    { type: "touchstart", id: 1, sel: N, down: [1] },
+    { type: "touchstart", id: 2, sel: ".letter-tray-backdrop", down: [1, 2] },
+    { type: "touchend", id: 1, sel: N, down: [2] },
+  ]);
+  await expect.poll(async () => (await state(page)).letters.hand).toBe("N");
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  // Le pouce se lève ensuite (boîte déjà fermée par le choix) : rien d'autre.
+  await synthTouches(page, [{ type: "touchend", id: 2, sel: "canvas.game", down: [] }]);
+  expect((await state(page)).letters).toMatchObject({ open: false, hand: "N" });
+  // Même chose sans lever le doigt de la lettre d'abord : le pouce posé puis levé sur le voile ne ferme pas la boîte.
+  expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+  await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  const M = '.tray-key[data-letter="M"]';
+  await synthTouches(page, [
+    { type: "touchstart", id: 3, sel: M, down: [3] },
+    { type: "touchstart", id: 4, sel: ".letter-tray-backdrop", down: [3, 4] },
+    { type: "touchend", id: 4, sel: ".letter-tray-backdrop", down: [3] },
+  ]);
+  await page.waitForTimeout(300);
+  expect((await state(page)).letters).toMatchObject({ open: true, hand: "N" });
+  await synthTouches(page, [{ type: "touchend", id: 3, sel: M, down: [] }]);
+  await expect.poll(async () => (await state(page)).letters.hand).toBe("M");
+  // Panneau de fabrication : doigt 1 sur la carte des planches, pouce sur le voile, 1 se lève : deux planches.
+  await page.evaluate(() => window.cubesDebug.give(6, 3));
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
+  await page.waitForTimeout(500); // armé 400 ms après l'ouverture
+  const PLANKS = '.craft-card[data-recipe="planches"]';
+  await synthTouches(page, [
+    { type: "touchstart", id: 5, sel: PLANKS, down: [5] },
+    { type: "touchstart", id: 6, sel: ".craft-backdrop", down: [5, 6] },
+    { type: "touchend", id: 5, sel: PLANKS, down: [6] },
+    { type: "touchend", id: 6, sel: ".craft-backdrop", down: [] },
+  ]);
+  await expect.poll(async () => invCount(await state(page), B.planks)).toBe(2);
+  expect((await state(page)).craft.open).toBe(true);
+  await expect(page.locator(".craft")).toBeVisible();
+  // Le voile seul, touché d'un doigt, ferme toujours le panneau.
+  await synthTouches(page, [
+    { type: "touchstart", id: 7, sel: ".craft-backdrop", down: [7] },
+    { type: "touchend", id: 7, sel: ".craft-backdrop", down: [] },
+  ]);
+  await expect(page.locator(".craft")).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test("mission 2 au clavier : 0 ouvre la boîte (souris libérée) ; une lettre tapée la choisit (Z gardé ne fait pas marcher) et la souris est reprise ; clic droit pose la lettre ; 0 puis Échap ferme sans choisir", async ({ page }, testInfo) => {
   test.skip(isTouch(testInfo), "clavier et souris : PC uniquement");
   const errors = await openGame(page, M2);

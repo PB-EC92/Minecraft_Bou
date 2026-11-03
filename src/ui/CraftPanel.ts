@@ -374,13 +374,18 @@ export class CraftPanel {
   private onTouchStart(e: TouchEvent): void {
     e.stopPropagation();
     e.preventDefault();
-    // Un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Un doigt dont la fin s'est perdue
-    // (geste du système, que le navigateur liste peut-être encore) ou une paume posée sur le voile ne bloquent
-    // donc jamais le panneau (sous son voile, la croix et les cartes seraient sans réponse au doigt).
-    this.forgetTouch();
     const f = e.changedTouches.item(0);
     if (!f) return;
     const target = this.targetOf(f.target);
+    // Un pouce qui tient l'appareil, posé sur le voile (ou sur rien qui agisse) pendant que le doigt suivi est encore
+    // posé : il ne reprend pas le geste (la carte touchée fabrique au lever du doigt, le panneau ne se ferme pas au
+    // lever du pouce).
+    const passive = target === null || f.target === this.backdrop;
+    if (passive && this.touch && findTouch(e.touches, this.touch.id)) return;
+    // Sinon, un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Un doigt dont la fin s'est
+    // perdue (geste du système) ou une paume posée d'abord sur le voile ne bloquent donc jamais le panneau (sous son
+    // voile, la croix et les cartes seraient sans réponse au doigt ; elles répondent toujours).
+    this.forgetTouch();
     this.touch = { id: f.identifier, x: f.clientX, y: f.clientY, target };
     this.setPressed(target?.kind === "card" ? this.cardElement(f.target) : null);
   }

@@ -447,14 +447,20 @@ export class LetterTray {
         if (!this.armed()) return;
         const t = e.changedTouches[0];
         if (!t) return;
-        // Un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Ainsi, un doigt dont la fin
-        // s'est perdue (geste du système, que le navigateur liste peut-être encore) ou une paume posée sur le voile
-        // ne bloquent jamais la boîte : sous le voile plein écran, sans clavier, ce serait sans sortie.
+        const target = this.actionTarget(t.target);
+        // Un pouce qui tient l'appareil, posé sur le voile (ou sur rien qui agisse) pendant que le doigt suivi est
+        // encore posé : il ne reprend pas le geste (la lettre touchée reste choisie au lever du doigt, la boîte ne se
+        // ferme pas au lever du pouce).
+        const passive = target === null || target.classList.contains("letter-tray-backdrop");
+        if (passive && this.touchId !== null && Array.from(e.touches).some((x) => x.identifier === this.touchId)) return;
+        // Sinon, un nouveau doigt reprend le geste : le doigt suivi jusque-là n'agira plus. Ainsi, un doigt dont la fin
+        // s'est perdue (geste du système) ou une paume posée d'abord sur le voile ne bloquent jamais la boîte : sous
+        // le voile plein écran, sans clavier, ce serait sans sortie (la croix et les lettres répondent toujours).
         this.resetTouch();
         this.touchId = t.identifier;
         this.touchX = t.clientX;
         this.touchY = t.clientY;
-        this.touchTarget = this.actionTarget(t.target);
+        this.touchTarget = target;
         this.touchTarget?.classList.add("pressed");
         return;
       }
