@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { BlockId, isLetterId, isOpaqueId, letterBlockId, letterChar, LETTERS } from "../../src/engine/blocks";
+import { BlockId, isLetterId, isOpaqueId, isPlantId, letterBlockId, letterChar, LETTERS } from "../../src/engine/blocks";
 import {
+  canAimAt,
   diagnose,
   evaluateWriting,
   facesViewer,
@@ -18,6 +19,7 @@ import {
   type Reading,
 } from "../../src/engine/words";
 import { raycast, REACH } from "../../src/engine/raycast";
+import { generateWorld } from "../../src/engine/terrain";
 import { World } from "../../src/engine/World";
 import { PLAYER } from "../../src/game/Player";
 
@@ -595,9 +597,10 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   });
 
   /**
-   * L'enfant, l'œil à 1,62 au-dessus des pieds, peut-il poser un bloc dans la case c (règles du jeu : la visée touche
-   * à portée un bloc voisin de c par sa face tournée vers c) ? Indépendant du moteur : une grille de 7 × 7 points
-   * sur chaque face voisine. `filled` : lettres déjà posées (comptées comme des blocs pleins).
+   * L'enfant, l'œil à 1,62 au-dessus des pieds, peut-il poser un bloc dans la case c (règles du jeu, Game.placeLetter :
+   * la visée touche à portée un bloc voisin de c par sa face tournée vers c ; si le bloc touché est une fleur, la
+   * lettre se pose à sa place) ? Indépendant du moteur : une grille de 7 × 7 points sur chaque face voisine. `filled` :
+   * lettres déjà posées (comptées comme des blocs pleins).
    */
   function canPlaceIn(w: World, at: { x: number; y: number; z: number }, c: readonly [number, number, number], filled: readonly (readonly [number, number, number])[] = []): boolean {
     const eye = { x: at.x, y: at.y + PLAYER.eyeHeight, z: at.z };
@@ -623,7 +626,11 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
                 ? { x: x + u, y: y + (oy > 0 ? 1 : 0), z: z + v }
                 : { x: x + u, y: y + v, z: z + (oz > 0 ? 1 : 0) };
           const hit = raycast(targets, eye, { x: p.x - eye.x, y: p.y - eye.y, z: p.z - eye.z }, REACH);
-          if (hit && hit.x + hit.nx === x && hit.y + hit.ny === y && hit.z + hit.nz === z) return true;
+          if (!hit) continue;
+          // Une fleur touchée : la lettre prend sa place (dans c seulement si c'est la fleur de c).
+          const onPlant = !isFilled(hit.x, hit.y, hit.z) && isPlantId(w.get(hit.x, hit.y, hit.z));
+          const put = onPlant ? [hit.x, hit.y, hit.z] : [hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz];
+          if (put[0] === x && put[1] === y && put[2] === z) return true;
         }
       }
     }
@@ -721,6 +728,117 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
         }
       }
     }
+  });
+
+  /** Angle (degrés, à plat) entre le regard de cap `yaw` et le milieu de la case c, vu de `at`. */
+  const angleTo = (at: { x: number; z: number }, yaw: number, c: readonly [number, number, number]) => {
+    const vx = c[0] + 0.5 - at.x;
+    const vz = c[2] + 0.5 - at.z;
+    return (Math.acos((vx * -Math.sin(yaw) + vz * -Math.cos(yaw)) / Math.hypot(vx, vz)) * 180) / Math.PI;
+  };
+
+  it("mot long (8 à 10 lettres, le prénom) regardé droit devant, sol plat : une ligne devant l'enfant, posable case après case, en partie dans le champ, lue de face", () => {
+    // Le cas relevé : MAXIMILIEN, regard droit devant, aucune ligne (la première case, à portée, sort du champ de 60°).
+    const at = { x: 16.5, y: 4, z: 16.5 };
+    for (const name of ["MATHILDE", "CHARLOTTE", "MAXIMILIEN"]) {
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const label = `${name}, cap ${yaw.toFixed(2)}`;
+        const w = flat();
+        const plan = planLine(w, at, yaw, name.length, 60, aimFrom(at));
+        expect(plan, label).not.toBeNull();
+        expect(plan!.cells, label).toHaveLength(name.length);
+        // Devant lui, sur l'axe du regard, et au moins une case dans le champ.
+        for (const [x, , z] of plan!.cells) expect((x + 0.5 - at.x) * -Math.sin(yaw) + (z + 0.5 - at.z) * -Math.cos(yaw), label).toBeGreaterThan(1);
+        expect(Math.min(...plan!.cells.map((c) => angleTo(at, yaw, c))), label).toBeLessThanOrEqual(30);
+        expectReachable(w, at, plan!.cells, label);
+        writeOnLine(w, plan!, name, at);
+      }
+    }
+  });
+
+  it("mot long, regard en biais (10° à 45° d'un côté ou de l'autre) : toujours une ligne posable, et en biais d'au moins 30°, sa première case près du regard", () => {
+    const at = { x: 16.5, y: 4, z: 16.5 };
+    for (const deg of [-45, -40, -30, -20, -10, 10, 20, 30, 40, 45]) {
+      const yaw = (deg * Math.PI) / 180;
+      const label = `MAXIMILIEN, regard à ${deg}°`;
+      const w = flat();
+      const plan = planLine(w, at, yaw, 10, 60, aimFrom(at));
+      expect(plan, label).not.toBeNull();
+      expect(Math.min(...plan!.cells.map((c) => angleTo(at, yaw, c))), label).toBeLessThanOrEqual(30);
+      if (Math.abs(deg) >= 30) expect(angleTo(at, yaw, plan!.cells[0]!), label).toBeLessThanOrEqual(30);
+      expectReachable(w, at, plan!.cells, label);
+      writeOnLine(w, plan!, "MAXIMILIEN", at);
+    }
+  });
+
+  it("canAimAt : une fleur voisine n'est pas un appui (le jeu pose la lettre à la place de la fleur, à côté de la case)", () => {
+    // Le cas relevé : une fleur juste devant la case cache le sol ; la visée touche cette fleur par sa face tournée
+    // vers la case, mais le jeu pose alors la lettre à la place de la fleur.
+    const at = { x: 16.5, y: 4, z: 16.5 };
+    const cell = [16, 4, 13] as const;
+    const w = flat();
+    for (const [x, z] of [
+      [16, 14],
+      [15, 13],
+      [17, 13],
+      [16, 12],
+    ] as const)
+      w.set(x, 4, z, BlockId.FlowerRed);
+    expect(canPlaceIn(w, at, cell)).toBe(false);
+    expect(canAimAt(w, aimFrom(at), [...cell])).toBe(false);
+    // La même case, des pierres à la place des fleurs : elles sont des appuis.
+    const stones = flat();
+    for (const [x, z] of [
+      [16, 14],
+      [15, 13],
+      [17, 13],
+      [16, 12],
+    ] as const)
+      stones.set(x, 4, z, BlockId.Stone);
+    expect(canPlaceIn(stones, at, cell)).toBe(true);
+    expect(canAimAt(stones, aimFrom(at), [...cell])).toBe(true);
+    // Une fleur dans la case elle-même : la viser, c'est poser à sa place.
+    const own = flat();
+    own.set(16, 4, 13, BlockId.FlowerYellow);
+    expect(canAimAt(own, aimFrom(at), [...cell])).toBe(true);
+  });
+
+  it("prairie, graine 2 (cas relevé) : la ligne ne compte plus sur une fleur voisine, chaque case se pose", () => {
+    const w = generateWorld("prairie", 2).world;
+    const at = { x: 55.5, y: 23, z: 73.5 };
+    // La case (57, 23, 78) avait une fleur pour seul appui visable (en +x) : elle n'est plus jugée posable d'ici.
+    expect(isPlantId(w.get(58, 23, 78))).toBe(true);
+    expect(canAimAt(w, aimFrom(at), [57, 23, 78])).toBe(false);
+    expect(canPlaceIn(w, at, [57, 23, 78])).toBe(false);
+    const plan = planLine(w, at, 3.65, 5, 60, aimFrom(at));
+    expect(plan).not.toBeNull();
+    expectReachable(w, at, plan!.cells, "prairie 2");
+  });
+
+  it("mondes générés : chaque ligne proposée se pose case après case selon la règle du jeu (fleurs comprises)", () => {
+    let lines = 0;
+    for (const type of ["prairie", "desert"] as const) {
+      for (const seed of [1, 2, 3]) {
+        const w = generateWorld(type, seed).world;
+        for (let k = 0; k < 40; k++) {
+          const bx = 6 + ((k * 37) % (w.sizeX - 12));
+          const bz = 6 + ((k * 53) % (w.sizeZ - 12));
+          // Pieds sur le premier bloc solide sous le ciel.
+          let y = w.sizeY - 2;
+          while (y > 1 && !(isOpaqueId(w.get(bx, y - 1, bz)) && w.get(bx, y, bz) === BlockId.Air && w.get(bx, y + 1, bz) === BlockId.Air)) y--;
+          if (y <= 1) continue;
+          const at = { x: bx + 0.5, y, z: bz + 0.5 };
+          for (const [i, yaw] of [0, 1.1, 2.3, -2, 3.65].entries()) {
+            const len = 3 + ((k + i) % 8);
+            const plan = planLine(w, at, yaw, len, 60, aimFrom(at));
+            if (!plan) continue;
+            lines++;
+            expectReachable(w, at, plan.cells, `${type} ${seed}, pieds ${bx},${y},${bz}, cap ${yaw}, ${len} lettres`);
+          }
+        }
+      }
+    }
+    expect(lines).toBeGreaterThan(100);
   });
 
   it("aucune place (vide, mur, eau) : null", () => {

@@ -520,16 +520,19 @@ const FACE_POINTS: readonly (readonly [number, number])[] = [
  * l'œil, à portée, dont le premier bloc touché est un voisin de la case, par sa face tournée vers elle (ou la fleur
  * de la case, que le bloc remplace) ? On essaie quelques points de chaque face voisine. `filled` : cases déjà
  * remplies (les lettres posées avant celle-ci), comptées comme des blocs pleins.
+ * Une fleur voisine n'est pas un appui : le jeu pose à la place d'une fleur visée (Game.placeLetter), donc à côté de
+ * la case ; une visée qui touche d'abord une autre fleur que celle de la case ne compte pas.
  */
 export function canAimAt(w: BlockReader, aim: Aim, cell: Cell, filled: readonly Cell[] = []): boolean {
   const isFilled = (x: number, y: number, z: number) => filled.some((c) => c[0] === x && c[1] === y && c[2] === z);
   const targets: Targets = {
     isTargetable: (x, y, z) => isFilled(x, y, z) || (inWorld(w, x, y, z) && isTargetableId(w.get(x, y, z))),
   };
+  const isPlantAt = (x: number, y: number, z: number) => !isFilled(x, y, z) && inWorld(w, x, y, z) && isPlantId(w.get(x, y, z));
   const [x, y, z] = cell;
   const { eye, reach } = aim;
   for (const [ox, oy, oz] of NEIGHBOURS) {
-    if (!targets.isTargetable(x + ox, y + oy, z + oz)) continue;
+    if (!targets.isTargetable(x + ox, y + oy, z + oz) || isPlantAt(x + ox, y + oy, z + oz)) continue;
     for (const [u, v] of FACE_POINTS) {
       // Point de la face commune à la case et à ce voisin.
       const px = ox !== 0 ? x + (ox > 0 ? 1 : 0) : x + u;
@@ -539,9 +542,12 @@ export function canAimAt(w: BlockReader, aim: Aim, cell: Cell, filled: readonly 
       if (Math.hypot(dir.x, dir.y, dir.z) > reach) continue;
       const hit = raycast(targets, eye, dir, reach);
       if (!hit) continue;
+      if (isPlantAt(hit.x, hit.y, hit.z)) {
+        // Viser une fleur, c'est poser à sa place : seulement la fleur de la case elle-même.
+        if (hit.x === x && hit.y === y && hit.z === z) return true;
+        continue;
+      }
       if (hit.x + hit.nx === x && hit.y + hit.ny === y && hit.z + hit.nz === z) return true;
-      // Une fleur dans la case : la viser, c'est poser à sa place.
-      if (hit.x === x && hit.y === y && hit.z === z && isPlantId(w.get(x, y, z))) return true;
     }
   }
   return false;
@@ -549,6 +555,9 @@ export function canAimAt(w: BlockReader, aim: Aim, cell: Cell, filled: readonly 
 
 /** Écart de la ligne sur le côté, dans un sens puis dans l'autre (cases). */
 const MAX_SHIFT = 12;
+
+/** Regard en biais : à 30° ou plus de l'axe dominant (sinus de 30°, avec une marge pour les arrondis). */
+const OBLIQUE = 0.5 - 1e-9;
 
 /**
  * Ligne de cases claires devant l'enfant pour un mot de `length` lettres, quand rien n'est encore écrit :
@@ -566,8 +575,12 @@ const MAX_SHIFT = 12;
  * D'abord centrée sur l'axe, à une distance où tout le mot tient dans le champ horizontal (minD … minD + 3) ; pour
  * chaque distance, les hauteurs des pieds, un cran plus bas, un cran plus haut. Sinon (un mot déjà écrit devant,
  * place trop loin), décalée sur le côté, plus près ou plus loin : sa première case (celle à remplir d'abord) est dans
- * le champ autour du regard, la suite peut en sortir (l'enfant tourne la tête en écrivant). Aucune place : null
- * (pas de cases claires, seulement la consigne ; le jeu réessaie quand l'enfant tourne la tête ou se déplace).
+ * le champ autour du regard, la suite peut en sortir (l'enfant tourne la tête en écrivant). Sinon encore (mot long :
+ * à portée de la main, ses deux bouts sortent du champ ; 10 lettres à 3 blocs vont de 59° à gauche à 53° à droite),
+ * une ligne dont une case au moins est dans le champ, sur l'axe dominant ou sur l'autre axe du côté du regard (regard
+ * en biais) : la première case la plus près du regard d'abord (l'enfant tourne la tête vers elle pour commencer),
+ * puis la plus proche de lui. Aucune place : null (pas de cases claires, seulement la consigne ; le jeu réessaie
+ * quand l'enfant tourne la tête ou se déplace).
  */
 export function planLine(
   w: BlockReader,
@@ -582,12 +595,35 @@ export function planLine(
   const lx = -Math.sin(yaw);
   const lz = -Math.cos(yaw);
   if (!Number.isFinite(lx) || !Number.isFinite(lz)) return null;
-  // Axe dominant du regard, puis sens de lecture (la droite de l'enfant).
-  const fx = Math.abs(lx) >= Math.abs(lz) ? Math.sign(lx) : 0;
-  const fz = fx === 0 ? Math.sign(lz) : 0;
-  const dx = fz === 0 ? 0 : -fz;
-  const dz = fx;
-  const dir: Dir = [dx as -1 | 0 | 1, 0, dz as -1 | 0 | 1];
+  /** Axe f (vers l'avant) et sens de lecture d = (−f.z, f.x) (la droite de l'enfant qui regarde le long de f). */
+  interface Axis {
+    fx: number;
+    fz: number;
+    dx: number;
+    dz: number;
+    dir: Dir;
+    /** Pente du regard vers la droite, par case d'avance sur l'axe. */
+    gazeSlope: number;
+  }
+  const axis = (fx: number, fz: number): Axis => {
+    const dx = -fz;
+    const dz = fx;
+    const ahead = lx * fx + lz * fz;
+    return {
+      fx,
+      fz,
+      dx,
+      dz,
+      dir: [(dx || 0) as -1 | 0 | 1, 0, (dz || 0) as -1 | 0 | 1],
+      gazeSlope: ahead > 0 ? (lx * dx + lz * dz) / ahead : 0,
+    };
+  };
+  // Axe dominant du regard ; l'autre axe, du côté du regard, seulement pour un regard en biais (à 30° ou plus de l'axe
+  // dominant : un regard presque droit devant garde toujours sa ligne devant lui).
+  const alongX = Math.abs(lx) >= Math.abs(lz);
+  const main = alongX ? axis(Math.sign(lx), 0) : axis(0, Math.sign(lz));
+  const side = alongX ? lz : lx;
+  const other = Math.abs(side) < OBLIQUE ? null : alongX ? axis(0, Math.sign(side)) : axis(Math.sign(side), 0);
   const tanHalf = Math.tan((hfov * Math.PI) / 360);
   const minD = Math.min(7, Math.max(2, Math.ceil((length / 2 + 0.5) / tanHalf)));
   const bx = Math.floor(feet.x);
@@ -596,10 +632,15 @@ export function planLine(
   const back = Math.floor((length - 1) / 2);
   const heights = [y0, y0 - 1, y0 + 1];
 
-  /** Cases de la ligne à `dist` sur l'axe, décalée de `shift` cases vers la droite, à la hauteur y ; null si refusée. */
-  const lineAt = (dist: number, shift: number, y: number): Cell[] | null => {
-    const sx = bx + fx * dist + dx * (shift - back);
-    const sz = bz + fz * dist + dz * (shift - back);
+  /** Première case de la ligne à `dist` sur l'axe a, décalée de `shift` cases vers la droite. */
+  const startOf = (a: Axis, dist: number, shift: number) => ({
+    x: bx + a.fx * dist + a.dx * (shift - back),
+    z: bz + a.fz * dist + a.dz * (shift - back),
+  });
+  /** Cases de la ligne à `dist` sur l'axe a, décalée de `shift` cases vers la droite, à la hauteur y ; null si refusée. */
+  const lineAt = (a: Axis, dist: number, shift: number, y: number): Cell[] | null => {
+    const { fx, fz, dx, dz } = a;
+    const { x: sx, z: sz } = startOf(a, dist, shift);
     // Rien de collé aux deux bouts de la ligne.
     if (letterAt(w, sx - dx, y, sz - dz) || letterAt(w, sx + dx * length, y, sz + dz * length)) return null;
     const cells: Cell[] = [];
@@ -620,26 +661,32 @@ export function planLine(
     for (let i = 0; i < cells.length; i++) if (!canAimAt(w, aim, cells[i]!, cells.slice(0, i))) return null;
     return cells;
   };
+  /** Première hauteur où la ligne est acceptée. */
+  const tryLine = (a: Axis, dist: number, shift: number): { cells: Cell[]; dir: Dir } | null => {
+    for (const y of heights) {
+      const cells = lineAt(a, dist, shift, y);
+      if (cells) return { cells, dir: a.dir };
+    }
+    return null;
+  };
 
   // 1) Centrée sur l'axe, le mot entier dans le champ.
   for (let dist = minD; dist <= minD + 3; dist++) {
-    for (const y of heights) {
-      const cells = lineAt(dist, 0, y);
-      if (cells) return { cells, dir };
-    }
+    const plan = tryLine(main, dist, 0);
+    if (plan) return plan;
   }
 
   // 2) Décalée sur le côté, autour du regard : la première case dans le champ. Distances de la plus proche de minD
   //    à la plus lointaine (pas plus près que 3 blocs, pour ne pas baisser les yeux), écarts du plus petit au plus grand.
-  const ahead = lx * fx + lz * fz;
-  const gazeSlope = ahead > 0 ? (lx * dx + lz * dz) / ahead : 0;
   const cosHalf = Math.cos((hfov * Math.PI) / 360);
-  const inView = (x: number, z: number) => {
+  /** Cosinus de l'angle entre le regard et le milieu de la case (à plat) ; −1 pour la case de l'œil. */
+  const cosTo = (x: number, z: number) => {
     const vx = x + 0.5 - aim.eye.x;
     const vz = z + 0.5 - aim.eye.z;
     const n = Math.hypot(vx, vz);
-    return n > 0 && (vx * lx + vz * lz) / n >= cosHalf - 1e-9;
+    return n > 0 ? (vx * lx + vz * lz) / n : -1;
   };
+  const inView = (x: number, z: number) => cosTo(x, z) >= cosHalf - 1e-9;
   const lo = Math.min(minD, 3);
   const hi = minD + 3;
   const dists: number[] = [minD];
@@ -649,17 +696,39 @@ export function planLine(
   }
   for (const dist of dists) {
     // Écart qui centre la ligne sur le regard à cette distance.
-    const s0 = Math.round(dist * gazeSlope);
+    const s0 = Math.round(dist * main.gazeSlope);
     for (let k = 0; k <= MAX_SHIFT; k++) {
       for (const shift of k === 0 ? [s0] : [s0 + k, s0 - k]) {
         // Première case : avant tout le reste, dans le champ autour du regard.
-        if (!inView(bx + fx * dist + dx * (shift - back), bz + fz * dist + dz * (shift - back))) continue;
-        for (const y of heights) {
-          const cells = lineAt(dist, shift, y);
-          if (cells) return { cells, dir };
-        }
+        const s = startOf(main, dist, shift);
+        if (!inView(s.x, s.z)) continue;
+        const plan = tryLine(main, dist, shift);
+        if (plan) return plan;
       }
     }
+  }
+
+  // 3) Première case hors du champ, une case au moins dedans, sur l'axe dominant ou sur l'autre : la première case la
+  //    plus près du regard d'abord, puis la ligne la plus proche, l'axe dominant, l'écart le plus petit.
+  const wide: { a: Axis; rank: number; dist: number; shift: number; off: number; cos: number }[] = [];
+  for (const [rank, a] of (other ? [main, other] : [main]).entries()) {
+    for (const dist of dists) {
+      const s0 = Math.round(dist * a.gazeSlope);
+      for (let shift = s0 - MAX_SHIFT - length; shift <= s0 + MAX_SHIFT + length; shift++) {
+        const s = startOf(a, dist, shift);
+        const firstSeen = inView(s.x, s.z);
+        // Déjà essayée en 2) : axe dominant, première case dans le champ, écart d'au plus MAX_SHIFT.
+        if (rank === 0 && firstSeen && Math.abs(shift - s0) <= MAX_SHIFT) continue;
+        let seen = firstSeen;
+        for (let i = 1; i < length && !seen; i++) seen = inView(s.x + a.dx * i, s.z + a.dz * i);
+        if (seen) wide.push({ a, rank, dist, shift, off: Math.abs(shift - s0), cos: cosTo(s.x, s.z) });
+      }
+    }
+  }
+  wide.sort((p, q) => q.cos - p.cos || p.dist - q.dist || p.rank - q.rank || p.off - q.off || p.shift - q.shift);
+  for (const c of wide) {
+    const plan = tryLine(c.a, c.dist, c.shift);
+    if (plan) return plan;
   }
   return null;
 }
