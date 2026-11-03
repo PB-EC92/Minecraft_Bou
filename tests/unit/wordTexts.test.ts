@@ -102,6 +102,7 @@ describe("textes de la mission 2 (wordTexts.ts)", () => {
         "DICT_WRONG",
         "DICT_MISSING",
         "DICT_SWAP",
+        "DICT_EXTRA",
         "DICT_FAR",
         "LISTEN_AGAIN",
         "DICT_HELP_COUNT",

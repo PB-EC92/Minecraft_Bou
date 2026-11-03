@@ -333,6 +333,54 @@ describe("evaluateWriting", () => {
     expect(s2.glued).toBe(false);
   });
 
+  it("mot collé à l'arrière d'un mot déjà écrit (lu à l'envers de ce côté) : trouvé, collé, de face", () => {
+    const w = flat();
+    // AMI en x = 10 à 12 (lu depuis +Z) ; depuis le nord, la rangée se lit IMA puis LUNE (de x = 9 à 6).
+    write(w, "ENULAMI", 6, 4, 10);
+    const north = { x: 9.5, y: 4, z: 5 };
+    const s = evaluateWriting(w, north, "LUNE", north, ["AMI"]);
+    expect(s.found?.text).toBe("LUNE");
+    expect(s.found?.cells).toEqual([
+      [9, 4, 10],
+      [8, 4, 10],
+      [7, 4, 10],
+      [6, 4, 10],
+    ]);
+    expect(s.glued).toBe(true);
+    expect(s.foundFacing).toBe(true);
+  });
+
+  it("lettre en trop après un mot collé : le meilleur essai est le noyau, même près du mot déjà écrit", () => {
+    const w = flat();
+    write(w, "AMILUNES", 5, 4, 10);
+    for (const x of [8.5, 11.5]) {
+      const viewer = { x, y: 4, z: 15 };
+      const s = evaluateWriting(w, viewer, "LUNE", viewer, ["AMI"]);
+      expect(s.found, `x = ${x}`).toBeNull();
+      expect(s.best?.reading.text, `x = ${x}`).toBe("LUNES");
+      expect(s.best?.match).toEqual({ kind: "extra", have: 4 });
+    }
+  });
+
+  it("mot écrit de droite à gauche contre un bloc (sa face de lecture cachée derrière) : reversed, pas hidden", () => {
+    const w = flat();
+    write(w, "IMA", 10, 4, 10); // AMI se lit depuis −Z, où une pierre cache une lettre
+    w.set(11, 4, 9, BlockId.Stone);
+    const s = evaluateWriting(w, SOUTH, "AMI", SOUTH, []);
+    expect(s.found).toBeNull();
+    expect(s.hidden).toBe(false);
+    expect(s.reversed).toBe(true);
+    // Sans la pierre : trouvé, lu de l'autre côté.
+    w.set(11, 4, 9, BlockId.Air);
+    expect(evaluateWriting(w, SOUTH, "AMI", SOUTH, [])).toMatchObject({ foundFacing: false, hidden: false });
+    // Lettres cachées des deux côtés : hidden, d'où que l'on regarde.
+    for (let x = 10; x <= 12; x++) {
+      w.set(x, 4, 9, BlockId.Stone);
+      w.set(x, 4, 11, BlockId.Stone);
+    }
+    expect(evaluateWriting(w, SOUTH, "AMI", SOUTH, [])).toMatchObject({ found: null, hidden: true, reversed: false });
+  });
+
   it("mot couvert par des blocs : hidden, pas trouvé", () => {
     const w = flat();
     write(w, "CHAT", 10, 4, 10);
@@ -488,6 +536,83 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
     for (let x = 0; x < 32; x++) for (let z = 0; z <= 13; z++) w.set(x, 3, z, BlockId.Air);
     const plan = planLine(w, feet, 0, 4, 60)!;
     expect(plan.cells.every((c) => c[1] === 3)).toBe(true);
+  });
+
+  /** Écrit `text` dans les cases de la ligne, puis vérifie qu'il est trouvé de face, dans ces cases-là. */
+  function writeOnLine(w: World, plan: { cells: readonly (readonly [number, number, number])[] }, text: string, at = feet, previous: string[] = []) {
+    plan.cells.forEach(([x, y, z], i) => w.set(x, y, z, letterBlockId(text.charAt(i))!));
+    const s = evaluateWriting(w, at, text, at, previous);
+    expect(s.found?.text, text).toBe(text);
+    expect(s.foundFacing, text).toBe(true);
+    expect(s.found?.cells, text).toEqual(plan.cells);
+    return s;
+  }
+
+  it("rigole d'un cran sous la ligne : pas de ligne au fond (la face de lecture serait cachée), le mot est lisible", () => {
+    const w = flat();
+    for (let x = 0; x < 32; x++) w.set(x, 3, 11, BlockId.Air); // la rangée z = 11, où irait la ligne
+    const plan = planLine(w, feet, 0, 4, 60)!;
+    expect(plan).not.toBeNull();
+    for (const [x, y, z] of plan.cells) {
+      expect(y).toBe(4);
+      expect(isOpaqueId(w.get(x, y, z + 1))).toBe(false); // côté enfant (+Z) : la face se dessine
+    }
+    writeOnLine(w, plan, "LUNE");
+  });
+
+  it("tronc juste devant une case : la ligne recule, le mot est lisible", () => {
+    const w = flat();
+    w.set(16, 4, 12, BlockId.Log);
+    w.set(16, 5, 12, BlockId.Log);
+    const plan = planLine(w, feet, 0, 4, 60)!;
+    expect(plan.cells.some(([x, , z]) => x === 16 && z === 11)).toBe(false);
+    writeOnLine(w, plan, "LUNE");
+  });
+
+  it("lettre juste derrière une case, ou au bout de la ligne : la ligne s'en écarte, chaque lettre posée est un début juste", () => {
+    // Sans écart, la ligne irait en z = 11, x = 15 à 18.
+    for (const [x, z] of [
+      [15, 10], // derrière la première case
+      [14, 11], // avant la première case
+      [19, 11], // après la dernière
+    ] as const) {
+      const w = flat();
+      w.set(x, 4, z, letterBlockId("Q")!);
+      const plan = planLine(w, feet, 0, 4, 60)!;
+      expect(plan, `Q en ${x}, ${z}`).not.toBeNull();
+      plan.cells.forEach(([cx, cy, cz], i) => {
+        w.set(cx, cy, cz, letterBlockId("LUNE".charAt(i))!);
+        const s = evaluateWriting(w, feet, "LUNE", feet, []);
+        if (i < 3) expect(s.best?.match, `Q en ${x}, ${z} : ${i + 1} lettre(s)`).toEqual({ kind: "prefix", have: i + 1 });
+        else expect(s.found?.cells, `Q en ${x}, ${z}`).toEqual(plan.cells);
+      });
+    }
+  });
+
+  it("enchaînement depuis la même place : AMI, puis LUNE, puis LOUP, chacun sur sa ligne, lettre après lettre, et trouvé", () => {
+    for (const hfov of [60, 40]) {
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const label = `champ ${hfov}°, cap ${yaw.toFixed(2)}`;
+        const w = flat();
+        const previous: string[] = [];
+        for (const word of ["AMI", "LUNE", "LOUP"]) {
+          const plan = planLine(w, feet, yaw, word.length, hfov);
+          expect(plan, `${label} : ${word}`).not.toBeNull();
+          // Aucune case sur une lettre ni contre une lettre : la ligne ne touche pas les mots déjà écrits.
+          for (const [x, y, z] of plan!.cells) {
+            expect(isLetterId(w.get(x, y - 1, z)), `${label} : ${word}`).toBe(false);
+          }
+          // Lettre après lettre : chaque lettre posée dans sa case compte (début juste qui s'allonge).
+          plan!.cells.forEach(([x, y, z], i) => {
+            w.set(x, y, z, letterBlockId(word.charAt(i))!);
+            const s = evaluateWriting(w, feet, word, feet, previous);
+            if (i < word.length - 1) expect(s.best?.match.have, `${label} : ${word.slice(0, i + 1)}`).toBe(i + 1);
+          });
+          writeOnLine(w, plan!, word, feet, previous);
+          previous.push(word);
+        }
+      }
+    }
   });
 
   it("aucune place (vide, mur, eau) : null", () => {
