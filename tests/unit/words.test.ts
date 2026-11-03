@@ -17,7 +17,9 @@ import {
   stripKnown,
   type Reading,
 } from "../../src/engine/words";
+import { raycast, REACH } from "../../src/engine/raycast";
 import { World } from "../../src/engine/World";
+import { PLAYER } from "../../src/game/Player";
 
 /** Monde plat de 32 × 16 × 32, surface à y = 4 (les lettres se posent à y = 4). */
 const flat = () => World.createFlat(32, 16, 32, 4);
@@ -30,6 +32,9 @@ function write(w: World, text: string, x: number, y: number, z: number, step: re
     w.set(x + step[0] * i, y + step[1] * i, z + step[2] * i, id);
   }
 }
+
+/** Visée de l'enfant debout en `at` : l'œil à la hauteur du jeu, la portée du jeu. */
+const aimFrom = (at: { x: number; y: number; z: number }) => ({ eye: { x: at.x, y: at.y + PLAYER.eyeHeight, z: at.z }, reach: REACH });
 
 /** Enfant debout devant le côté +Z d'une rangée posée à z = 10 (il lit vers +X). */
 const SOUTH = { x: 11.5, y: 4, z: 15 };
@@ -487,7 +492,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   it("4 orientations : une ligne au sol, à une même hauteur, lue de gauche à droite par l'enfant", () => {
     for (const yaw of yaws) {
       const w = flat();
-      const plan = planLine(w, feet, yaw, 4, 60);
+      const plan = planLine(w, feet, yaw, 4, 60, aimFrom(feet));
       expect(plan, `yaw ${yaw}`).not.toBeNull();
       const { cells, dir } = plan!;
       expect(cells).toHaveLength(4);
@@ -512,7 +517,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   it("un mot de 4 lettres tient dans un champ de 60°", () => {
     for (const yaw of yaws.slice(0, 4)) {
       const w = flat();
-      const { cells } = planLine(w, feet, yaw, 4, 60)!;
+      const { cells } = planLine(w, feet, yaw, 4, 60, aimFrom(feet))!;
       const fx = -Math.sin(yaw);
       const fz = -Math.cos(yaw);
       for (const [x, , z] of cells) {
@@ -534,7 +539,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   it("sol plus bas d'un cran devant l'enfant : la ligne descend d'un cran", () => {
     const w = flat();
     for (let x = 0; x < 32; x++) for (let z = 0; z <= 13; z++) w.set(x, 3, z, BlockId.Air);
-    const plan = planLine(w, feet, 0, 4, 60)!;
+    const plan = planLine(w, feet, 0, 4, 60, aimFrom(feet))!;
     expect(plan.cells.every((c) => c[1] === 3)).toBe(true);
   });
 
@@ -551,7 +556,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   it("rigole d'un cran sous la ligne : pas de ligne au fond (la face de lecture serait cachée), le mot est lisible", () => {
     const w = flat();
     for (let x = 0; x < 32; x++) w.set(x, 3, 11, BlockId.Air); // la rangée z = 11, où irait la ligne
-    const plan = planLine(w, feet, 0, 4, 60)!;
+    const plan = planLine(w, feet, 0, 4, 60, aimFrom(feet))!;
     expect(plan).not.toBeNull();
     for (const [x, y, z] of plan.cells) {
       expect(y).toBe(4);
@@ -564,7 +569,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
     const w = flat();
     w.set(16, 4, 12, BlockId.Log);
     w.set(16, 5, 12, BlockId.Log);
-    const plan = planLine(w, feet, 0, 4, 60)!;
+    const plan = planLine(w, feet, 0, 4, 60, aimFrom(feet))!;
     expect(plan.cells.some(([x, , z]) => x === 16 && z === 11)).toBe(false);
     writeOnLine(w, plan, "LUNE");
   });
@@ -578,7 +583,7 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
     ] as const) {
       const w = flat();
       w.set(x, 4, z, letterBlockId("Q")!);
-      const plan = planLine(w, feet, 0, 4, 60)!;
+      const plan = planLine(w, feet, 0, 4, 60, aimFrom(feet))!;
       expect(plan, `Q en ${x}, ${z}`).not.toBeNull();
       plan.cells.forEach(([cx, cy, cz], i) => {
         w.set(cx, cy, cz, letterBlockId("LUNE".charAt(i))!);
@@ -589,19 +594,122 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
     }
   });
 
-  it("enchaînement depuis la même place : AMI, puis LUNE, puis LOUP, chacun sur sa ligne, lettre après lettre, et trouvé", () => {
+  /**
+   * L'enfant, l'œil à 1,62 au-dessus des pieds, peut-il poser un bloc dans la case c (règles du jeu : la visée touche
+   * à portée un bloc voisin de c par sa face tournée vers c) ? Indépendant du moteur : une grille de 7 × 7 points
+   * sur chaque face voisine. `filled` : lettres déjà posées (comptées comme des blocs pleins).
+   */
+  function canPlaceIn(w: World, at: { x: number; y: number; z: number }, c: readonly [number, number, number], filled: readonly (readonly [number, number, number])[] = []): boolean {
+    const eye = { x: at.x, y: at.y + PLAYER.eyeHeight, z: at.z };
+    const isFilled = (x: number, y: number, z: number) => filled.some((f) => f[0] === x && f[1] === y && f[2] === z);
+    const targets = { isTargetable: (x: number, y: number, z: number) => isFilled(x, y, z) || w.isTargetable(x, y, z) };
+    const [x, y, z] = c;
+    const grid = [0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9];
+    for (const [ox, oy, oz] of [
+      [0, -1, 0],
+      [0, 1, 0],
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ] as const) {
+      if (!targets.isTargetable(x + ox, y + oy, z + oz)) continue;
+      for (const u of grid) {
+        for (const v of grid) {
+          const p =
+            ox !== 0
+              ? { x: x + (ox > 0 ? 1 : 0), y: y + u, z: z + v }
+              : oy !== 0
+                ? { x: x + u, y: y + (oy > 0 ? 1 : 0), z: z + v }
+                : { x: x + u, y: y + v, z: z + (oz > 0 ? 1 : 0) };
+          const hit = raycast(targets, eye, { x: p.x - eye.x, y: p.y - eye.y, z: p.z - eye.z }, REACH);
+          if (hit && hit.x + hit.nx === x && hit.y + hit.ny === y && hit.z + hit.nz === z) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Chaque case de la ligne se pose depuis `at`, lettre après lettre, de gauche à droite (les précédentes posées). */
+  function expectReachable(w: World, at: { x: number; y: number; z: number }, cells: readonly (readonly [number, number, number])[], label: string) {
+    cells.forEach((c, i) => expect(canPlaceIn(w, at, c, cells.slice(0, i)), `${label} : case ${i + 1} (${c.join(", ")})`).toBe(true));
+  }
+
+  it("ligne libre, champ étroit : chaque case est à portée de la visée (pas au-delà de REACH)", () => {
     for (const hfov of [60, 40]) {
-      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-        const label = `champ ${hfov}°, cap ${yaw.toFixed(2)}`;
+      for (const yaw of yaws) {
+        const plan = planLine(flat(), feet, yaw, 4, hfov, aimFrom(feet))!;
+        expect(plan, `champ ${hfov}°, cap ${yaw}`).not.toBeNull();
+        expectReachable(flat(), feet, plan.cells, `champ ${hfov}°, cap ${yaw}`);
+      }
+    }
+  });
+
+  it("mur juste devant l'enfant, sol libre derrière : pas de ligne cachée derrière le mur (null, la consigne seule)", () => {
+    const w = flat();
+    for (let x = 0; x < 32; x++) for (let y = 4; y <= 6; y++) w.set(x, y, 13, BlockId.Stone);
+    expect(planLine(w, feet, 0, 4, 60, aimFrom(feet))).toBeNull();
+  });
+
+  it("mot 2 après le mot 1 écrit devant, depuis la même place : pas de ligne derrière le mot 1 ; en tournant la tête, une ligne qui se vise et se lit", () => {
+    // Le cas relevé : SOL écrit à 4 blocs, puis PUMA, que la ligne mettait juste derrière SOL (cachée, hors de portée).
+    for (const yaw of [Math.PI, 0, Math.PI / 2, -Math.PI / 2]) {
+      const label = `cap ${yaw.toFixed(2)}`;
+      const w = flat();
+      const first = planLine(w, feet, yaw, 3, 60, aimFrom(feet))!;
+      writeOnLine(w, first, "SOL");
+      // Même regard : soit rien (consigne seule), soit une ligne dont chaque case se vise d'ici.
+      const same = planLine(w, feet, yaw, 4, 60, aimFrom(feet));
+      if (same) expectReachable(w, feet, same.cells, `${label}, même regard`);
+      // La tête tournée d'un quart de tour, d'un côté ou de l'autre : une ligne qui se vise, et PUMA s'y lit.
+      for (const turn of [Math.PI / 2, -Math.PI / 2]) {
+        const v = flat();
+        writeOnLine(v, first, "SOL");
+        const plan = planLine(v, feet, yaw + turn, 4, 60, aimFrom(feet));
+        expect(plan, `${label}, tourné de ${turn.toFixed(2)}`).not.toBeNull();
+        expectReachable(v, feet, plan!.cells, `${label}, tourné de ${turn.toFixed(2)}`);
+        writeOnLine(v, plan!, "PUMA", feet, ["SOL"]);
+      }
+    }
+  });
+
+  it("regard en biais (25° à droite de l'axe), un mot déjà écrit au milieu : la ligne se décale du côté du regard, sa première case dans le champ", () => {
+    const w = flat();
+    // Un mot de 3 lettres à 3 blocs, au milieu (x 15 à 17, z = 13), l'enfant en (16,5 ; 16,5).
+    write(w, "SOL", 15, 4, 13);
+    const yaw = (-25 * Math.PI) / 180; // la droite de l'enfant est +X
+    const plan = planLine(w, feet, yaw, 3, 60, aimFrom(feet));
+    expect(plan).not.toBeNull();
+    expectReachable(w, feet, plan!.cells, "en biais");
+    const [x0, , z0] = plan!.cells[0]!;
+    const vx = x0 + 0.5 - feet.x;
+    const vz = z0 + 0.5 - feet.z;
+    const angle = (Math.acos((vx * -Math.sin(yaw) + vz * -Math.cos(yaw)) / Math.hypot(vx, vz)) * 180) / Math.PI;
+    expect(angle).toBeLessThanOrEqual(30);
+    expect(x0).toBeGreaterThan(17);
+    writeOnLine(w, plan!, "AMI", feet, ["SOL"]);
+  });
+
+  it("enchaînement depuis la même place : AMI, puis LUNE, puis LOUP, chaque case visée et posée depuis là, lettre après lettre, et trouvé", () => {
+    for (const hfov of [60, 40]) {
+      for (const yaw0 of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const label = `champ ${hfov}°, cap ${yaw0.toFixed(2)}`;
         const w = flat();
         const previous: string[] = [];
         for (const word of ["AMI", "LUNE", "LOUP"]) {
-          const plan = planLine(w, feet, yaw, word.length, hfov);
+          // Pas de ligne là où il regarde (mots déjà écrits devant) : l'enfant tourne la tête, sans bouger les pieds.
+          let plan: ReturnType<typeof planLine> = null;
+          for (const turn of [0, -15, 15, -30, 30, -45, 45, -60, 60, -90, 90]) {
+            plan = planLine(w, feet, yaw0 + (turn * Math.PI) / 180, word.length, hfov, aimFrom(feet));
+            if (plan) break;
+          }
           expect(plan, `${label} : ${word}`).not.toBeNull();
           // Aucune case sur une lettre ni contre une lettre : la ligne ne touche pas les mots déjà écrits.
           for (const [x, y, z] of plan!.cells) {
             expect(isLetterId(w.get(x, y - 1, z)), `${label} : ${word}`).toBe(false);
           }
+          // Chaque case se vise depuis l'œil, à portée, avec les lettres d'avant déjà posées.
+          expectReachable(w, feet, plan!.cells, `${label} : ${word}`);
           // Lettre après lettre : chaque lettre posée dans sa case compte (début juste qui s'allonge).
           plan!.cells.forEach(([x, y, z], i) => {
             w.set(x, y, z, letterBlockId(word.charAt(i))!);
@@ -616,15 +724,15 @@ describe("planLine : où écrire quand rien n'est encore posé", () => {
   });
 
   it("aucune place (vide, mur, eau) : null", () => {
-    expect(planLine(new World(32, 16, 32), feet, 0, 4, 60)).toBeNull();
+    expect(planLine(new World(32, 16, 32), feet, 0, 4, 60, aimFrom(feet))).toBeNull();
 
     const wall = flat();
     for (let x = 0; x < 32; x++) for (let z = 0; z <= 14; z++) for (let y = 4; y <= 5; y++) wall.set(x, y, z, BlockId.Stone);
-    expect(planLine(wall, feet, 0, 4, 60)).toBeNull();
+    expect(planLine(wall, feet, 0, 4, 60, aimFrom(feet))).toBeNull();
 
     const sea = flat();
     for (let x = 0; x < 32; x++) for (let z = 0; z <= 14; z++) sea.set(x, 4, z, BlockId.Water);
-    expect(planLine(sea, feet, 0, 4, 60)).toBeNull();
+    expect(planLine(sea, feet, 0, 4, 60, aimFrom(feet))).toBeNull();
   });
 });
 

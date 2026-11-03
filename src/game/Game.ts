@@ -5,7 +5,7 @@ import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { discardVerdict, Inventory, MAX_STACK, slotToEmpty, type AddResult, type DiscardVerdict } from "../engine/inventory";
 import { blockBox, boxesIntersect } from "../engine/physics";
-import { raycast, type RayHit } from "../engine/raycast";
+import { raycast, REACH, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
 import {
@@ -195,7 +195,6 @@ import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } 
 import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
 import { GAME_NAME, VERSION } from "./identity";
 
-const REACH = 6;
 export { VERSION } from "./identity";
 /** Sauvegarde automatique pendant une partie (ms). */
 const AUTOSAVE_MS = 30_000;
@@ -265,6 +264,8 @@ const WORD_FOLLOW_UP_MS = 2500;
 const WORD_FOLLOW_UP_READ_MS = 3000;
 /** Dictée : l'indice gagné par un essai est dit un peu après le retour sur l'essai, pour le laisser lire (ms). */
 const HELP_AFTER_FEEDBACK_MS = 4000;
+/** Pas de ligne de cases claires possible là où regarde l'enfant : nouvel essai à cet intervalle (ms). */
+const PLAN_RETRY_MS = 500;
 
 /** Messages de la réaction à l'écriture d'un mot (writingFeedback), par clé. */
 const FEEDBACK_TEXTS: Readonly<Record<FeedbackKey, SaidTemplate | ChildText>> = {
@@ -544,6 +545,8 @@ export class Game {
   private ghostCount = 0;
   private ghostCellsShown: Cell[] = [];
   private ghostNextShown = false;
+  /** Dernier essai de tracer une ligne de cases claires quand aucune n'a trouvé de place (horloge de l'image). */
+  private lastPlanTryAt = -Infinity;
   /** Étape passée par l'accès de test (skipMissionStep) : ramasser et abri comptent comme atteints. */
   private stepSkipped = false;
   /** Case ABC visible à l'image précédente (l'aide d'écran en dépend). */
@@ -2425,6 +2428,11 @@ export class Game {
         return;
       }
       case "ghosts": {
+        // Aucune case claire montrée (pas de place à portée là où il regarde) : la lettre suivante, sans parler de cases.
+        if (this.ghostCount === 0) {
+          this.sayHelp(w, "next");
+          return;
+        }
         const t = fillSaid(GHOST_LINE, base);
         this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
         return;
@@ -2505,6 +2513,12 @@ export class Game {
       if (still && (!this.touchUi || this.touch.mode === "place")) {
         this.tell(this.touchUi ? BREAK_TIP_TOUCH : BREAK_TIP_MOUSE, { ms: 4000, dedupe: true, important: true });
       }
+    }
+    // Pas encore de ligne de cases claires (rien à portée là où il regardait) : réessayée quand il tourne la tête ou
+    // se déplace.
+    if (w.have === 0 && !w.planned && (w.show.ghostLine || w.show.ghostNext) && now - this.lastPlanTryAt >= PLAN_RETRY_MS) {
+      this.lastPlanTryAt = now;
+      this.refreshGhosts();
     }
     const prev = w.ms;
     w.ms += dtMs;
@@ -2605,7 +2619,11 @@ export class Game {
           // alors à 4 ou 5 blocs, visible sans baisser les yeux (avec tout le champ d'un PC, elle serait à 2 blocs).
           const p = this.player;
           const cam = this.view.camera;
-          w.planned = planLine(this.world, { x: p.x, y: p.y, z: p.z }, p.yaw, len, Math.min(60, horizontalFov(cam.fov, cam.aspect)));
+          // Chaque case doit se poser d'où il est (visée depuis l'œil, à portée) : jamais derrière un mot déjà écrit.
+          w.planned = planLine(this.world, { x: p.x, y: p.y, z: p.z }, p.yaw, len, Math.min(60, horizontalFov(cam.fov, cam.aspect)), {
+            eye: p.eye(),
+            reach: REACH,
+          });
         }
         cells = w.planned?.cells ?? [];
       }

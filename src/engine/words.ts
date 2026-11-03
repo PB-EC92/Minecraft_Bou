@@ -1,4 +1,5 @@
-import { BlockId, isLetterId, isOpaqueId, isPlantId, isSolidId, letterChar } from "./blocks";
+import { BlockId, isLetterId, isOpaqueId, isPlantId, isSolidId, isTargetableId, letterChar } from "./blocks";
+import { raycast, type Targets, type Vec3 } from "./raycast";
 
 /**
  * Lecture des mots écrits en blocs-lettres (mission 2 « Les mots », V2 lot 1). Pur : ni DOM, ni Three.js.
@@ -489,19 +490,84 @@ export function ghostCells(w: BlockReader, r: Reading, have: number, length: num
 /** Champ horizontal par défaut si celui reçu n'est pas utilisable (degrés). */
 const DEFAULT_HFOV = 60;
 
+/** Visée de l'enfant : position de l'œil et portée (REACH du jeu). */
+export interface Aim {
+  eye: Vec3;
+  reach: number;
+}
+
+/** Les six voisins d'une case, le dessous d'abord (le sol sous la case est la visée la plus courante). */
+const NEIGHBOURS: readonly (readonly [number, number, number])[] = [
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+];
+
+/** Points visés sur une face (coordonnées dans la face) : le milieu, puis vers les coins. */
+const FACE_POINTS: readonly (readonly [number, number])[] = [
+  [0.5, 0.5],
+  [0.2, 0.2],
+  [0.8, 0.2],
+  [0.2, 0.8],
+  [0.8, 0.8],
+];
+
+/**
+ * L'enfant peut-il poser un bloc dans la case `cell` (air ou fleur) sans bouger, comme le jeu pose : une visée depuis
+ * l'œil, à portée, dont le premier bloc touché est un voisin de la case, par sa face tournée vers elle (ou la fleur
+ * de la case, que le bloc remplace) ? On essaie quelques points de chaque face voisine. `filled` : cases déjà
+ * remplies (les lettres posées avant celle-ci), comptées comme des blocs pleins.
+ */
+export function canAimAt(w: BlockReader, aim: Aim, cell: Cell, filled: readonly Cell[] = []): boolean {
+  const isFilled = (x: number, y: number, z: number) => filled.some((c) => c[0] === x && c[1] === y && c[2] === z);
+  const targets: Targets = {
+    isTargetable: (x, y, z) => isFilled(x, y, z) || (inWorld(w, x, y, z) && isTargetableId(w.get(x, y, z))),
+  };
+  const [x, y, z] = cell;
+  const { eye, reach } = aim;
+  for (const [ox, oy, oz] of NEIGHBOURS) {
+    if (!targets.isTargetable(x + ox, y + oy, z + oz)) continue;
+    for (const [u, v] of FACE_POINTS) {
+      // Point de la face commune à la case et à ce voisin.
+      const px = ox !== 0 ? x + (ox > 0 ? 1 : 0) : x + u;
+      const py = oy !== 0 ? y + (oy > 0 ? 1 : 0) : y + (ox !== 0 ? u : v);
+      const pz = oz !== 0 ? z + (oz > 0 ? 1 : 0) : z + v;
+      const dir = { x: px - eye.x, y: py - eye.y, z: pz - eye.z };
+      if (Math.hypot(dir.x, dir.y, dir.z) > reach) continue;
+      const hit = raycast(targets, eye, dir, reach);
+      if (!hit) continue;
+      if (hit.x + hit.nx === x && hit.y + hit.ny === y && hit.z + hit.nz === z) return true;
+      // Une fleur dans la case : la viser, c'est poser à sa place.
+      if (hit.x === x && hit.y === y && hit.z === z && isPlantId(w.get(x, y, z))) return true;
+    }
+  }
+  return false;
+}
+
+/** Écart de la ligne sur le côté, dans un sens puis dans l'autre (cases). */
+const MAX_SHIFT = 12;
+
 /**
  * Ligne de cases claires devant l'enfant pour un mot de `length` lettres, quand rien n'est encore écrit :
- * - sur l'axe dominant du regard f, à une distance où tout le mot tient dans le champ horizontal ;
- * - lue de gauche à droite pour l'enfant (sens d = (−f.z, f.x)), sa face de lecture tournée vers lui ;
- * - centrée sur l'axe du regard, toutes les cases à la même hauteur, dans l'air ou une fleur (ni eau, ni bloc plein),
- *   chacune posée sur un bloc opaque qui n'est pas un bloc-lettre (jamais sur un mot déjà écrit).
+ * - sur l'axe dominant du regard f, lue de gauche à droite pour l'enfant (sens d = (−f.z, f.x)), sa face de lecture
+ *   tournée vers lui ;
+ * - toutes les cases à la même hauteur, dans l'air ou une fleur (ni eau, ni bloc plein), chacune posée sur un bloc
+ *   opaque qui n'est pas un bloc-lettre (jamais sur un mot déjà écrit) ;
+ * - chaque case se pose depuis là où il est (canAimAt : visée depuis l'œil, à portée, les lettres d'avant posées) :
+ *   jamais derrière un mot déjà écrit ou un mur, ni hors de portée.
  * Le mot écrit dans ces cases doit se lire de face et seul (voir isVisible et readingsThrough) :
  * - la case voisine côté enfant (−f) est dans le monde et n'est pas opaque (sinon la face de lecture n'est pas
  *   dessinée : rigole d'un cran, tronc, mot déjà écrit juste devant) ;
  * - aucune lettre juste derrière une case (+f), ni juste avant la première ou après la dernière (sens d) : le mot
  *   ne se colle à aucune lettre déjà posée.
- * On essaie les distances minD … minD + 3 et, pour chacune, les hauteurs des pieds, un cran plus bas, un cran plus
- * haut. Aucune place : null (pas de cases claires, seulement la consigne).
+ * D'abord centrée sur l'axe, à une distance où tout le mot tient dans le champ horizontal (minD … minD + 3) ; pour
+ * chaque distance, les hauteurs des pieds, un cran plus bas, un cran plus haut. Sinon (un mot déjà écrit devant,
+ * place trop loin), décalée sur le côté, plus près ou plus loin : sa première case (celle à remplir d'abord) est dans
+ * le champ autour du regard, la suite peut en sortir (l'enfant tourne la tête en écrivant). Aucune place : null
+ * (pas de cases claires, seulement la consigne ; le jeu réessaie quand l'enfant tourne la tête ou se déplace).
  */
 export function planLine(
   w: BlockReader,
@@ -509,6 +575,7 @@ export function planLine(
   yaw: number,
   length: number,
   hfovDeg: number,
+  aim: Aim,
 ): { cells: Cell[]; dir: Dir } | null {
   if (!Number.isInteger(length) || length < 1) return null;
   const hfov = Number.isFinite(hfovDeg) && hfovDeg > 0 && hfovDeg < 180 ? hfovDeg : DEFAULT_HFOV;
@@ -520,33 +587,78 @@ export function planLine(
   const fz = fx === 0 ? Math.sign(lz) : 0;
   const dx = fz === 0 ? 0 : -fz;
   const dz = fx;
+  const dir: Dir = [dx as -1 | 0 | 1, 0, dz as -1 | 0 | 1];
   const tanHalf = Math.tan((hfov * Math.PI) / 360);
   const minD = Math.min(7, Math.max(2, Math.ceil((length / 2 + 0.5) / tanHalf)));
   const bx = Math.floor(feet.x);
   const bz = Math.floor(feet.z);
   const y0 = Math.floor(feet.y);
   const back = Math.floor((length - 1) / 2);
+  const heights = [y0, y0 - 1, y0 + 1];
+
+  /** Cases de la ligne à `dist` sur l'axe, décalée de `shift` cases vers la droite, à la hauteur y ; null si refusée. */
+  const lineAt = (dist: number, shift: number, y: number): Cell[] | null => {
+    const sx = bx + fx * dist + dx * (shift - back);
+    const sz = bz + fz * dist + dz * (shift - back);
+    // Rien de collé aux deux bouts de la ligne.
+    if (letterAt(w, sx - dx, y, sz - dz) || letterAt(w, sx + dx * length, y, sz + dz * length)) return null;
+    const cells: Cell[] = [];
+    for (let i = 0; i < length; i++) {
+      const x = sx + dx * i;
+      const z = sz + dz * i;
+      if (!inWorld(w, x, y, z) || y < 1) return null;
+      const id = w.get(x, y, z);
+      if (id !== BlockId.Air && !isPlantId(id)) return null;
+      const below = w.get(x, y - 1, z);
+      if (!isOpaqueId(below) || isLetterId(below)) return null;
+      // Face de lecture dessinée (côté enfant), et pas de lettre juste derrière.
+      if (!inWorld(w, x - fx, y, z - fz) || isOpaqueId(w.get(x - fx, y, z - fz))) return null;
+      if (letterAt(w, x + fx, y, z + fz)) return null;
+      cells.push([x, y, z]);
+    }
+    // Chaque case se pose depuis l'œil, dans l'ordre de l'écriture (les lettres d'avant déjà posées).
+    for (let i = 0; i < cells.length; i++) if (!canAimAt(w, aim, cells[i]!, cells.slice(0, i))) return null;
+    return cells;
+  };
+
+  // 1) Centrée sur l'axe, le mot entier dans le champ.
   for (let dist = minD; dist <= minD + 3; dist++) {
-    const sx = bx + fx * dist - dx * back;
-    const sz = bz + fz * dist - dz * back;
-    for (const y of [y0, y0 - 1, y0 + 1]) {
-      // Rien de collé aux deux bouts de la ligne.
-      if (letterAt(w, sx - dx, y, sz - dz) || letterAt(w, sx + dx * length, y, sz + dz * length)) continue;
-      const cells: Cell[] = [];
-      for (let i = 0; i < length; i++) {
-        const x = sx + dx * i;
-        const z = sz + dz * i;
-        if (!inWorld(w, x, y, z) || y < 1) break;
-        const id = w.get(x, y, z);
-        if (id !== BlockId.Air && !isPlantId(id)) break;
-        const below = w.get(x, y - 1, z);
-        if (!isOpaqueId(below) || isLetterId(below)) break;
-        // Face de lecture dessinée (côté enfant), et pas de lettre juste derrière.
-        if (!inWorld(w, x - fx, y, z - fz) || isOpaqueId(w.get(x - fx, y, z - fz))) break;
-        if (letterAt(w, x + fx, y, z + fz)) break;
-        cells.push([x, y, z]);
+    for (const y of heights) {
+      const cells = lineAt(dist, 0, y);
+      if (cells) return { cells, dir };
+    }
+  }
+
+  // 2) Décalée sur le côté, autour du regard : la première case dans le champ. Distances de la plus proche de minD
+  //    à la plus lointaine (pas plus près que 3 blocs, pour ne pas baisser les yeux), écarts du plus petit au plus grand.
+  const ahead = lx * fx + lz * fz;
+  const gazeSlope = ahead > 0 ? (lx * dx + lz * dz) / ahead : 0;
+  const cosHalf = Math.cos((hfov * Math.PI) / 360);
+  const inView = (x: number, z: number) => {
+    const vx = x + 0.5 - aim.eye.x;
+    const vz = z + 0.5 - aim.eye.z;
+    const n = Math.hypot(vx, vz);
+    return n > 0 && (vx * lx + vz * lz) / n >= cosHalf - 1e-9;
+  };
+  const lo = Math.min(minD, 3);
+  const hi = minD + 3;
+  const dists: number[] = [minD];
+  for (let k = 1; minD - k >= lo || minD + k <= hi; k++) {
+    if (minD - k >= lo) dists.push(minD - k);
+    if (minD + k <= hi) dists.push(minD + k);
+  }
+  for (const dist of dists) {
+    // Écart qui centre la ligne sur le regard à cette distance.
+    const s0 = Math.round(dist * gazeSlope);
+    for (let k = 0; k <= MAX_SHIFT; k++) {
+      for (const shift of k === 0 ? [s0] : [s0 + k, s0 - k]) {
+        // Première case : avant tout le reste, dans le champ autour du regard.
+        if (!inView(bx + fx * dist + dx * (shift - back), bz + fz * dist + dz * (shift - back))) continue;
+        for (const y of heights) {
+          const cells = lineAt(dist, shift, y);
+          if (cells) return { cells, dir };
+        }
       }
-      if (cells.length === length) return { cells, dir: [dx as -1 | 0 | 1, 0, dz as -1 | 0 | 1] };
     }
   }
   return null;

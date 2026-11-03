@@ -3019,6 +3019,53 @@ const checkWriting = (page: Page) => page.evaluate(() => window.cubesDebug.check
 const putLetter = (page: Page, c: readonly [number, number, number], ch: string) =>
   page.evaluate(([x, y, z, id]) => window.cubesDebug.setBlock(x, y, z, id), [c[0], c[1], c[2], letterId(ch)] as const);
 
+/** Œil de l'enfant au-dessus des pieds (PLAYER.eyeHeight). */
+const EYE_HEIGHT = 1.62;
+
+/**
+ * Pose une lettre dans une case comme l'enfant, sans bouger les pieds : la lettre choisie, la croix pointée vers une
+ * face voisine de la case (le sol dessous d'abord, quelques points par face) jusqu'à ce que la visée du jeu (portée
+ * comprise) désigne cette case, puis un clic droit (placeBlock, règles du jeu). Renvoie false si aucune visée n'y pose.
+ */
+async function aimAndPlace(page: Page, c: readonly [number, number, number], ch: string): Promise<boolean> {
+  expect(await page.evaluate((l) => window.cubesDebug.chooseLetter(l), ch)).toBe(true);
+  const p = (await state(page)).player;
+  const eye = { x: p.x, y: p.y + EYE_HEIGHT, z: p.z };
+  const faces = [
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [1, 0, 0],
+    [-1, 0, 0],
+  ] as const;
+  const points = [
+    [0.5, 0.5],
+    [0.2, 0.2],
+    [0.8, 0.2],
+    [0.2, 0.8],
+    [0.8, 0.8],
+  ] as const;
+  for (const [ox, oy, oz] of faces) {
+    for (const [u, v] of points) {
+      const px = ox !== 0 ? c[0] + (ox > 0 ? 1 : 0) : c[0] + u;
+      const py = oy !== 0 ? c[1] + (oy > 0 ? 1 : 0) : c[1] + (ox !== 0 ? u : v);
+      const pz = oz !== 0 ? c[2] + (oz > 0 ? 1 : 0) : c[2] + v;
+      const dx = px - eye.x;
+      const dy = py - eye.y;
+      const dz = pz - eye.z;
+      const yaw = (Math.atan2(-dx, -dz) * 180) / Math.PI;
+      const pitch = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
+      await page.evaluate(([y, pi]) => window.cubesDebug.look(y, pi), [yaw, pitch] as const);
+      await page.evaluate(`(async () => { ${FRAMES(2)} })()`);
+      const t = (await state(page)).target;
+      if (!t || t.x + t.nx !== c[0] || t.y + t.ny !== c[1] || t.z + t.nz !== c[2]) continue;
+      await page.evaluate(() => window.cubesDebug.placeBlock());
+      return (await page.evaluate(([x, y, z]) => window.cubesDebug.block(x, y, z), c)) === letterId(ch);
+    }
+  }
+  return false;
+}
+
 /** Passe l'étape en cours (accès de test) et attend la suivante (la mission avance après la consigne en cours). */
 async function skipStep(page: Page): Promise<void> {
   const before = (await state(page)).mission!.step;
@@ -3113,7 +3160,8 @@ test("mission 2 : un mot écrit à l'envers pour l'enfant est validé (« Fais l
   await expect(page.locator(".message")).toContainText("Fais le tour pour lire", { timeout: 15_000 });
   await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
   // Mot 2 : rien au départ ; 31 s sans progrès, la ligne de cases claires ; 50 s, la lettre attendue est en main.
-  await page.evaluate(() => window.cubesDebug.look(0, 0));
+  // Regard vers +Z, où la place est libre (vers −Z, le mot 1 est devant : pas de ligne derrière lui).
+  await page.evaluate(() => window.cubesDebug.look(180, 0));
   const target2 = await writingTarget(page);
   let s = await state(page);
   expect(s.writing).toMatchObject({ stage: 0, ghosts: 0 });
@@ -3129,7 +3177,7 @@ test("mission 2 : un mot écrit à l'envers pour l'enfant est validé (« Fais l
   expect(errors).toEqual([]);
 });
 
-test("mission 2, cases claires : une lettre fausse dans la première case est signalée et la ligne reste en place ; trois mots écrits de suite dans leurs cases, sans bouger, sont tous trouvés", async ({ page }, testInfo) => {
+test("mission 2, cases claires : une lettre fausse dans la première case est signalée et la ligne reste en place ; trois mots écrits de suite dans leurs cases, sans bouger les pieds (visée et clic droit), sont tous trouvés", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   test.setTimeout(120_000);
   const errors = await openGame(page, M2);
@@ -3159,21 +3207,67 @@ test("mission 2, cases claires : une lettre fausse dans la première case est si
   for (let k = 2; k < target.length; k++) await putLetter(page, line[k]!, target[k]!);
   expect(await checkWriting(page)).toMatchObject({ found: true });
   await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
-  // Mots 2 et 3, depuis la même place : chaque ligne tracée se remplit lettre après lettre et le mot est trouvé.
+  // Mots 2 et 3, depuis la même place : pas de ligne derrière un mot déjà écrit ; s'il n'y a pas de place à portée là
+  // où il regarde, l'enfant tourne la tête et la ligne se trace. Chaque lettre se pose en visant, depuis là.
+  const feet = (await state(page)).player;
   for (const step of [2, 3]) {
     const word = await writingTarget(page);
+    await page.evaluate(() => window.cubesDebug.look(180, 0));
     expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
-    const cells = (await state(page)).writing!.ghostCells;
+    let cells = (await state(page)).writing!.ghostCells;
+    for (const yaw of [90, -90, 0]) {
+      if (cells.length > 0) break;
+      await page.evaluate((y) => window.cubesDebug.look(y, 0), yaw);
+      // La ligne est réessayée toutes les 0,5 s tant qu'il n'y en a pas.
+      for (let i = 0; i < 8 && cells.length === 0; i++) {
+        await page.waitForTimeout(250);
+        cells = (await state(page)).writing!.ghostCells;
+      }
+    }
     expect(cells, word).toHaveLength(word.length);
     for (let k = 0; k < word.length; k++) {
-      await putLetter(page, cells[k]!, word[k]!);
-      const f = await checkWriting(page);
-      if (k < word.length - 1) expect(f, `${word} : ${k + 1} lettre(s)`).toMatchObject({ found: false, key: null, have: k + 1 });
-      else expect(f, word).toMatchObject({ found: true });
+      expect(await aimAndPlace(page, cells[k]!, word[k]!), `${word} : ${word[k]} en ${cells[k]!.join(", ")}`).toBe(true);
+      // La dernière lettre posée, le jeu relit lui-même le mot et le trouve (l'étape passe à la suivante).
+      if (k < word.length - 1) expect(await checkWriting(page), `${word} : ${k + 1} lettre(s)`).toMatchObject({ found: false, key: null, have: k + 1 });
     }
+    await expect.poll(async () => (await state(page)).words, { timeout: 10_000 }).toContain(word);
     await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(step + 1);
   }
+  // Les pieds n'ont pas bougé.
+  const after = (await state(page)).player;
+  expect([after.x, after.y, after.z]).toEqual([feet.x, feet.y, feet.z]);
   expect((await state(page)).words).toHaveLength(3);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 : pas de place à portée pour les cases claires là où regarde l'enfant : Pixel dit la lettre suivante, pas « Remplis les cases claires » ; la tête tournée, la ligne se trace", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  const errors = await openGame(page, M2);
+  // Au bord du monde, face à la mer (+Z) : aucune case devant lui.
+  await page.evaluate(() => {
+    window.cubesDebug.teleport(16.5, 4.01, 29.5);
+    window.cubesDebug.look(180, 0);
+  });
+  await skipStep(page);
+  const target = await writingTarget(page);
+  let s = await state(page);
+  expect(s.writing).toMatchObject({ have: 0, ghosts: 0 });
+  expect(s.writing!.help.ghostLine).toBe(true);
+  // 31 s sans progrès : l'aide des cases claires tombe, mais il n'y en a pas : la lettre suivante, sans parler de cases.
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
+  await expect(page.locator(".message")).toContainText(`Maintenant, la lettre ${target[0]}`);
+  s = await state(page);
+  expect(s.writing?.ghosts).toBe(0);
+  expect(s.spoken.some((t) => t.includes("cases claires"))).toBe(false);
+  await expect(page.locator(".message")).not.toContainText("cases claires");
+  // Il se retourne (vers −Z, la place est libre) : la ligne se trace sans autre geste, et chaque case se vise d'ici.
+  await page.evaluate(() => window.cubesDebug.look(0, 0));
+  await expect.poll(async () => (await state(page)).writing?.ghosts, { timeout: 5000 }).toBe(target.length);
+  const cells = (await state(page)).writing!.ghostCells;
+  for (let k = 0; k < target.length; k++) expect(await aimAndPlace(page, cells[k]!, target[k]!), `${target[k]}`).toBe(true);
+  // La dernière lettre posée, le jeu relit lui-même le mot et le trouve.
+  await expect.poll(async () => (await state(page)).words).toEqual([target]);
   expect(errors).toEqual([]);
 });
 
