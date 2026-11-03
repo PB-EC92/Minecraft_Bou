@@ -331,6 +331,29 @@ describe("dictée de la mission 2 (V2 lot 1)", () => {
     expect(c.spoken).toEqual([PIXEL.debutant]);
   });
 
+  it("cancelDelayedSpeech (panneau de fabrication ouvert) : annule la lecture différée, pas la dictée en attente", () => {
+    const h = harness(() => true);
+    h.n.setLevel("autonome");
+    h.n.voice = true;
+    h.n.tell(PIXEL, { important: true });
+    h.n.dictate(WORD);
+    h.n.say(T, { voiceDelayMs: 100 }); // compte du ramassage, lu plus tard
+    h.n.cancelDelayedSpeech();
+    expect(h.n.hasPending).toBe(false);
+    expect(h.pendingTimers()).toBe(1); // la dictée seule
+    h.advance(10_000);
+    expect(h.spoken).toEqual([PIXEL.autonome, WORD]);
+
+    // Voix coupée (réglage par défaut du lecteur autonome) : la dictée attend toujours sa place, et elle est lue.
+    const off = harness(() => true);
+    off.n.setLevel("autonome");
+    off.n.dictate("Écris le mot : nuage.");
+    off.n.dictate("Écoute bien : nuage.");
+    off.n.cancelDelayedSpeech();
+    off.advance(10_000);
+    expect(off.spoken).toEqual(["Écris le mot : nuage.", "Écoute bien : nuage."]);
+  });
+
   it("une nouvelle consigne importante arrivée entre-temps repousse encore la dictée", () => {
     const h = harness(() => true);
     h.n.tell(PIXEL, { important: true });

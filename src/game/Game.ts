@@ -1,6 +1,6 @@
 import { Sounds } from "../audio/sounds";
 import { BlockId, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isPlantId, isSolidId, letterBlockId, letterChar, LETTERS, Tile } from "../engine/blocks";
-import { craft, craftPlans, planCraft, RECIPES, recipeById, type CraftReserve, type RecipeId } from "../engine/crafting";
+import { craft, craftPlans, planCraft, RECIPES, recipeById, type CraftPlan, type CraftReserve, type Recipe, type RecipeId } from "../engine/crafting";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
 import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
 import { discardVerdict, Inventory, MAX_STACK, slotToEmpty, type AddResult, type DiscardVerdict } from "../engine/inventory";
@@ -34,6 +34,7 @@ import {
   MissionRunner,
   nextMission,
   resumeMission,
+  shelterPassed,
   stepText,
   TUTORIAL,
   wordsSeen,
@@ -94,6 +95,7 @@ import {
 } from "../edu/writingFeedback";
 import { evaluateWriting, ghostCells, planLine, presentWords, type Cell, type Dir, type Reading, type WritingState } from "../engine/words";
 import {
+  craftBlocker,
   craftCardViews,
   craftIntroText,
   craftMoreBlocksText,
@@ -1200,9 +1202,12 @@ export class Game {
   /**
    * Ferme sans bruit ce qui est posé sur le jeu et oublie ce qui attendait (V2) : retour à l'accueil, nouveau
    * monde, monde rechargé, adresse changée, autre onglet. Panneau de fabrication et boîte à lettres fermés, appui
-   * long annulé ; mission en attente du matin et suite des félicitations oubliées (la reprise du monde les retrouve
-   * depuis la sauvegarde). Mission 2 : lettre en main, cases claires, contours et horloge d'aide remis à zéro (le mot
-   * en cours est gardé par la mission).
+   * long annulé ; au doigt, retour au mode Casser (le mode Poser pris pour une lettre ne passe pas à la partie
+   * suivante). Mission 2 : lettre en main, cases claires, contours et horloge d'aide remis à zéro (le mot en cours
+   * est gardé par la mission).
+   * La suite de la campagne (mission en attente du matin, suite des félicitations) n'est pas oubliée ici : en mode
+   * adresse, un nouveau monde la garde (rien n'est enregistré) ; goHome l'oublie, et startMission la refait pour une
+   * partie d'enfant d'après la sauvegarde.
    */
   private closeOverlays(): void {
     this.closeCraft({ silent: true });
@@ -1212,9 +1217,7 @@ export class Game {
       this.keyboard.clear();
     }
     this.cancelSlotHold();
-    this.pendingMission = null;
-    this.afterCelebration = null;
-    this.tomorrowAt = null;
+    if (this.touch.mode === "place") this.touch.setMode("break");
     this.handLetter = null;
     this.letterIdleSince = null;
     if (this.selectedSlot === LETTER_SLOT) this.setSlot(0);
@@ -1245,6 +1248,10 @@ export class Game {
     this.mission = null;
     this.nextMissionAt = null;
     this.celebrationAt = null;
+    // Suite de la campagne oubliée : la reprise du monde la retrouve depuis sa sauvegarde (startMission).
+    this.pendingMission = null;
+    this.afterCelebration = null;
+    this.tomorrowAt = null;
     this.celebration.hide();
     this.companionPanel.hidden = true;
     this.placeMessageBelowCompanion();
@@ -1779,13 +1786,18 @@ export class Game {
 
   /**
    * Le marteau est-il là ? Partie en cours (enfant ou mode adresse), pas pendant le tutoriel ; dans une partie
-   * d'enfant, seulement une fois découvert (profil) ou présenté par Pixel dans cette partie. En mode adresse,
+   * d'enfant, une fois découvert (profil), présenté par Pixel dans cette partie, ou dès que l'abri de la mission 1
+   * est passé (monde de la 1.0-rc dont la mission 1 est finie, présentation manquée : il brille jusqu'à la première
+   * ouverture, sans que Pixel interrompe la mission 2). Le compagnon d'une partie d'enfant ne se coupe pas (voir
+   * companionOn) ; la condition le dit pour rester cohérente avec la case ABC et la présentation. En mode adresse,
    * toujours (sauf #mission=0).
    */
   private craftAvailable(): boolean {
     if (!this.urlMode && !this.session) return false;
-    if (this.mission?.def === TUTORIAL) return false;
-    return this.urlMode || this.session?.profile.craftSeen === true || this.craftIntroTold;
+    const m = this.mission;
+    if (m?.def === TUTORIAL) return false;
+    if (this.urlMode || this.session?.profile.craftSeen === true || this.craftIntroTold) return true;
+    return m !== null && this.companionOn() && shelterPassed(m.def, m.stepIndex);
   }
 
   /** Ingrédient gardé pour la mission : le bloc de l'étape « ramasser » en cours, qu'on ne peut pas faire passer sous son nombre. */
@@ -1796,40 +1808,74 @@ export class Game {
   }
 
   /** Cartes du panneau d'après le sac et la réserve (la version du sac est retenue pour les mettre à jour). */
-  private craftViews(): { views: CraftCardView[]; anyPossible: boolean } {
+  private craftViews(): { views: CraftCardView[]; plans: CraftPlan[]; anyPossible: boolean } {
     const slots = this.inventory.slots();
     const plans = craftPlans(slots, { reserved: this.craftReserve() });
     this.craftShownVersion = this.inventory.version;
     this.craftCards = craftCardViews(plans, slots, this.narrator.level);
-    return { views: this.craftCards, anyPossible: plans.some((p) => p.ok) };
+    return { views: this.craftCards, plans, anyPossible: plans.some((p) => p.ok) };
   }
 
   /**
    * Ouvre le panneau de fabrication (marteau, touche F) : le jeu se fige dessous comme pour les félicitations. Refusé
    * pendant une autre pause (accueil, félicitations) ou si le marteau n'est pas disponible. Renvoie vrai s'il s'ouvre.
+   * La lecture différée (compte du ramassage) est oubliée, pas une dictée en attente (décision 13 : elle est lue
+   * sous le panneau, comme sous la boîte à lettres).
    */
   private openCraft(): boolean {
     if (this.paused || this.craftPanel.visible || !this.craftAvailable()) return false;
     this.freezeForOverlay();
-    this.narrator.cancelPending();
+    this.narrator.cancelDelayedSpeech();
     this.hud.setCraftOpen(true);
     this.hud.message.classList.remove("visible"); // la ligne d'état du panneau prend le relais
     this.craftOpenedAt = performance.now();
     this.craftedSinceOpen = false;
-    const { views, anyPossible } = this.craftViews();
-    const status = anyPossible ? (this.touchUi ? CRAFT_OPEN_TOUCH : CRAFT_OPEN_MOUSE) : CRAFT_NOTHING;
+    const { views, plans, anyPossible } = this.craftViews();
     const level = this.narrator.level;
+    const blocked = anyPossible ? null : this.craftBlockedText(plans);
+    const status = blocked?.text ?? (this.touchUi ? CRAFT_OPEN_TOUCH : CRAFT_OPEN_MOUSE);
     this.craftPanel.show(views, level, pick(status, level), {
       pick: (id) => void this.doCraft(id),
       close: () => this.closeCraft(),
     });
+    if (blocked) this.craftPanel.setStatus(pick(blocked.text, level), blocked.tone);
     this.sounds.play("select");
-    // Rien de possible : la voix dit où trouver des blocs ; sinon, la consigne n'est lue qu'à la première ouverture.
-    if (!anyPossible) this.narrator.say(SPOKEN_TIPS.craftNothing, { dedupe: true });
+    // Rien de possible : la voix dit pourquoi (sac plein, maximum, ou où trouver des blocs) ; sinon, la consigne
+    // n'est lue qu'à la première ouverture.
+    if (blocked) this.narrator.say(blocked.spoken, { dedupe: true });
     else if (!this.craftOpenTold) this.narrator.say(status, { dedupe: true });
     this.craftOpenTold = true;
     this.markCraftSeen();
     this.syncCraftButtons();
+    return true;
+  }
+
+  /**
+   * Panneau ouvert sans aucune recette possible : pourquoi (craftBlocker). Sac plein d'abord (vider une case débloque
+   * la carte ; la case à vider remue, comme pour une carte touchée), puis le maximum de 99 ; sinon (ingrédients qui
+   * manquent ou gardés pour la mission), « Il manque des blocs ! ».
+   */
+  private craftBlockedText(plans: readonly CraftPlan[]): SaidText & { tone: CraftStatusTone } {
+    const blocker = craftBlocker(plans);
+    if (!blocker) return { text: CRAFT_NOTHING, spoken: SPOKEN_TIPS.craftNothing, tone: "info" };
+    if (blocker.reason === "full" && !this.wiggleSlotToEmpty(blocker.recipe, this.inventory.slots())) {
+      return {
+        text: this.touchUi ? FULL_BAG_KEEP_TOUCH : FULL_BAG_KEEP,
+        spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
+        tone: "no",
+      };
+    }
+    return { ...craftRefusalText(blocker, plans, this.touchUi), tone: "no" };
+  }
+
+  /**
+   * Sac plein pour cette recette : la case à vider remue (jamais la lampe, le cadeau, l'ingrédient, le résultat ni le
+   * bloc de l'étape). Faux s'il n'y en a aucune.
+   */
+  private wiggleSlotToEmpty(recipe: Recipe, slots: ReturnType<Inventory["slots"]>): boolean {
+    const k = slotToEmpty(slots, [recipe.input.block, recipe.output.block, ...this.keptBlocks()]);
+    if (k === null) return false;
+    this.hud.wiggleSlot(k);
     return true;
   }
 
@@ -1894,18 +1940,14 @@ export class Game {
       this.craftPanel.shake(id);
       const r = craftRefusalText(plan, craftPlans(before, { reserved }), this.touchUi);
       this.notify(r.text, { spoken: r.spoken, ms: 3000, dedupe: true, tone: "no" });
-      if (plan.reason === "full") {
-        // La case à vider remue : jamais la lampe, le cadeau, l'ingrédient, le résultat ni le bloc de l'étape.
-        const k = slotToEmpty(before, [recipe.input.block, recipe.output.block, ...this.keptBlocks()]);
-        if (k !== null) this.hud.wiggleSlot(k);
-        else {
-          this.notify(this.touchUi ? FULL_BAG_KEEP_TOUCH : FULL_BAG_KEEP, {
-            spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
-            ms: 3000,
-            dedupe: true,
-            tone: "no",
-          });
-        }
+      // Sac plein : la case à vider remue ; s'il n'y en a aucune, le jeu dit comment vider une case.
+      if (plan.reason === "full" && !this.wiggleSlotToEmpty(recipe, before)) {
+        this.notify(this.touchUi ? FULL_BAG_KEEP_TOUCH : FULL_BAG_KEEP, {
+          spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
+          ms: 3000,
+          dedupe: true,
+          tone: "no",
+        });
       }
       result = { ok: false, reason: plan.reason };
     }
@@ -2680,9 +2722,12 @@ export class Game {
 
   private wireInputs(): void {
     this.keyboard.onPressed((code) => {
-      // Panneau de fabrication ouvert : F et Échap le ferment, rien d'autre ne passe (V2).
+      // Panneau de fabrication ouvert : F et Échap le ferment ; 1 à 9 choisissent une case et, gardées une seconde,
+      // la vident comme hors du panneau (V2 §4.1 : l'appui long reste actif ; l'annonce va dans la ligne d'état du
+      // panneau, voir notify). Rien d'autre ne passe.
       if (this.craftPanel.visible) {
         if (code === "KeyF" || code === "Escape") this.closeCraft();
+        else this.pressSlotKey(code);
         return;
       }
       if (this.paused) return;
@@ -2696,13 +2741,7 @@ export class Game {
         this.openLetters();
         return;
       }
-      const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
-      if (m) {
-        const i = Number(m[1]) - 1;
-        this.setSlot(i, true);
-        // Touche gardée une seconde : la case est vidée (V2, décision 10 de Pierre ; voir updateSlotHold).
-        this.keyHold = startSlotHold(i, performance.now(), "key", 0, 0, code);
-      }
+      this.pressSlotKey(code);
       if (code === "KeyV") this.toggleView();
       if (code === "KeyB") this.throwBubbles();
     });
@@ -2915,6 +2954,19 @@ export class Game {
     }
     const s = this.inventory.slot(i);
     this.hud.showSlotName(s ? this.hud.blockName(s.id) : "case vide");
+  }
+
+  /**
+   * Touche 1 à 9 (KeyboardEvent.code, chiffres du haut ou pavé numérique) : la case est choisie, et la touche gardée
+   * une seconde la vide (V2, décision 10 de Pierre ; voir updateSlotHold). Même geste en jeu et panneau de
+   * fabrication ouvert. Toute autre touche : rien.
+   */
+  private pressSlotKey(code: string): void {
+    const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+    if (!m) return;
+    const i = Number(m[1]) - 1;
+    this.setSlot(i, true);
+    this.keyHold = startSlotHold(i, performance.now(), "key", 0, 0, code);
   }
 
   /**

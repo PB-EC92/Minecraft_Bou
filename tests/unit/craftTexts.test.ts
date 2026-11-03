@@ -13,6 +13,7 @@ import { INVENTORY_SLOTS, MAX_STACK, type Stack } from "../../src/engine/invento
 import { createRng } from "../../src/engine/random";
 import {
   DEBUTANT_SUM_MAX,
+  craftBlocker,
   craftCardViews,
   craftIntroText,
   craftMoreBlocksText,
@@ -298,6 +299,55 @@ describe("craftRefusalText", () => {
     for (const [slots, r, opts] of cases) {
       expect(refusalText(slots, r, opts, true)).toEqual(refusalText(slots, r, opts, false));
     }
+  });
+});
+
+describe("craftBlocker : panneau ouvert sans recette possible", () => {
+  it("sac plein (2 troncs, 3 sables, aucune case libre) : le refus « sac plein » de la première carte, pas « il manque des blocs »", () => {
+    const slots = bag(
+      [BlockId.Grass, 3],
+      [BlockId.Dirt, 3],
+      [BlockId.Stone, 3],
+      [BlockId.Sand, 3],
+      [BlockId.Log, 2],
+      [BlockId.Leaves, 3],
+      [BlockId.Snow, 3],
+      [BlockId.Cactus, 3],
+      [BlockId.FlowerRed, 3],
+    );
+    const plans = craftPlans(slots);
+    expect(plans.map((p) => (p.ok ? "ok" : p.reason))).toEqual(["full", "missing", "full"]);
+    const b = craftBlocker(plans);
+    expect(b?.recipe.id).toBe("planches");
+    expect(b?.reason).toBe("full");
+    expect(craftRefusalText(b!, plans, false)).toEqual({ text: CRAFT_FULL_MOUSE, spoken: SPOKEN_TIPS.craftFullMouse });
+  });
+
+  it("le sac plein passe avant le maximum ; le maximum seul est dit ; manque ou réserve seuls : rien (CRAFT_NOTHING)", () => {
+    // Planches au maximum, verre sans case : le sac plein d'abord.
+    const fullAndMax = bag(
+      [BlockId.Log, 1],
+      [BlockId.Planks, 99],
+      [BlockId.Fence, 99],
+      [BlockId.Sand, 2],
+      [BlockId.Grass, 1],
+      [BlockId.Dirt, 1],
+      [BlockId.Stone, 1],
+      [BlockId.Snow, 1],
+      [BlockId.Cactus, 1],
+    );
+    const p1 = craftPlans(fullAndMax);
+    expect(p1.map((p) => (p.ok ? "ok" : p.reason))).toEqual(["max", "max", "full"]);
+    expect(craftBlocker(p1)).toMatchObject({ reason: "full", recipe: { id: "verre" } });
+    // Maximum seul (et un manque).
+    const p2 = craftPlans(bag([BlockId.Log, 1], [BlockId.Planks, 99], [BlockId.Fence, 99]));
+    expect(p2.map((p) => (p.ok ? "ok" : p.reason))).toEqual(["max", "max", "missing"]);
+    expect(craftBlocker(p2)).toMatchObject({ reason: "max", recipe: { id: "planches" } });
+    // Manque seul, réserve et manque : rien à dire de plus que « il manque des blocs ».
+    expect(craftBlocker(craftPlans(bag()))).toBeNull();
+    expect(craftBlocker(craftPlans(bag([BlockId.Log, 3]), KEEP_6_LOGS))).toBeNull();
+    // Une recette possible : rien de bloqué.
+    expect(craftBlocker(craftPlans(fullBag(1)))).toBeNull();
   });
 });
 

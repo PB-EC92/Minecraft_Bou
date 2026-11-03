@@ -1723,8 +1723,13 @@ test("sans Grignotes : la dernière étape se valide peu après la tombée de la
   expect(invCount(await state(page), B6.rainbow)).toBe(5);
   // Un nouveau monde commence le matin, pas à l'heure (de nuit) du monde précédent.
   await page.getByRole("button", { name: "Continuer" }).click();
+  await expect.poll(async () => (await state(page)).pendingMission).toBe("mots");
   await page.evaluate(() => window.cubesDebug.newWorld("plat", 2));
   await expect.poll(async () => Math.round((await state(page)).hour)).toBe(8);
+  // Mode adresse : la mission 2 en attente n'est pas perdue en changeant de monde (constat 9 de la revue du J8) ;
+  // de jour, elle commence.
+  expect((await state(page)).pendingMission).toBe("mots");
+  await expect.poll(async () => (await state(page)).missionId, { timeout: 20_000 }).toBe("mots");
   expect(errors).toEqual([]);
 });
 
@@ -2272,6 +2277,10 @@ test("monde dont la mission 1 est finie, repris la nuit : la mission 2 attend le
   expect(s.pendingMission).toBe("mots");
   expect(s.timeBoost).toBe(true);
   expect(s.celebration).toBe(false);
+  // Abri passé : le marteau est là, avec son halo, même pour ce profil qui ne l'a jamais ouvert (constat 5 de la revue
+  // du J8 : il manquait jusqu'à la fin de la mission 2).
+  expect(s.craftSeen).toBe(false);
+  expect(s.craft).toMatchObject({ available: true, glow: true });
   // Pixel dit qu'on attend le matin ; le matin, la mission 2 commence.
   await expect.poll(async () => (await state(page)).spoken.some((t) => t.startsWith("Demain")), { timeout: 20_000 }).toBe(true);
   await expect.poll(async () => (await state(page)).missionId, { timeout: 60_000 }).toBe("mots");
@@ -2406,6 +2415,81 @@ test("fabrication, sac plein : le dernier tronc devient des planches dans sa cas
   s = await state(page);
   expect(s.inventory).toEqual(before);
   await expect(page.locator(".message")).toContainText("Sac plein");
+  // Ouverture du panneau avec ce sac (2 troncs, 3 sables, aucune case libre) : rien n'est possible parce que le sac
+  // est plein, pas faute de blocs. La ligne d'état et la voix le disent, et la case à vider remue (constat 4 de la
+  // revue du J8 : « Il manque des blocs ! » envoyait casser un arbre).
+  await page.waitForTimeout(4200); // remue précédente finie ; « Sac plein » peut être redit (anti-répétition de 4 s)
+  const opened = await page.evaluate(() => {
+    const ok = window.cubesDebug.openCraft();
+    const wiggle = Array.from(document.querySelectorAll(".hotbar .slot")).flatMap((el, i) => (el.classList.contains("wiggle") ? [i] : []));
+    return { ok, wiggle };
+  });
+  expect(opened.ok).toBe(true);
+  expect(opened.wiggle).toEqual([0]);
+  s = await state(page);
+  expect(s.craft.cards).toEqual([
+    { id: "planches", state: "full" },
+    { id: "cloture", state: "missing" },
+    { id: "verre", state: "full" },
+  ]);
+  await expect(page.locator(".craft-status")).toHaveText("Sac plein : vide une case !");
+  await expect(page.locator(".craft-status")).toHaveClass(/no/);
+  expect(s.spoken.at(-1)).toBe("Sac plein ! Garde le clic sur la case qui bouge pour la vider.");
+  expect(s.spoken.some((t) => t.startsWith("Il manque des blocs"))).toBe(false);
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  // Rien de possible à cause du maximum (99 planches, 99 clôtures, un tronc, pas de sable) : le panneau dit le maximum.
+  await page.evaluate(() => {
+    window.cubesDebug.clearInventory();
+    window.cubesDebug.give(6, 1);
+    window.cubesDebug.give(4, 99);
+    window.cubesDebug.give(14, 99);
+  });
+  expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+  s = await state(page);
+  expect(s.craft.cards.map((c) => c.state)).toEqual(["max", "max", "missing"]);
+  await expect(page.locator(".craft-status")).toHaveText("99, c'est le maximum !");
+  expect(s.spoken.at(-1)).toBe("Quatre-vingt-dix-neuf, c'est le maximum !");
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  expect(errors).toEqual([]);
+});
+
+test("fabrication au clavier, panneau ouvert : garder la touche 3 une seconde vide la case 3 (la ligne d'état le dit, le panneau reste ouvert) ; relâchée avant, rien", async ({ page }, testInfo) => {
+  test.skip(isTouch(testInfo), "clavier : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(2, 5);
+    window.cubesDebug.give(3, 5);
+    window.cubesDebug.give(5, 5);
+    window.cubesDebug.give(6, 2);
+  });
+  await page.mouse.click(640, 360);
+  await page.keyboard.press("KeyF");
+  await expect(page.locator(".craft")).toBeVisible();
+  // Relâchée avant une seconde : la case est choisie, rien n'est vidé.
+  await page.keyboard.down("Digit3");
+  await page.waitForTimeout(150);
+  await page.keyboard.up("Digit3");
+  await expect(page.locator(".hotbar .slot").nth(2)).toHaveClass(/selected/);
+  await expect.poll(async () => (await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1000);
+  expect(invCount(await state(page), B.sand)).toBe(5);
+  // Gardée une seconde (constat 13 de la revue du J8 : les chiffres étaient avalés panneau ouvert).
+  await page.keyboard.down("Digit3");
+  await expect.poll(async () => (await state(page)).slotHold?.source).toBe("key");
+  await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+  await page.keyboard.up("Digit3");
+  await expect(page.locator(".craft-status")).toContainText("Case vidée");
+  // Cartes à jour : plus de sable.
+  await expect.poll(async () => (await state(page)).craft.cards.find((c) => c.id === "verre")?.state).toBe("missing");
+  const s = await state(page);
+  expect(s.craft.open).toBe(true);
+  expect(s.paused).toBe(true);
+  expect(invCount(s, B.dirt)).toBe(5);
+  expect(invCount(s, B.stone)).toBe(5);
+  expect(invCount(s, B.log)).toBe(2);
+  // F ferme toujours le panneau.
+  await page.keyboard.press("KeyF");
+  await expect(page.locator(".craft")).toBeHidden();
   expect(errors).toEqual([]);
 });
 
@@ -2601,6 +2685,56 @@ test("découverte du marteau (partie d'enfant) : caché avant l'abri ; Pixel le 
   await page.waitForTimeout(17_000);
   s = await state(page);
   expect(s.craft).toMatchObject({ available: true, glow: false, intro: false });
+  expect(errors).toEqual([]);
+});
+
+test("abri passé sans avoir ouvert le marteau (monde de la 1.0-rc, mission 1 finie, de jour) : la mission 2 commence, le marteau est là avec son halo, Pixel ne l'interrompt pas pour le présenter ; ouvert, il est retenu", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(90_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    // Profils écrits par la 1.0-rc : pas de craftSeen.
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2, tutorialDone: true },
+    ] }));
+    // Monde de la 1.0-rc : mission 1 finie (step 6), de jour (vers 11 h), pierres, sable et planches dans le sac.
+    localStorage.setItem("cubes:monde:p1:0", JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [[3, 5], [5, 5], [4, 5]] }, phase: 0.3, savedAt: Date.now(),
+      mission: { id: "abri", step: 6, counts: {} },
+    }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  let s = await state(page);
+  expect(s.missionId).toBe("mots");
+  expect(s.craftSeen).toBe(false);
+  expect(s.craft).toMatchObject({ available: true, glow: true, intro: false });
+  await expect(page.locator(".craft-btn")).toBeVisible();
+  await expect(page.locator(".craft-btn")).toHaveClass(/new/);
+  await expect(page.locator(".hint")).toContainText("F : fabriquer");
+  // Pixel ne présente pas le marteau pendant la mission 2 (sa présentation attend 15 s après le début d'une étape).
+  await page.waitForTimeout(16_000);
+  s = await state(page);
+  expect(s.missionId).toBe("mots");
+  expect(s.craft.intro).toBe(false);
+  expect(s.spoken.some((t) => t.includes("fabriquer"))).toBe(false);
+  // Ouvert : le verre se fabrique, le halo s'éteint, la découverte est retenue dans le profil.
+  await page.keyboard.press("KeyF");
+  await expect(page.locator(".craft")).toBeVisible();
+  s = await state(page);
+  expect(s.craft.cards.find((c) => c.id === "verre")?.state).toBe("ok");
+  expect(s.craft.glow).toBe(false);
+  expect(s.craftSeen).toBe(true);
+  const profiles = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:profils") ?? "null"));
+  expect(profiles.profiles[0].craftSeen).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".craft")).toBeHidden();
   expect(errors).toEqual([]);
 });
 
@@ -2849,6 +2983,34 @@ test("mission 2, lecteur autonome : le mot est dicté même voix coupée, sans �
   expect(errors).toEqual([]);
 });
 
+test("dictée en attente puis panneau de fabrication ouvert : le mot redit est lu sous le panneau, voix coupée (décision 13)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(90_000);
+  const errors = await openGame(page, `${M2}&lecture=autonome`);
+  expect((await state(page)).voice).toBe(false);
+  await page.evaluate(() => window.cubesDebug.assumeVoice(true));
+  await skipStep(page);
+  const target = await writingTarget(page);
+  const wrong = `${target[0]}${target[1] === "X" ? "Y" : "X"}${target.slice(2)}`;
+  await writeWord(page, wrong, 14, 16);
+  expect((await state(page)).spoken.some((t) => t.startsWith("Écoute bien"))).toBe(false);
+  // Dans la même tâche : « répète » (la dictée du mot occupe la voix quelques secondes), l'essai faux (« Écoute
+  // bien… » attend sa fin), puis le marteau (constat 10 de la revue du J8 : l'ouverture annulait la dictée en attente).
+  const r = await page.evaluate(() => {
+    (document.querySelector(".companion-repeat") as HTMLButtonElement).click();
+    const check = window.cubesDebug.checkWriting();
+    const opened = window.cubesDebug.openCraft();
+    return { key: check?.key ?? null, opened, listened: window.cubesDebug.state().spoken.some((t) => t.startsWith("Écoute bien")) };
+  });
+  expect(r).toEqual({ key: "DICT_WRONG", opened: true, listened: false });
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.startsWith("Écoute bien")), { timeout: 15_000 }).toBe(true);
+  const s = await state(page);
+  expect(s.craft.open).toBe(true);
+  expect(s.spoken.at(-1)?.toLowerCase()).toContain(target.toLowerCase());
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  expect(errors).toEqual([]);
+});
+
 test("mission 2 jusqu'au bout : félicitations avec chaque mot écrit en lettres-blocs, et le cadeau", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   test.setTimeout(120_000);
@@ -2987,6 +3149,57 @@ test("mission 2 au doigt : la case ABC ouvre la boîte (26 grosses lettres, sans
   expect(s.paused).toBe(false);
   await expect(page.locator(".letter-tray")).toBeHidden();
   await expect(page.locator(".slot.letters canvas.letters-tile")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : le mode Poser pris par une lettre (mission 2) ne passe pas à la partie suivante ; toute partie d'enfant, et un nouveau monde en mode adresse, commence en mode Casser", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  test.setTimeout(120_000);
+  // Mode adresse : une lettre choisie passe au mode Poser ; « Nouveau monde » repart en mode Casser.
+  let errors = await openGame(page, M2);
+  expect(await page.evaluate(() => window.cubesDebug.chooseLetter("A"))).toBe(true);
+  expect((await state(page)).touchMode).toBe("place");
+  await page.evaluate(() => window.cubesDebug.newWorld("plat", 2));
+  await page.waitForFunction(() => !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).touchMode).toBe("break");
+  await expect(page.locator(".touch-btn").first()).toHaveText("Casser");
+  expect(errors).toEqual([]);
+  // Partie d'enfant : Léa (mission 2) choisit une lettre puis revient à l'accueil ; Tom reprend son monde, à l'étape
+  // « 6 troncs » de la mission 1 : mode Casser (constat 3 de la revue du J8 : il restait en mode Poser).
+  await page.goto("about:blank");
+  errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2, tutorialDone: true },
+    ] }));
+    const world = (mission: object) => JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.1, savedAt: Date.now(), mission,
+    });
+    localStorage.setItem("cubes:monde:p1:0", world({ id: "mots", step: 1, counts: {}, words: [], word: "AMI" }));
+    localStorage.setItem("cubes:monde:p2:0", world({ id: "abri", step: 0, counts: {} }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  const play = async (profile: string) => {
+    await page.locator(`.profile-card[data-profile="${profile}"]`).tap();
+    await page.locator('.slot-card[data-slot="0"]').tap();
+    await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  };
+  await play("p1");
+  expect((await state(page)).missionId).toBe("mots");
+  expect(await page.evaluate(() => window.cubesDebug.chooseLetter("M"))).toBe(true);
+  expect((await state(page)).touchMode).toBe("place");
+  await page.locator(".home-btn").tap();
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  await play("p2");
+  const s = await state(page);
+  expect(s.session?.name).toBe("Tom");
+  expect(s.missionId).toBe("abri");
+  expect(s.mission).toEqual({ step: 0, done: false });
+  expect(s.touchMode).toBe("break");
+  await expect(page.locator(".touch-btn").first()).toHaveText("Casser");
   expect(errors).toEqual([]);
 });
 

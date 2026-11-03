@@ -380,6 +380,22 @@ export function lettersUnlocked(def: MissionDef | null): boolean {
 }
 
 /**
+ * L'abri de la mission 1 est-il derrière l'enfant (V2 lot 1) ? Mission 1 au-delà de son étape abri (finie comprise :
+ * stepIndex vaut alors le nombre d'étapes), ou mission suivante de la campagne ; sans mission, au tutoriel ou hors
+ * campagne : non. Le marteau est alors acquis, même jamais présenté ni ouvert (monde de la 1.0-rc dont la mission 1
+ * est finie, présentation manquée à l'étape abri) : voir Game.craftAvailable.
+ */
+export function shelterPassed(def: MissionDef | null, stepIndex: number): boolean {
+  if (!def) return false;
+  const rank = CAMPAIGN.indexOf(def);
+  const m1 = CAMPAIGN.indexOf(MISSION_1);
+  if (rank < 0 || rank < m1) return false;
+  if (rank > m1) return true;
+  const shelter = MISSION_1.steps.findIndex((s) => s.goal.kind === "shelter");
+  return shelter >= 0 && stepIndex > shelter;
+}
+
+/**
  * Peut-on dire que la lampe éloigne les Grignotes (décision 6 de Pierre : aucun indice avant que l'enfant l'ait vu) ?
  * Sans mission : oui ; tutoriel : non ; mission 1 : seulement finie ; mission 2 et suivantes : oui.
  */
