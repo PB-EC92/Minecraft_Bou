@@ -2152,12 +2152,34 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
   expect((await state(page)).slotHold).toBeNull();
   // Par le vrai chemin du doigt (CDP) : annulé aussitôt posé, case gardée ; après 950 ms, case vidée. (Sous charge,
   // un événement du pilote peut attendre plusieurs centaines de millisecondes une image lente : les durées exactes
-  // sont vérifiées plus haut, dans la page.)
+  // sont vérifiées plus haut, dans la page.) L'écart réellement vu par la page entre le toucher et son annulation est
+  // relevé : s'il dépasse 900 ms (machine chargée), la règle veut que la case se vide ; on refait alors le geste
+  // (au plus 4 fois) jusqu'à obtenir l'annulation « aussitôt posé » que ce cas vérifie.
   await page.evaluate(() => window.cubesDebug.give(3, 4)); // pierre, de nouveau en case 2
+  await page.evaluate(() => {
+    const w = window as unknown as { __touchTimes: number[] };
+    w.__touchTimes = [];
+    for (const ev of ["touchstart", "touchcancel"]) window.addEventListener(ev, () => w.__touchTimes.push(performance.now()), { capture: true });
+  });
   const cdp = await context.newCDPSession(page);
   const c = await slotCenter(page, 1);
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  let quickGap = Infinity;
+  for (let attempt = 0; attempt < 4 && !(quickGap < 900); attempt++) {
+    await page.evaluate(() => {
+      (window as unknown as { __touchTimes: number[] }).__touchTimes = [];
+    });
+    await page.evaluate(() => {
+      // Pierre de nouveau en case 2 si un essai précédent l'a vidée (première case libre).
+      const missing = 4 - (window.cubesDebug.state().inventory.find((s) => s?.id === 3)?.count ?? 0);
+      if (missing > 0) window.cubesDebug.give(3, missing);
+    });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    const times = await page.evaluate(() => (window as unknown as { __touchTimes: number[] }).__touchTimes);
+    quickGap = times.length === 2 ? (times[1] ?? 0) - (times[0] ?? 0) : Infinity;
+    if (!(quickGap < 900)) await page.waitForTimeout(1300); // geste compté comme allé au bout : on laisse le jeu finir
+  }
+  expect(quickGap).toBeLessThan(900);
   expect((await state(page)).slotHold).toBeNull();
   await page.waitForTimeout(1300);
   expect(invCount(await state(page), B.stone)).toBe(4);
