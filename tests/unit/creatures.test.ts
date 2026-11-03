@@ -192,6 +192,42 @@ describe("les Grignotes ne trichent pas (relecture J5)", () => {
     for (const g of sim.creatures) expect(g.y).toBeLessThan(7);
   });
 
+  it("une vitre de deux blocs de haut (V2 lot 1) : elles s'y collent, sans passer ni chiper à travers", () => {
+    const w = flat();
+    for (let z = 0; z < 96; z++) for (let y = 4; y < 6; y++) w.set(50, y, z, BlockId.Glass);
+    const sim = new CreatureSim(w, 7);
+    const c = ctx({ night: true, player: { x: 49.6, y: 4, z: 48.5 } }); // l'enfant est contre la vitre, côté x < 50
+    const far = new Set<number>();
+    for (const z of [46.5, 48.5, 50.5]) {
+      const g = sim.spawnAt(53.5, z)!;
+      g.mode = "approach";
+      far.add(g.id);
+    }
+    let closest = Infinity;
+    for (let t = 0; t < 10_000; t += 50) {
+      for (const e of sim.update(50, c)) expect(e.kind === "steal" && far.has(e.id)).toBe(false);
+      for (const g of sim.creatures) {
+        if (!far.has(g.id)) continue;
+        expect(g.x).toBeGreaterThanOrEqual(51); // jamais dans la vitre ni de l'autre côté
+        closest = Math.min(closest, g.x);
+      }
+    }
+    expect(closest).toBeLessThan(51.5); // elles sont venues se coller à la vitre
+  });
+
+  it("pas d'apparition sur un grand toit de verre (V2 lot 1)", () => {
+    const w = flat();
+    for (let x = 20; x < 80; x++) for (let z = 20; z < 80; z++) w.set(x, 8, z, BlockId.Glass);
+    for (const player of [{ x: 48, y: 4, z: 48 }, { x: 48, y: 9, z: 48 }]) {
+      // Sous le toit, puis debout dessus : le toit n'est jamais plus haut que l'enfant, seul le sol naturel compte.
+      const sim = new CreatureSim(w, 5);
+      for (let t = 0; t < 20_000; t += 50) {
+        sim.update(50, ctx({ night: true, player }));
+        for (const g of sim.creatures) expect(g.y).toBeLessThan(7);
+      }
+    }
+  });
+
   it("clôture en diagonale : ni passage ni vol à travers le coin", () => {
     const w = flat();
     for (let i = 0; i < 96; i++) w.set(i, 4, i, BlockId.Fence);

@@ -12,14 +12,14 @@ function setup() {
 }
 
 /** Cabane de 3 × 3 à l'intérieur centrée sur (cx, cz), murs de h blocs, porte au sud (+Z), toit plein si roof. */
-function hut(w: World, cx: number, cz: number, h = 3, roof = true, door = true) {
+function hut(w: World, cx: number, cz: number, h = 3, roof = true, door = true, block = BlockId.Planks) {
   for (let dx = -2; dx <= 2; dx++) {
     for (let dz = -2; dz <= 2; dz++) {
       const edge = Math.abs(dx) === 2 || Math.abs(dz) === 2;
       for (let y = 4; y < 4 + h; y++) {
-        if (edge && !(door && dx === 0 && dz === 2 && y < 6)) w.set(cx + dx, y, cz + dz, BlockId.Planks);
+        if (edge && !(door && dx === 0 && dz === 2 && y < 6)) w.set(cx + dx, y, cz + dz, block);
       }
-      if (roof) w.set(cx + dx, 4 + h, cz + dz, BlockId.Planks);
+      if (roof) w.set(cx + dx, 4 + h, cz + dz, block);
     }
   }
 }
@@ -38,6 +38,17 @@ describe("abri (mission 1)", () => {
     expect(checkShelter(w, 15.5, 4, 15.5, changed).walls).toBe(4);
     // Sur le seuil (dans l'ouverture de la porte), sous le toit : trois murs aussi.
     expect(checkShelter(w, 16.5, 4, 18.5, changed).ok).toBe(true);
+  });
+
+  it("abri de verre (V2 lot 1) : toit et murs en verre posés par l'enfant comptent", () => {
+    const { w, changed } = setup();
+    hut(w, 16, 16, 3, true, true, BlockId.Glass);
+    expect(checkShelter(w, 16.5, 4, 16.5, changed)).toEqual({ roof: true, walls: 3, own: true, ok: true });
+    // Une cabane en planches couverte d'un toit de verre : abri aussi (on voit le ciel, on est à l'abri).
+    const b = setup();
+    hut(b.w, 16, 16);
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) b.w.set(16 + dx, 7, 16 + dz, BlockId.Glass);
+    expect(checkShelter(b.w, 16.5, 4, 16.5, b.changed).ok).toBe(true);
   });
 
   it("sans toit : pas encore un abri (murs comptés)", () => {
