@@ -1,10 +1,10 @@
-import { NIGHT_LENGTHS, exportFileName, savedLabel, type NightLength, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
+import { NIGHT_LENGTHS, exportFileName, exportStatus, savedLabel, type NightLength, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
 import type { SaveStore } from "../save/SaveStore";
 import { WORLD_TYPES, worldTypeName, type WorldTypeId } from "../engine/terrain";
 import { AVATARS, avatarDef } from "../game/avatars";
 import { CHOOSE_AVATAR, CHOOSE_SLOT, CHOOSE_WORLD_TYPE, READING_LEVELS, WHO_PLAYS, pick, type ChildText, type ReadingLevel } from "../edu/texts";
 import { avatarIcon } from "./avatarIcon";
-import { campaignDone, progressLabel } from "../edu/missions";
+import { progressLabel, starsEarned } from "../edu/missions";
 
 /** Durée de l'appui long qui ouvre le mode parent (plan : trois secondes). */
 export const PARENT_HOLD_MS = 3000;
@@ -24,6 +24,10 @@ export interface HomeCallbacks {
  * de monde par enfant, choix du type d'un nouveau monde, et mode parent (appui
  * long de trois secondes sur l'engrenage). Les écrans des enfants n'ont que de
  * gros boutons illustrés ; les textes suivent le niveau de lecture du profil.
+ *
+ * V2 lot 1 : l'engrenage n'a plus de texte (le geste est rappelé à l'adulte sur
+ * l'écran de premier réglage) ; le mode parent montre la date du dernier export
+ * et rappelle d'exporter (jamais exporté, ou plus de 7 jours, avec des mondes).
  */
 export class HomeScreen {
   readonly root: HTMLDivElement;
@@ -150,11 +154,12 @@ export class HomeScreen {
         const d = this.div("card-date");
         d.textContent = savedLabel(w.savedAt, Date.now());
         card.appendChild(d);
-        // Mission réussie dans ce monde (J6) : une étoile, sans mot à lire.
-        if (campaignDone(w.mission)) {
+        // Missions réussies dans ce monde (J6 ; V2 : une étoile par mission après le tutoriel), sans mot à lire.
+        const stars = starsEarned(w.mission);
+        if (stars > 0) {
           const star = this.div("card-star");
-          star.textContent = "★";
-          star.setAttribute("aria-label", "mission réussie");
+          star.textContent = "★".repeat(stars);
+          star.setAttribute("aria-label", stars === 1 ? "1 mission réussie" : `${stars} missions réussies`);
           card.appendChild(star);
         }
       } else {
@@ -191,7 +196,10 @@ export class HomeScreen {
 
   // ---------- Adulte ----------
 
-  /** Engrenage du mode parent : appui long de trois secondes (un anneau se remplit). */
+  /**
+   * Engrenage du mode parent : appui long de trois secondes (un anneau se remplit). Sans texte (décision 5 de
+   * Pierre) : l'enfant de 8 ans n'a rien à lire ; le geste est rappelé à l'adulte au premier réglage.
+   */
   private parentGear(): HTMLElement {
     const wrap = this.div("parent-gear-wrap");
     const gear = document.createElement("button");
@@ -219,9 +227,6 @@ export class HomeScreen {
     for (const ev of ["pointerup", "pointerleave", "pointercancel"]) gear.addEventListener(ev, stop);
     gear.addEventListener("contextmenu", (e) => e.preventDefault());
     wrap.appendChild(gear);
-    const hint = this.div("parent-hint");
-    hint.textContent = "Adulte : garder appuyé 3 s";
-    wrap.appendChild(hint);
     return wrap;
   }
 
@@ -237,6 +242,19 @@ export class HomeScreen {
     const settings = this.store.loadSettings();
     this.heading(first ? "Bienvenue ! Réglages de l'adulte" : "Mode parent");
     const form = this.div("parent-form");
+    const status = this.div("parent-status");
+    // Rappel d'export (décision 7 de Pierre) : en tête, pour l'adulte seulement (rien sur les écrans des enfants).
+    const exportState = first ? null : exportStatus(this.store.lastExportAt(), Date.now(), this.store.worldCount());
+    if (exportState?.reminder) {
+      const reminder = this.div("parent-reminder");
+      reminder.setAttribute("role", "status");
+      const text = document.createElement("span");
+      text.textContent = exportState.reminder;
+      const now = this.adultButton("Exporter maintenant");
+      now.addEventListener("click", () => this.exportFile(status));
+      reminder.append(text, now);
+      form.appendChild(reminder);
+    }
 
     const section = (title: string) => {
       const h = document.createElement("h3");
@@ -309,8 +327,6 @@ export class HomeScreen {
     devLabel.append(devTools, " Afficher le panneau « Tests » et les infos techniques pendant les parties (pour l'adulte)");
     form.appendChild(devLabel);
 
-    const status = this.div("parent-status");
-
     if (!first) {
       // Progression de chacun (J6) : tutoriel, puis étape de la mission dans chaque monde.
       section("Progression");
@@ -355,6 +371,9 @@ export class HomeScreen {
         "Sous Firefox, une copie du jeu ailleurs ou renommée ne les retrouverait pas : remplacer le fichier au même endroit, sous le même nom, " +
         "et exporter avant chaque mise à jour.";
       form.appendChild(where);
+      const exportDate = this.div("parent-export-date");
+      exportDate.textContent = exportState?.label ?? "";
+      form.appendChild(exportDate);
       const r = this.div("parent-row");
       const exp = this.adultButton("Exporter (fichier)");
       exp.addEventListener("click", () => this.exportFile(status));
@@ -409,6 +428,13 @@ export class HomeScreen {
     }
     form.appendChild(actions);
     form.appendChild(status);
+    if (first) {
+      // Décision 5 de Pierre : plus de texte sous l'engrenage ; le geste est dit ici, une fois, à l'adulte.
+      const note = this.div("parent-gear-note");
+      note.textContent =
+        "Pour revenir à ces réglages : sur l'écran « Qui joue ? », garder le doigt (ou le clic) 3 secondes sur l'engrenage en bas à gauche.";
+      form.appendChild(note);
+    }
     this.content.appendChild(form);
   }
 
@@ -427,6 +453,17 @@ export class HomeScreen {
     a.remove();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
     status.textContent = `Fichier « ${a.download} » créé (dossier des téléchargements).`;
+    // Date du dernier export (V2), mise à jour sur place : re-rendre le formulaire perdrait des prénoms en cours de saisie.
+    const now = Date.now();
+    const w = this.store.markExported(now);
+    if (!w.ok) {
+      status.textContent += " (date de l'export non retenue : stockage indisponible)";
+      return;
+    }
+    const st = exportStatus(now, now, this.store.worldCount());
+    const date = this.content.querySelector(".parent-export-date");
+    if (date) date.textContent = st.label;
+    this.content.querySelector(".parent-reminder")?.remove();
   }
 
   private importFile(file: File, status: HTMLElement): void {

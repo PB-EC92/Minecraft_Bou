@@ -20,7 +20,7 @@ interface Stack {
 interface DebugState {
   type: string;
   seed: number;
-  player: { x: number; y: number; z: number; onGround: boolean; inWater: boolean; headInWater: boolean; climbing: boolean };
+  player: { x: number; y: number; z: number; onGround: boolean; inWater: boolean; headInWater: boolean; climbing: boolean; yaw: number; pitch: number };
   hour: number;
   night: boolean;
   loading: boolean;
@@ -35,6 +35,7 @@ interface DebugState {
   slot: number;
   inventory: (Stack | null)[];
   breakProgress: number;
+  touchMode: "break" | "place";
   level: string;
   voice: boolean;
   /** Phrases demandées à la voix, les plus récentes à la fin (20 au plus). */
@@ -54,11 +55,20 @@ interface DebugState {
   shelter: { roof: boolean; walls: number; own: boolean; ok: boolean } | null;
   celebration: boolean;
   rewardPending: { block: number; count: number } | null;
+  /** Le temps file (×30) : dernière étape de la mission 1, ou attente du matin avant la mission 2 (V2). */
   timeBoost: boolean;
   tutorialDone: boolean | null;
   companionText: string | null;
   lamps: number;
   bubbles: number;
+  /** Appui long en cours sur une case (V2). */
+  slotHold: { slot: number; progress: number; source: "mouse" | "touch" | "key" } | null;
+  /** Soir retenu à 17 h par l'étape en cours (V2). */
+  eveningHeld: boolean;
+  /** La lampe peut être citée (décision 6 de Pierre). */
+  lampRevealed: boolean;
+  /** Mission suivante qui attend le matin (V2), ou null. */
+  pendingMission: string | null;
 }
 
 /** Identifiants de blocs utiles aux tests (src/engine/blocks.ts). */
@@ -79,6 +89,7 @@ declare global {
       restoreContext(): void;
       give(id: number, n?: number): { ok: boolean };
       clearInventory(): void;
+      emptySlot(i: number): "ok" | "empty" | "keep-lamp" | "keep-gift" | "keep-goal";
       fillInventory(): void;
       selectSlot(i: number): void;
       setBlock(x: number, y: number, z: number, id: number): boolean;
@@ -268,8 +279,8 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   // Le monde se construit derrière l'accueil.
   await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(".info").textContent()).toMatch(/1\.0-rc$/);
-  expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.0-rc");
+  expect(await page.locator(".info").textContent()).toMatch(/1\.1-rc$/);
+  expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.1-rc");
   await expect(page).toHaveTitle("Cubes");
   // J7 : ni panneau Tests ni infos techniques hors du mode adresse (réglage du mode parent, décoché par défaut).
   await expect(page.locator(".info")).toBeHidden();
@@ -327,7 +338,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : 1.0-rc");
+  await expect(diag).toContainText("Version : 1.1-rc");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
@@ -1193,6 +1204,10 @@ test("mode parent : appui long de 3 s ; effacer un monde, exporter puis importer
   await firstLaunch(page, testInfo);
   await page.locator(".home-btn").click();
   const gear = page.locator(".parent-gear");
+  // V2 (décision 5 de Pierre) : plus de texte sous l'engrenage.
+  await expect(gear).toBeVisible();
+  await expect(page.locator(".parent-hint")).toHaveCount(0);
+  expect((await page.locator(".parent-gear-wrap").textContent())?.trim()).toBe("");
   const box = (await gear.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   // Appui court : rien.
@@ -1302,7 +1317,7 @@ test("le même monde ouvert dans deux onglets : l'onglet resté en arrière n'é
 const invCount = (s: DebugState, id: number) => s.inventory.find((c) => c?.id === id)?.count ?? 0;
 const B5 = { lamp: 13, fence: 14, glow: 15 } as const;
 
-test("casser une pierre brillante donne une lampe ; un tronc donne aussi une clôture", async ({ page }, testInfo) => {
+test("casser une pierre brillante donne une lampe ; un tronc ne donne qu'un tronc (la clôture se fabrique, V2)", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   const errors = await openGame(page);
   await page.evaluate(() => {
@@ -1319,7 +1334,7 @@ test("casser une pierre brillante donne une lampe ; un tronc donne aussi une cl�
   });
   s = await state(page);
   expect(invCount(s, B.log)).toBe(1);
-  expect(invCount(s, B5.fence)).toBe(1);
+  expect(invCount(s, B5.fence)).toBe(0); // décision 3 de Pierre
   expect(errors).toEqual([]);
 });
 
@@ -1606,17 +1621,27 @@ test("mission 1 de bout en bout : abri vérifié, lampe, nuit, Grignotes qui fui
   const after = (await state(page)).player;
   expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThan(0.05);
   await expect(page.locator(".message")).toContainText("Vide une case du sac");
-  // Une case libérée : le cadeau entre dans le sac et le jeu le dit.
-  await page.evaluate(() => {
-    const inv = window.cubesDebug.state().inventory;
-    const i = inv.findIndex((c) => c?.id === 12);
-    window.cubesDebug.selectSlot(i);
-  });
-  await page.evaluate(() => window.cubesDebug.clearInventory());
+  // V2 : la mission 1 a fini la nuit, la mission 2 attend le matin et le temps file (×30), sans signal de la nuit.
+  s = await state(page);
+  expect(s.missionId).toBe("abri");
+  expect(s.pendingMission).toBe("mots");
+  expect(s.timeBoost).toBe(true);
+  // Une case vidée par l'appui long (même chemin que le geste) : le cadeau entre dans le sac et le jeu le dit.
+  const cactus = s.inventory.findIndex((c) => c?.id === 12);
+  expect(await page.evaluate((i) => window.cubesDebug.emptySlot(i), cactus)).toBe("ok");
   await expect.poll(async () => invCount(await state(page), B6.rainbow)).toBe(5);
   s = await state(page);
   expect(s.rewardPending).toBeNull();
+  expect(invCount(s, 12)).toBe(0);
   await expect(page.locator(".message")).toContainText("5 blocs arc-en-ciel");
+  // Le matin : la mission 2 commence.
+  await expect.poll(async () => (await state(page)).missionId, { timeout: 60_000 }).toBe("mots");
+  s = await state(page);
+  expect(s.hour).toBeGreaterThanOrEqual(6.5);
+  expect(s.hour).toBeLessThan(10);
+  expect(s.pendingMission).toBeNull();
+  expect(s.timeBoost).toBe(false);
+  expect(s.spoken.filter((t) => t.includes("nuit arrive"))).toEqual([]);
   expect(errors).toEqual([]);
 });
 
@@ -1670,7 +1695,8 @@ test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour 
   await page.reload();
   await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
   await page.locator('.profile-card[data-profile="p1"]').click();
-  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toBeVisible();
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveText("★");
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveAttribute("aria-label", "1 mission réussie");
   await expect(page.locator('.slot-card[data-slot="1"] .card-star')).toHaveCount(0);
   // Nouveau monde : Léa a déjà fait le tutoriel, la mission 1 commence.
   await page.locator('.slot-card[data-slot="1"]').click();
@@ -1689,7 +1715,7 @@ test("accueil et mode parent : étoile d'un monde réussi, tutoriel sauté pour 
   await page.mouse.up();
   await expect(page.locator(".parent-who")).toHaveText(["Léa : tutoriel fait", "Tom : tutoriel pas encore fait"]);
   await expect(page.locator(".parent-progress li")).toHaveText([
-    "Monde 1 (prairie) : mission 1 (l'abri) réussie",
+    "Monde 1 (prairie) : mission 1 (l'abri) réussie, mission 2 (les mots) pas encore commencée",
     "Monde 2 (désert) : mission 1 (l'abri) : étape 1 sur 6 (ramasser 6 troncs)",
   ]);
   // Enregistrer et fermer garde le tutoriel fait.
@@ -1814,5 +1840,409 @@ test("étape abri : l'enfant qui pousse contre ses propres murs ne se fait pas d
   await page.waitForTimeout(1000);
   await page.keyboard.up("KeyW");
   expect((await state(page)).spoken.some((t) => t.includes("Garde Espace"))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// ---------- V2 lot 1 : suites de recette (appui long sur une case, soir retenu, lampe à découvrir, rappel d'export) ----------
+
+/** Relève dans la page chaque image où l'anneau de l'appui long est visible : son bas, son centre et la case tenue. */
+async function watchHoldRing(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { holdRings: { bottom: number; cx: number; slot: number }[] };
+    w.holdRings = [];
+    const ring = document.querySelector(".slot-hold")!;
+    new MutationObserver(() => {
+      if (!ring.classList.contains("visible")) return;
+      const r = ring.getBoundingClientRect();
+      const slot = Array.from(document.querySelectorAll(".hotbar .slot")).findIndex((el) => el.classList.contains("holding"));
+      w.holdRings.push({ bottom: r.bottom, cx: r.left + r.width / 2, slot });
+    }).observe(ring, { attributes: true, attributeFilter: ["class", "style"] });
+  });
+}
+
+const holdRings = (page: Page) =>
+  page.evaluate(() => (window as unknown as { holdRings: { bottom: number; cx: number; slot: number }[] }).holdRings.splice(0));
+
+/** Centre d'une case de la barre. */
+async function slotCenter(page: Page, i: number): Promise<{ x: number; y: number; top: number }> {
+  const b = (await page.locator(".hotbar .slot").nth(i).boundingBox())!;
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2, top: b.y };
+}
+
+/** Sac plein de 9 sortes, 3 blocs chacune (le sable est dans la case 4, indice 3). */
+const FULL_KIT = [B.dirt, B.stone, B.planks, B.sand, B.log, B.leaves, B.snow, B.cactus, B.flowerRed];
+
+test("sac plein : garder le clic une seconde sur une case la vide (anneau au-dessus) ; un clic bref ou une souris qui glisse ne vident rien", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate((ids) => {
+    for (const id of ids) window.cubesDebug.give(id, 3);
+  }, FULL_KIT);
+  await watchHoldRing(page);
+  const c = await slotCenter(page, 3);
+  await page.mouse.move(c.x, c.y);
+  // Clic bref : la case est choisie, rien n'est vidé.
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.locator(".hotbar .slot").nth(3)).toHaveClass(/selected/);
+  expect((await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1300);
+  expect(invCount(await state(page), B.sand)).toBe(3);
+  // Souris qui glisse pendant l'appui (l'enfant visait autre chose) : annulé. Appui et glissé envoyés dans la même
+  // tâche de la page : l'appui est mesuré en temps réel, et sous charge les déplacements n'arrivent qu'aux images.
+  await page.evaluate(([x, y]) => {
+    const target = document.querySelectorAll(".hotbar .slot")[3]!;
+    target.dispatchEvent(new MouseEvent("mousedown", { button: 0, buttons: 1, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    window.dispatchEvent(new MouseEvent("mousemove", { buttons: 1, bubbles: true, clientX: x + 30, clientY: y }));
+  }, [c.x, c.y] as const);
+  expect((await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1300);
+  await page.evaluate(([x, y]) => window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true, clientX: x + 30, clientY: y })), [c.x, c.y] as const);
+  expect(invCount(await state(page), B.sand)).toBe(3);
+  await holdRings(page);
+  // Appui gardé : l'anneau se remplit au-dessus de la case (le doigt ne le cache pas), puis la case est vidée.
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+  await page.mouse.up();
+  const rings = await holdRings(page);
+  expect(rings.length).toBeGreaterThan(0);
+  for (const r of rings) {
+    expect(r.slot).toBe(3);
+    expect(r.bottom).toBeLessThanOrEqual(c.top);
+    expect(Math.abs(r.cx - c.x)).toBeLessThan(3);
+  }
+  await expect(page.locator(".slot-hold")).not.toHaveClass(/visible/);
+  await expect(page.locator(".hotbar .slot.holding")).toHaveCount(0);
+  await expect(page.locator(".message")).toContainText("Case vidée");
+  const s = await state(page);
+  expect(s.inventory[3]).toBeNull();
+  expect(s.slotHold).toBeNull();
+  expect(s.inventory.filter(Boolean)).toHaveLength(8);
+  // La case libérée reçoit le bloc suivant.
+  await page.evaluate(() => window.cubesDebug.give(1, 1));
+  expect((await state(page)).inventory[3]).toEqual({ id: B.grass, count: 1 });
+  expect(errors).toEqual([]);
+});
+
+test("appui long : la lampe et le cadeau ne se vident jamais (pas d'anneau, le jeu le dit)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "souris : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(13, 1); // lampe
+    window.cubesDebug.give(16, 5); // cadeau arc-en-ciel
+    window.cubesDebug.give(3, 2);
+  });
+  await watchHoldRing(page);
+  const c = await slotCenter(page, 0);
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await expect(page.locator(".message")).toContainText("Garde ta lampe", { timeout: 10_000 });
+  await page.mouse.up();
+  let s = await state(page);
+  expect(invCount(s, 13)).toBe(1);
+  expect(await holdRings(page)).toEqual([]);
+  // Le cadeau, par le même chemin que le geste.
+  expect(await page.evaluate(() => window.cubesDebug.emptySlot(1))).toBe("keep-gift");
+  await expect(page.locator(".message")).toContainText("Garde ton cadeau");
+  expect(await page.evaluate(() => window.cubesDebug.emptySlot(2))).toBe("ok");
+  expect(await page.evaluate(() => window.cubesDebug.emptySlot(2))).toBe("empty");
+  s = await state(page);
+  expect(invCount(s, 16)).toBe(5);
+  expect(invCount(s, 3)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("au doigt : garder le doigt une seconde sur une case la vide ; un doigt qui glisse annule ; rien ne casse et la vue ne tourne pas @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(2, 4);
+    window.cubesDebug.give(3, 4);
+    window.cubesDebug.look(0, -60);
+  });
+  await expect.poll(async () => (await state(page)).target !== null).toBe(true);
+  const aimed = await aimedBlock(page);
+  const before = await state(page);
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", x = 0, y = 0) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const c = await slotCenter(page, 1);
+  // Doigt qui glisse : l'appui est annulé, rien n'est vidé. Toucher et glissé envoyés dans la même tâche de la page
+  // (l'appui est mesuré en temps réel ; sous charge, les touchmove du pilote n'arrivent qu'aux images, lentes ici).
+  // Un tremblement de 10 px, lui, ne l'annule pas.
+  const glide = (dx: number) =>
+    page.evaluate(
+      ([x, y, d]) => {
+        const target = document.querySelectorAll(".hotbar .slot")[1]!;
+        const at = (cx: number) => new Touch({ identifier: 41, target, clientX: cx, clientY: y });
+        target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [at(x)], changedTouches: [at(x)] }));
+        target.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [at(x + d)], changedTouches: [at(x + d)] }));
+      },
+      [c.x, c.y, dx] as const,
+    );
+  const lift = (dx: number) =>
+    page.evaluate(
+      ([x, y, d]) => {
+        const target = document.querySelectorAll(".hotbar .slot")[1]!;
+        const t = new Touch({ identifier: 41, target, clientX: x + d, clientY: y });
+        target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [t] }));
+      },
+      [c.x, c.y, dx] as const,
+    );
+  await glide(10);
+  expect((await state(page)).slotHold?.source).toBe("touch");
+  await lift(10);
+  expect((await state(page)).slotHold).toBeNull();
+  await glide(30);
+  await expect(page.locator(".hotbar .slot").nth(1)).toHaveClass(/selected/);
+  expect((await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1300);
+  await lift(30);
+  expect(invCount(await state(page), B.stone)).toBe(4);
+  // Doigt gardé une seconde : la case est vidée.
+  await touch("touchStart", c.x, c.y);
+  await expect.poll(async () => (await state(page)).slotHold?.source).toBe("touch");
+  await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+  await touch("touchEnd");
+  await expect(page.locator(".message")).toContainText("Case vidée");
+  // Rien n'a été cassé ni posé, la vue n'a pas tourné, le mode n'a pas changé.
+  expect(await blockAt(page, aimed)).toBe(aimed.id);
+  const after = await state(page);
+  expect(after.player.yaw).toBeCloseTo(before.player.yaw, 5);
+  expect(after.player.pitch).toBeCloseTo(before.player.pitch, 5);
+  expect(after.touchMode).toBe("break");
+  expect(invCount(after, B.dirt)).toBe(4);
+  expect(errors).toEqual([]);
+});
+
+test("clavier : garder la touche 3 une seconde vide la case 3 ; la relâcher avant ou tourner la molette annule", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "clavier : PC uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(2, 5);
+    window.cubesDebug.give(3, 5);
+    window.cubesDebug.give(5, 5);
+  });
+  // Relâchée avant une seconde : rien (temps réel : pas d'attente superflue entre l'appui et le relâchement).
+  await page.keyboard.down("Digit3");
+  await page.waitForTimeout(150);
+  await page.keyboard.up("Digit3");
+  await expect(page.locator(".hotbar .slot").nth(2)).toHaveClass(/selected/);
+  await expect.poll(async () => (await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1000);
+  expect(invCount(await state(page), B.sand)).toBe(5);
+  // Molette pendant l'appui : la case choisie change, l'appui est annulé.
+  await page.mouse.move(640, 360);
+  await page.keyboard.down("Digit3");
+  await page.mouse.wheel(0, 120);
+  await expect.poll(async () => (await state(page)).slot).toBe(3);
+  await expect.poll(async () => (await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1300);
+  await page.keyboard.up("Digit3");
+  expect(invCount(await state(page), B.sand)).toBe(5);
+  // Gardée une seconde : la case 3 est vidée.
+  await page.keyboard.down("Digit3");
+  await expect.poll(async () => (await state(page)).slotHold?.source).toBe("key");
+  await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+  await page.keyboard.up("Digit3");
+  await expect(page.locator(".message")).toContainText("Case vidée");
+  const s = await state(page);
+  expect(invCount(s, B.dirt)).toBe(5);
+  expect(invCount(s, B.stone)).toBe(5);
+  expect(errors).toEqual([]);
+});
+
+test("étape « 6 troncs » : les troncs ne se vident pas, Pixel en a besoin (rien ne bloque la mission)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1");
+  // La consigne est dite d'abord (sinon elle remplacerait le message du refus).
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.includes("six troncs")), { timeout: 15_000 }).toBe(true);
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 3);
+    window.cubesDebug.give(2, 2);
+  });
+  let s = await state(page);
+  const logs = s.inventory.findIndex((c) => c?.id === B.log);
+  expect(await page.evaluate((i) => window.cubesDebug.emptySlot(i), logs)).toBe("keep-goal");
+  await expect(page.locator(".message")).toContainText("Garde tes troncs");
+  const dirt = s.inventory.findIndex((c) => c?.id === B.dirt);
+  expect(await page.evaluate((i) => window.cubesDebug.emptySlot(i), dirt)).toBe("ok");
+  s = await state(page);
+  expect(invCount(s, B.log)).toBe(3);
+  expect(invCount(s, B.dirt)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("mission 1 : le soir s'arrête à 17 h tant que l'abri n'est pas fait (Temps ×20 compris), puis carillon et nuit", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(90_000);
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1&creatures=1&heure=16.8");
+  await page.getByRole("button", { name: "Tests" }).click();
+  await page.getByRole("button", { name: "Temps ×20" }).click();
+  await page.getByRole("button", { name: "Tests" }).click();
+  await expect.poll(async () => (await state(page)).hour, { timeout: 20_000 }).toBeGreaterThan(16.99);
+  let s = await state(page);
+  expect(s.eveningHeld).toBe(true);
+  expect(s.hour).toBeLessThan(17.01);
+  // Une seconde et demie au temps ×20 : plus d'une demi-heure de jeu sans la retenue.
+  await page.waitForTimeout(1500);
+  s = await state(page);
+  expect(s.hour).toBeCloseTo(17, 2);
+  expect(s.night).toBe(false);
+  expect(s.spoken.some((t) => t.includes("nuit arrive"))).toBe(false);
+  // Troncs, pierres, abri : le temps repart, carillon et « La nuit arrive ! », puis la nuit.
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 6);
+    window.cubesDebug.give(3, 4);
+  });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  expect((await state(page)).eveningHeld).toBe(true);
+  await buildHut(page, Math.floor(s.player.x), Math.floor(s.player.z), true);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
+  expect((await state(page)).eveningHeld).toBe(false);
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.includes("nuit arrive")), { timeout: 30_000 }).toBe(true);
+  await expect.poll(async () => (await state(page)).night, { timeout: 30_000 }).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("lampe à découvrir : avant la fin de la mission 1, le signal de la nuit ne parle pas de la lampe (lecteur autonome) ; sans mission, si", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(90_000);
+  const autonome = async (p: Page) => {
+    await p.getByRole("button", { name: "Tests" }).click();
+    await p.getByLabel("Niveau de lecture").selectOption("autonome");
+    await p.getByRole("button", { name: "Tests" }).click();
+  };
+  const errors = await openGame(page, "#monde=plat&graine=1&mission=1&creatures=1&heure=17.4");
+  await autonome(page);
+  expect((await state(page)).lampRevealed).toBe(false);
+  // Troncs, pierres, abri (le soir reste à 17 h 24 jusque-là), puis le soir repart.
+  await page.evaluate(() => {
+    window.cubesDebug.give(6, 6);
+    window.cubesDebug.give(3, 4);
+  });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  const s0 = await state(page);
+  await buildHut(page, Math.floor(s0.player.x), Math.floor(s0.player.z), true);
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(3);
+  const message = page.locator(".message");
+  await expect(message).toContainText("les Grignotes vont bientôt sortir", { timeout: 30_000 });
+  expect(await message.textContent()).not.toContain("lampe");
+  expect((await state(page)).lampRevealed).toBe(false);
+  // Sans mission (adresse sans &mission) : la lampe est citée.
+  const free = await context.newPage();
+  const errors2 = await openGame(free, "#monde=plat&graine=1&creatures=1&heure=17.42");
+  await autonome(free);
+  expect((await state(free)).lampRevealed).toBe(true);
+  await expect(free.locator(".message")).toContainText("Une lampe les éloigne", { timeout: 30_000 });
+  expect(errors).toEqual([]);
+  expect(errors2).toEqual([]);
+});
+
+test("mode parent : rappel du geste au premier réglage ; date du dernier export, rappel « jamais » puis au-delà de 7 jours, export et import qui la mettent à jour", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  // Premier réglage : le geste de l'engrenage est dit à l'adulte (décision 5 de Pierre), pas de rappel d'export.
+  await expect(page.locator(".parent-gear-note")).toContainText("3 secondes sur l'engrenage");
+  await expect(page.locator(".parent-reminder")).toHaveCount(0);
+  await firstLaunch(page, testInfo);
+  await page.locator(".home-btn").click();
+  await expect(page.locator(".parent-reminder, .parent-export-date, .parent-gear-note")).toHaveCount(0);
+  const openParent = async () => {
+    const box = (await page.locator(".parent-gear").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+    await page.mouse.up();
+  };
+  await openParent();
+  // Un monde, jamais exporté : rappel en tête, avec son bouton.
+  const reminder = page.locator(".parent-reminder");
+  await expect(reminder).toContainText("jamais été exportés");
+  await expect(reminder).toHaveAttribute("role", "status");
+  await expect(page.locator(".parent-export-date")).toHaveText("Dernier export : jamais.");
+  // Prénom en cours de saisie : l'export ne re-rend pas le formulaire.
+  await page.getByLabel("Prénom du joueur 2").fill("Tommy");
+  const [download] = await Promise.all([page.waitForEvent("download"), reminder.getByRole("button", { name: "Exporter maintenant" }).click()]);
+  const file = testInfo.outputPath("export.json");
+  await download.saveAs(file);
+  await expect(reminder).toHaveCount(0);
+  await expect(page.locator(".parent-export-date")).toContainText("aujourd'hui");
+  await expect(page.getByLabel("Prénom du joueur 2")).toHaveValue("Tommy");
+  const at = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:dernier-export") ?? "null")?.at as number);
+  expect(Math.abs(Date.now() - at)).toBeLessThan(60_000);
+  // Neuf jours plus tard : rappel.
+  await page.evaluate(() => localStorage.setItem("cubes:dernier-export", JSON.stringify({ at: Date.now() - 9 * 86_400_000 })));
+  await page.getByRole("button", { name: "Fermer sans enregistrer" }).click();
+  await openParent();
+  await expect(page.locator(".parent-reminder")).toContainText("il y a 9 jours");
+  await expect(page.locator(".parent-export-date")).toContainText("il y a 9 jours");
+  // Import du fichier d'aujourd'hui : sa date est retenue, le rappel disparaît. (Contenu passé directement : le chemin
+  // du dossier de sortie contient « à », que l'envoi par chemin ne transmet pas.)
+  page.once("dialog", (d) => void d.accept());
+  await page.getByLabel("Importer une sauvegarde").setInputFiles({ name: "export.json", mimeType: "application/json", buffer: readFileSync(file) });
+  await expect(page.locator(".parent-status")).toHaveText("Sauvegarde importée.");
+  await expect(page.locator(".parent-export-date")).toContainText("aujourd'hui");
+  await expect(page.locator(".parent-reminder")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("monde dont la mission 1 est finie, repris la nuit : la mission 2 attend le matin (temps accéléré) ; félicitations pas encore vues : l'écran d'abord", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  test.setTimeout(120_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2 },
+    ] }));
+    // Monde de la 1.0-rc : abri fini, 22 h (phase 0,8333), félicitations déjà vues (monde 1) ou pas (monde 2).
+    const world = (celebrate: boolean) => JSON.stringify({
+      version: 1, gen: 2, type: "prairie", seed: 1234, edits: "",
+      player: { x: 64.5, y: 30, z: 64.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.8333, savedAt: Date.now(),
+      mission: { id: "abri", step: 6, counts: {} }, ...(celebrate ? { celebrate: true } : {}),
+    });
+    localStorage.setItem("cubes:monde:p1:0", world(false));
+    localStorage.setItem("cubes:monde:p1:1", world(true));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveText("★");
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  let s = await state(page);
+  expect(s.missionId).toBe("abri");
+  expect(s.mission).toEqual({ step: 6, done: true });
+  expect(s.pendingMission).toBe("mots");
+  expect(s.timeBoost).toBe(true);
+  expect(s.celebration).toBe(false);
+  // Pixel dit qu'on attend le matin ; le matin, la mission 2 commence.
+  await expect.poll(async () => (await state(page)).spoken.some((t) => t.startsWith("Demain")), { timeout: 20_000 }).toBe(true);
+  await expect.poll(async () => (await state(page)).missionId, { timeout: 60_000 }).toBe("mots");
+  s = await state(page);
+  expect(s.hour).toBeGreaterThanOrEqual(6.5);
+  expect(s.hour).toBeLessThan(10);
+  expect(s.pendingMission).toBeNull();
+  expect(s.timeBoost).toBe(false);
+  expect(await page.evaluate(() => window.cubesDebug.saveNow())).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null")?.mission?.id)).toBe("mots");
+  // Monde 2 : l'écran de félicitations de la mission 1 passe d'abord, la mission 2 attend ensuite le matin.
+  await page.locator(".home-btn").click();
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await expect(page.locator('.slot-card[data-slot="0"] .card-star')).toHaveText("★");
+  await page.locator('.slot-card[data-slot="1"]').click();
+  await expect(page.locator(".celebration")).toBeVisible({ timeout: 15_000 });
+  s = await state(page);
+  expect(s.missionId).toBe("abri");
+  expect(s.pendingMission).toBeNull();
+  const button = page.getByRole("button", { name: "Continuer" });
+  await expect(button).toBeEnabled({ timeout: 5_000 });
+  await button.click();
+  await expect.poll(async () => (await state(page)).pendingMission).toBe("mots");
+  expect((await state(page)).timeBoost).toBe(true);
+  await expect.poll(async () => (await state(page)).missionId, { timeout: 60_000 }).toBe("mots");
   expect(errors).toEqual([]);
 });

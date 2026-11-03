@@ -1,14 +1,42 @@
 import { Sounds } from "../audio/sounds";
 import { BlockId, blockDef, breakDurationMs, dropsOf, HOTBAR_BLOCKS, isOpaqueId, isPlantId } from "../engine/blocks";
 import { BreakTracker, type BlockPos } from "../engine/breaking";
-import { advancePhase, formatHour, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
-import { Inventory, MAX_STACK, type AddResult } from "../engine/inventory";
+import { advancePhase, formatHour, holdEvening, isMissionDaytime, phaseForHour, skyState, solarTime, type SkyState } from "../engine/dayNight";
+import { discardVerdict, Inventory, MAX_STACK, slotToEmpty, type AddResult, type DiscardVerdict } from "../engine/inventory";
 import { blockBox, boxesIntersect } from "../engine/physics";
 import { raycast, type RayHit } from "../engine/raycast";
 import { generateWorld, GENERATOR_VERSION, randomSeed, worldTypeName, parseWorldType, type GeneratedWorld, type WorldTypeId } from "../engine/terrain";
 import type { World } from "../engine/World";
-import { emptiedText, emptySlotText, goalReachedText, maxStackText, pickupSpeech, pickupText, quantity, returnedText, rewardText, shouldSpeakPickup, stolenText } from "../edu/counting";
-import { BRAVO, MISSION_1, MissionRunner, nextMission, resumeMission, stepText, TUTORIAL, type MissionDef, type MissionView } from "../edu/missions";
+import {
+  discardedText,
+  emptiedText,
+  emptySlotText,
+  goalReachedText,
+  keepSlotText,
+  maxStackText,
+  pickupSpeech,
+  pickupText,
+  quantity,
+  returnedText,
+  rewardText,
+  shouldSpeakPickup,
+  stolenText,
+} from "../edu/counting";
+import {
+  BRAVO,
+  CAMPAIGN,
+  lampRevealed,
+  MISSION_1,
+  MISSION_2,
+  MissionRunner,
+  nextMission,
+  resumeMission,
+  stepText,
+  TUTORIAL,
+  type MissionDef,
+  type MissionView,
+} from "../edu/missions";
+import { MISSION_2_TOMORROW } from "../edu/wordTexts";
 import { CreatureSim, LAMP_RADIUS } from "../engine/creatures";
 import { checkShelter, SHELTER_WALLS_NEEDED, type ShelterCheck } from "../engine/shelter";
 import { pitState } from "../engine/pit";
@@ -20,6 +48,7 @@ import {
   FLOWER_IN_WATER,
   FLOWER_NEEDS_GROUND,
   FULL_BAG,
+  FULL_BAG_TOUCH,
   HINTS,
   HOLD_TO_BREAK,
   IMAGE_BACK,
@@ -30,10 +59,12 @@ import {
   parseReadingLevel,
   LAMP_SCARES,
   NIGHT_COMING,
+  NIGHT_COMING_LAMP,
   pick,
   BACK_TO_LAMP,
   bravoTitle,
   FULL_BAG_KEEP,
+  FULL_BAG_KEEP_TOUCH,
   NO_FULLSCREEN,
   OPENED_ELSEWHERE,
   PIT_CLIMB,
@@ -42,6 +73,7 @@ import {
   WALLED_IN,
   SPOKEN_TIPS,
   REWARD_WAITING,
+  REWARD_WAITING_TOUCH,
   SAVED,
   SHELTER_NO_ROOF,
   SHELTER_NO_WALLS,
@@ -56,6 +88,7 @@ import { isHolding, shouldHintHold, type BreakPress } from "../input/breakPress"
 import { Keyboard } from "../input/Keyboard";
 import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
+import { slotHoldProgress, startSlotHold, type SlotHold } from "../input/slotHold";
 import { TouchControls } from "../input/TouchControls";
 import { Avatar } from "../render/Avatar";
 import { Bubbles } from "../render/Bubbles";
@@ -120,6 +153,18 @@ const STALL_HINT_EVERY_MS = 60_000;
 const STUCK_HINT_AFTER_MS = 4000;
 const STUCK_HINT_EVERY_MS = 20_000;
 const CELEBRATION_DELAY_MS = 4000;
+/**
+ * Mission 2 et suivantes (V2) : elles ne commencent que de jour. Si la mission 1 finit la nuit, le temps file
+ * (×30, comme la dernière étape) jusqu'au matin ; la suite attend au moins ce délai après les félicitations (ms),
+ * et « Demain, on écrira des mots » n'est dit qu'au bout du second, pour que le message du cadeau reste lisible.
+ */
+const MORNING_TIME_BOOST = 30;
+const AFTER_CELEBRATION_DELAY_MS = 1500;
+/** Affichage du message « Vide une case du sac » après les félicitations (ms) ; la suite ne commence pas avant. */
+const REWARD_WAITING_MS = 4500;
+const TOMORROW_AFTER_MS = 5000;
+/** Le message « demain » reste lu avant que la mission suivante ne commence (ms). */
+const TOMORROW_READ_MS = 3500;
 
 interface PixelRequest {
   fx: number;
@@ -279,6 +324,16 @@ export class Game {
   private prevX = 0;
   private prevZ = 0;
 
+  // ---------- V2 lot 1 : socle commun et suites de recette ----------
+  /** Appui long au clavier (touche 1 à 9 gardée) ; celui de la souris ou du doigt est suivi par la barre (Hud). */
+  private keyHold: SlotHold | null = null;
+  /** Mission suivante qui attend le jour (la mission 2 ne commence pas la nuit), et date au plus tôt. */
+  private pendingMission: { def: MissionDef; notBefore: number } | null = null;
+  /** Mission à mettre en attente quand l'enfant fermera l'écran de félicitations. */
+  private afterCelebration: MissionDef | null = null;
+  /** Date à laquelle Pixel dit qu'il faut attendre le matin (null : rien à dire). */
+  private tomorrowAt: number | null = null;
+
   constructor(root: HTMLElement) {
     this.coarsePointer = TouchControls.primaryPointerIsTouch();
     this.touchUi = this.coarsePointer;
@@ -434,6 +489,7 @@ export class Game {
     this.spawnPlayer();
     this.target = null;
     this.breaker.reset();
+    this.closeOverlays();
     // Nouveau monde, nouveau départ : le sac est vidé (la sauvegarde arrive au J4).
     this.inventory.clear();
     this.collectedTypes.clear();
@@ -448,6 +504,7 @@ export class Game {
 
   /** Recharge un monde enregistré : régénéré depuis sa graine, puis les blocs changés par l'enfant. */
   private loadSave(save: WorldSave): void {
+    this.closeOverlays();
     this.worldGen = Math.min(save.gen, GENERATOR_VERSION);
     this.gen = generateWorld(save.type, save.seed, this.worldGen);
     this.world = this.gen.world;
@@ -567,27 +624,65 @@ export class Game {
 
   /**
    * Mission et compagnon (J6) : la mission enregistrée dans le monde, sinon le tutoriel (ou la mission 1
-   * si cet enfant a déjà fait le tutoriel). def : mission imposée (mode adresse, suite de la campagne).
-   * Mission nouvelle : Pixel se présente puis lit la consigne ; sinon il rappelle l'étape en cours.
+   * si cet enfant a déjà fait le tutoriel). def : mission imposée, qui commence tout de suite (mode adresse,
+   * suite de la campagne). Mission nouvelle : Pixel se présente puis lit la consigne ; sinon il rappelle
+   * l'étape en cours.
+   * V2 lot 1 : à la reprise d'un monde dont la mission 1 est finie, la mission 2 ne commence que de jour
+   * (6 h 30 à 16 h 30). Le soir ou la nuit, la mission 1 finie reste en cours (la sauvegarde garde
+   * { id: "abri", step: 6 }) et la mission 2 attend le matin (pendingMission, le temps file). Écran de
+   * félicitations encore à montrer (partie quittée juste après la fin) : il passe d'abord, la suite après.
    */
   private startMission(saved: unknown, def?: MissionDef): void {
-    const r = def ? { def, saved: undefined, fresh: true } : resumeMission(saved, this.session?.profile.tutorialDone ?? false);
-    this.mission = new MissionRunner(r.def, r.saved);
+    const now = performance.now();
+    const r = def
+      ? { def, saved: undefined, fresh: true }
+      : resumeMission(saved, this.session?.profile.tutorialDone ?? false, this.celebrateOnResume);
     this.missionDoneAt = 0;
     this.nextMissionAt = null;
     this.celebrationAt = null;
-    this.onStepStart(performance.now());
+    this.pendingMission = null;
+    this.afterCelebration = null;
+    this.tomorrowAt = null;
+    const rank = CAMPAIGN.indexOf(r.def);
+    const before = rank >= 2 ? CAMPAIGN[rank - 1] : undefined;
+    if (!def && r.fresh && before && !isMissionDaytime(this.hourNow())) {
+      this.mission = new MissionRunner(before, saved);
+      this.onStepStart(now);
+      this.announceStepAt = null;
+      this.queueMission(r.def, now, 1200);
+      this.celebrateOnResume = false;
+      this.refreshCompanionPanel();
+      return;
+    }
+    this.mission = new MissionRunner(r.def, r.saved);
+    this.onStepStart(now);
     if (r.fresh) {
       this.tell(r.def.intro, { ms: 4500, important: true });
-      this.announceStepAt = performance.now() + 4500;
-    } else this.announceStepAt = performance.now() + 1200;
-    // Partie quittée entre la fin de la mission et l'écran de félicitations : il est montré à la reprise.
+      this.announceStepAt = now + 4500;
+    } else this.announceStepAt = now + 1200;
+    // Partie quittée entre la fin de la mission et l'écran de félicitations : il est montré à la reprise, la suite après.
     if (this.celebrateOnResume && this.mission.done && r.def.recap) {
-      this.missionDoneAt = performance.now();
-      this.celebrationAt = performance.now() + 2000;
+      this.missionDoneAt = now;
+      this.celebrationAt = now + 2000;
+      this.afterCelebration = nextMission(r.def);
     }
     this.celebrateOnResume = false;
     this.refreshCompanionPanel();
+  }
+
+  /**
+   * Suite de la campagne après l'écran de félicitations (V2) : elle attend notBefore et le jour (voir
+   * updateLiving). Le soir ou la nuit, le temps file jusqu'au matin (timeMultiplier) et Pixel dit pourquoi on
+   * attend, au bout de tomorrowDelayMs.
+   */
+  private queueMission(def: MissionDef, notBefore: number, tomorrowDelayMs = TOMORROW_AFTER_MS): void {
+    this.pendingMission = { def, notBefore };
+    this.tomorrowAt = def === MISSION_2 && !isMissionDaytime(this.hourNow()) ? performance.now() + tomorrowDelayMs : null;
+  }
+
+  /** Heure du monde, calculée depuis la phase (le ciel n'est recalculé qu'à l'image suivante). */
+  private hourNow(): number {
+    return skyState(solarTime(this.phase)).hour;
   }
 
   /** Début d'une étape : remise à zéro des conseils et de la dernière étape. */
@@ -635,7 +730,7 @@ export class Game {
       this.placeMessageBelowCompanion();
     }
     if (this.companionProgress.textContent !== prog) this.companionProgress.textContent = prog;
-    const iconId = step?.icon ?? (goal && (goal.kind === "collect" || goal.kind === "place") && goal.block !== "any" ? goal.block : null);
+    const iconId = step?.icon ?? (goal && (goal.kind === "collect" || goal.kind === "place") && typeof goal.block === "number" ? goal.block : null);
     if (iconId !== this.companionIconId) {
       this.companionIconId = iconId;
       this.companionIcon.style.display = iconId === null ? "none" : "";
@@ -707,15 +802,14 @@ export class Game {
   }
 
   /**
-   * Case où une Grignote chipe un bloc : jamais une lampe, ni un cadeau (arc-en-ciel), ni le bloc de l'étape de mission en cours ;
-   * de préférence dans une grosse pile (tirage proportionnel au nombre). null : rien à prendre.
+   * Case où une Grignote chipe un bloc : jamais une lampe, ni un cadeau (arc-en-ciel), ni le bloc de l'étape de mission en cours
+   * (règle unique discardVerdict, V2) ; de préférence dans une grosse pile (tirage proportionnel au nombre). null : rien à prendre.
    */
   private pickStealSlot(): number | null {
-    const goal = this.mission?.current()?.goal;
-    const protectedId = goal && "block" in goal && goal.block !== "any" ? goal.block : null;
+    const kept = this.keptBlocks();
     const slots = this.inventory.slots();
     let total = 0;
-    const safe = (id: BlockId) => id !== BlockId.Lamp && id !== BlockId.Rainbow && id !== protectedId;
+    const safe = (id: BlockId) => discardVerdict({ id, count: 1 }, kept) === "ok";
     for (const st of slots) if (st && safe(st.id)) total += st.count;
     if (total === 0) return null;
     let r = Math.random() * total;
@@ -726,6 +820,22 @@ export class Game {
       if (r < 0) return i;
     }
     return null;
+  }
+
+  /**
+   * Blocs que demande l'étape en cours (V2) : protégés de l'appui long, du vol des Grignotes et du conseil « sac plein »
+   * (« aucun échec bloquant »). Seulement pour un objectif ramasser, poser ou casser d'un bloc précis.
+   */
+  private keptBlocks(): BlockId[] {
+    const goal = this.mission?.current()?.goal;
+    if (!goal || (goal.kind !== "collect" && goal.kind !== "place" && goal.kind !== "break")) return [];
+    return typeof goal.block === "number" ? [goal.block] : [];
+  }
+
+  /** La lampe peut-elle être citée (décision 6 de Pierre : pas avant que l'enfant l'ait vue éloigner les Grignotes) ? */
+  private lampIsRevealed(): boolean {
+    const m = this.mission;
+    return lampRevealed(m?.def ?? null, m?.done ?? false);
   }
 
   /** Recherche des lampes posées (après un changement de monde ou la pose/casse d'une lampe). */
@@ -802,10 +912,44 @@ export class Game {
     return { panel, text, progress, shelter, icon };
   }
 
+  /**
+   * Gèle le jeu sous un écran posé dessus (V2 : félicitations ; fabrication et boîte à lettres ensuite) : souris
+   * libérée, casse, doigts, appui « casser », touches et appui long oubliés, jeu en pause.
+   */
+  private freezeForOverlay(): void {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.breaker.reset();
+    this.touch.reset();
+    this.mouse.cancelPress();
+    this.keyboard.clear();
+    this.hud.setBreakProgress(null);
+    this.cancelSlotHold();
+    this.paused = true;
+  }
+
+  /**
+   * Ferme sans bruit ce qui est posé sur le jeu et oublie ce qui attendait (V2) : retour à l'accueil, nouveau
+   * monde, monde rechargé, adresse changée, autre onglet. Appui long annulé ; mission en attente du matin et
+   * suite des félicitations oubliées (la reprise du monde les retrouve depuis la sauvegarde).
+   */
+  private closeOverlays(): void {
+    this.cancelSlotHold();
+    this.pendingMission = null;
+    this.afterCelebration = null;
+    this.tomorrowAt = null;
+  }
+
+  /** Annule l'appui long en cours (souris, doigt ou touche) et masque son anneau. */
+  private cancelSlotHold(): void {
+    this.hud.cancelSlotHold();
+    this.keyHold = null;
+  }
+
   /** Retour à l'accueil : la partie est enregistrée (sauf save = faux), le jeu attend en pause. */
   private goHome(save = true): void {
     if (!this.home) return;
     const saved = save && this.saveNow();
+    this.closeOverlays();
     this.narrator.cancelPending();
     this.breaker.reset();
     this.touch.reset();
@@ -863,13 +1007,15 @@ export class Game {
     this.bubbles.update(dt);
     const bright = this.sky.brightness;
     if (!this.paused) {
-      // Signal de la nuit : à 17 h 30, un carillon et le compagnon prévient.
+      // Signal de la nuit : à 17 h 30, un carillon et le compagnon prévient. Rien pendant l'attente du matin (V2).
       const h = this.sky.hour;
-      if (this.creaturesOn() && this.prevHour >= 0 && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
+      if (this.creaturesOn() && this.pendingMission === null && this.prevHour >= 0 && this.prevHour < 17.5 && h >= 17.5 && h < 19) {
         this.sounds.play("night");
-        // Pendant la dernière étape de la mission 1, le carillon seul : la phrase couperait la consigne
-        // de Pixel et donnerait la réponse (« une lampe les éloigne ») que l'enfant doit découvrir.
-        if (this.mission?.current()?.goal.kind !== "watch") this.tell(NIGHT_COMING, { ms: 4000, important: true });
+        // Pendant la dernière étape de la mission 1, le carillon seul : la phrase couperait la consigne de Pixel.
+        // Décision 6 de Pierre : la lampe n'est citée qu'une fois découverte (mission 1 finie, mission 2, jeu libre).
+        if (this.mission?.current()?.goal.kind !== "watch") {
+          this.tell(this.lampIsRevealed() ? NIGHT_COMING_LAMP : NIGHT_COMING, { ms: 4000, important: true });
+        }
       }
       this.prevHour = h;
       const events = this.sim.update(dt * 1000, {
@@ -898,7 +1044,8 @@ export class Game {
               this.watchSawScare = true;
               this.mission.noteSignal("lamp-scare");
             }
-          } else if (now - this.lampScareToldAt > 60_000) {
+          } else if (this.lampIsRevealed() && now - this.lampScareToldAt > 60_000) {
+            // Hors de la dernière étape, seulement une fois la lampe découverte (décision 6 de Pierre).
             this.lampScareToldAt = now;
             this.tell(LAMP_SCARES, { ms: 3000, dedupe: true });
           }
@@ -941,6 +1088,7 @@ export class Game {
           this.celebrationAt = null;
           this.showCelebration(m.def);
         }
+        this.updatePendingMission(now, h);
       }
       this.deliverReward(true);
     }
@@ -964,6 +1112,24 @@ export class Game {
     }
     this.fox.group.visible = showFox && this.companion !== null;
     this.refreshCompanionPanel();
+  }
+
+  /**
+   * Mission suivante qui attend (V2) : la nuit, Pixel dit qu'on attend le matin ; de jour, une fois notBefore passé,
+   * elle commence. Le temps file pendant l'attente (timeMultiplier).
+   */
+  private updatePendingMission(now: number, hour: number): void {
+    const pm = this.pendingMission;
+    if (!pm || this.paused) return;
+    const day = isMissionDaytime(hour);
+    if (this.tomorrowAt !== null && now >= this.tomorrowAt) {
+      this.tomorrowAt = null;
+      if (!day) {
+        this.tell(MISSION_2_TOMORROW, { ms: 4000, important: true });
+        pm.notBefore = Math.max(pm.notBefore, now + TOMORROW_READ_MS);
+      }
+    }
+    if (day && now >= pm.notBefore) this.startMission(undefined, pm.def);
   }
 
   /** Bloc changé par l'enfant depuis la génération du monde (posé ou creusé) : un abri doit être le sien. */
@@ -1006,20 +1172,25 @@ export class Game {
 
   /**
    * Sac plein (J7) : dit quelle case vider, concrètement (« Pose tes 2 fleurs rouges ! ») : la sorte la moins
-   * nombreuse, hors lampe, cadeau et bloc demandé par l'étape. Sans proposition, le message générique.
+   * nombreuse, hors lampe, cadeau, bloc demandé par l'étape et bloc keep (celui qu'on voulait ramasser). V2 : le
+   * geste pour la vider selon l'appareil (doigt gardé, touche gardée), et la case fait sa petite animation. Sans
+   * proposition, le message générique.
    */
   private tellFullBag(ms: number, keep: BlockId | null = null): void {
-    let best: { id: BlockId; count: number } | null = null;
-    for (const st of this.inventory.slots()) {
-      if (!st || st.id === BlockId.Lamp || st.id === BlockId.Rainbow || st.id === keep) continue;
-      if (!best || st.count < best.count) best = st;
-    }
-    if (!best) {
-      this.tell(FULL_BAG_KEEP, { ms, dedupe: true });
+    const slots = this.inventory.slots();
+    const i = slotToEmpty(slots, keep === null ? this.keptBlocks() : [...this.keptBlocks(), keep]);
+    const st = i === null ? null : (slots[i] ?? null);
+    if (i === null || !st) {
+      this.tell(this.touchUi ? FULL_BAG_KEEP_TOUCH : FULL_BAG_KEEP, {
+        spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
+        ms,
+        dedupe: true,
+      });
       return;
     }
-    const t = emptySlotText(best.id, best.count);
+    const t = emptySlotText(st.id, st.count, this.touchUi ? { kind: "touch" } : { kind: "key", key: i + 1 });
     this.tell(t.text, { spoken: t.spoken, ms, important: true, dedupe: true });
+    this.hud.pulseSlot(i);
   }
 
   /**
@@ -1106,9 +1277,29 @@ export class Game {
     return !this.paused && this.watchAnnounced && !this.sky.night && this.mission?.current()?.goal.kind === "watch" && this.companionOn();
   }
 
+  /** Mission suivante qui attend le jour (V2) : le temps file jusqu'au matin. */
+  private morningBoost(): boolean {
+    return !this.paused && this.pendingMission !== null && !isMissionDaytime(this.sky.hour) && this.companionOn();
+  }
+
+  /** Vitesse du temps : Temps ×20 du panneau, et ×30 pendant la dernière étape de la mission 1 ou l'attente du matin. */
+  private timeMultiplier(): number {
+    return this.timeScale * (this.watchBoost() ? WATCH_TIME_BOOST : this.morningBoost() ? MORNING_TIME_BOOST : 1);
+  }
+
+  /**
+   * Le soir s'arrête à 17 h (V2, décisions 4 et 11 de Pierre) : compagnon actif, mission en cours et étape qui le
+   * demande (tutoriel, mission 1 jusqu'à l'abri, mission 2). Les boutons Soir et Nuit du panneau passent outre.
+   */
+  private eveningHeld(): boolean {
+    const m = this.mission;
+    return this.companionOn() && m !== null && !m.done && m.current()?.holdEvening === true;
+  }
+
   /**
    * Fin d'une mission : Pixel félicite ; le tutoriel est retenu pour l'enfant et la mission 1 suit ;
-   * la mission 1 donne son cadeau et ouvre l'écran de félicitations.
+   * la mission 1 donne son cadeau et ouvre l'écran de félicitations. V2 : après un écran de félicitations,
+   * la suite (mission 2) attend qu'il soit fermé, puis le jour.
    */
   private onMissionDone(def: MissionDef, now: number): void {
     this.missionDoneAt = now;
@@ -1131,7 +1322,8 @@ export class Game {
     } else this.tell(def.outro, { ms: 3000, important: true });
     this.watchSawScare = false;
     const next = nextMission(def);
-    if (next) this.nextMissionAt = { at: now + NEXT_MISSION_DELAY_MS, def: next };
+    if (next && def.recap) this.afterCelebration = next;
+    else if (next) this.nextMissionAt = { at: now + NEXT_MISSION_DELAY_MS, def: next };
     this.saveNow();
   }
 
@@ -1168,6 +1360,7 @@ export class Game {
 
   /** Écran de félicitations (fin de la mission 1) : le jeu attend derrière, en pause, jusqu'à « Continuer ». */
   private showCelebration(def: MissionDef): void {
+    if (this.paused) return; // un autre écran est déjà posé sur le jeu
     const level = this.narrator.level;
     const title = bravoTitle(this.session?.profile.name ?? null);
     const icon = (id: BlockId) => tileIcon(this.view.atlasCanvas, blockDef(id).tiles.side);
@@ -1178,13 +1371,8 @@ export class Game {
       return { icon: house, text: "Un abri" };
     });
     const reward = def.reward ? rewardText(def.reward.block, def.reward.count) : null;
-    if (document.pointerLockElement) document.exitPointerLock();
-    this.breaker.reset();
-    this.touch.reset();
-    this.hud.setBreakProgress(null);
+    this.freezeForOverlay();
     this.hud.message.classList.remove("visible"); // pas de message qui dépasse derrière la carte
-    this.keyboard.clear();
-    this.paused = true;
     this.celebration.show(
       {
         title: pick(title, level),
@@ -1196,7 +1384,17 @@ export class Game {
       () => {
         this.keyboard.clear();
         this.paused = false;
-        if (this.rewardPending) this.tell(REWARD_WAITING, { ms: 4500 });
+        const now = performance.now();
+        if (this.rewardPending) {
+          this.tell(this.touchUi ? REWARD_WAITING_TOUCH : REWARD_WAITING, {
+            spoken: this.touchUi ? SPOKEN_TIPS.rewardTouch : SPOKEN_TIPS.rewardKeys,
+            ms: REWARD_WAITING_MS,
+          });
+        }
+        // Suite de la campagne (V2) : elle attend un court instant (le temps de lire le message du cadeau), et le jour.
+        const next = this.afterCelebration;
+        this.afterCelebration = null;
+        if (next) this.queueMission(next, now + (this.rewardPending ? REWARD_WAITING_MS : AFTER_CELEBRATION_DELAY_MS));
         this.updateHint();
       },
     );
@@ -1284,7 +1482,12 @@ export class Game {
     this.keyboard.onPressed((code) => {
       if (this.paused) return;
       const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
-      if (m) this.setSlot(Number(m[1]) - 1, true);
+      if (m) {
+        const i = Number(m[1]) - 1;
+        this.setSlot(i, true);
+        // Touche gardée une seconde : la case est vidée (V2, décision 10 de Pierre ; voir updateSlotHold).
+        this.keyHold = startSlotHold(i, performance.now(), "key", 0, 0, code);
+      }
       if (code === "KeyV") this.toggleView();
       if (code === "KeyB") this.throwBubbles();
     });
@@ -1304,7 +1507,8 @@ export class Game {
       const fallback = this.mouse.inFallback();
       const enteredFallback = fallback && !this.wasFallback;
       this.wasFallback = fallback;
-      if (locked || this.touchUi) return;
+      // En pause (écran posé sur le jeu, accueil), pas de « Clique pour jouer » : la souris a été libérée exprès.
+      if (locked || this.touchUi || this.paused) return;
       // Le repli n'est annoncé qu'à son entrée, pas à chaque recapture refusée.
       if (enteredFallback) this.tell(MOUSE_FALLBACK, { ms: 3500, dedupe: true });
       else if (!fallback) this.tell(MOUSE_RESUME, { ms: 2500, dedupe: true });
@@ -1464,9 +1668,15 @@ export class Game {
     }
   }
 
-  /** Choisit une case de la barre. byUser : geste de l'enfant (son, nom du bloc affiché). */
+  /**
+   * Choisit une case de la barre. byUser : geste de l'enfant (son, nom du bloc affiché). Un appui long sur une
+   * autre case est annulé (molette, autre touche, case choisie par le jeu) (V2).
+   */
   private setSlot(i: number, byUser = false): void {
     if (i < 0 || i >= this.inventory.size) return;
+    if (this.keyHold && this.keyHold.slot !== i) this.keyHold = null;
+    const held = this.hud.slotHold;
+    if (held && held.slot !== i) this.hud.cancelSlotHold();
     this.selectedSlot = i;
     this.hud.setSelectedSlot(i);
     if (!byUser) return;
@@ -1489,6 +1699,60 @@ export class Game {
 
   private tell(text: ChildText, opts?: TellOptions): void {
     this.narrator.tell(text, opts);
+  }
+
+  /**
+   * Message à l'enfant qui peut arriver pendant un écran posé sur le jeu (V2 : appui long, fabrication). Le
+   * panneau de fabrication montrera ces messages dans sa ligne d'état (tone : couleur) ; sinon, comme tell.
+   */
+  private notify(text: ChildText, opts: TellOptions & { tone?: "info" | "ok" | "no" } = {}): void {
+    this.tell(text, opts);
+  }
+
+  /**
+   * Appui long sur une case (V2, décisions 2 et 10 de Pierre), à chaque image hors pause : souris ou doigt (suivis
+   * par la barre), ou touche 1 à 9 gardée. L'anneau ne se montre que pour une case qu'on peut vider ; à une seconde,
+   * la case est vidée, ou le jeu dit pourquoi il la garde (lampe, cadeau, bloc de l'étape).
+   */
+  private updateSlotHold(now: number): void {
+    const kh = this.keyHold;
+    if (kh && typeof kh.pointer === "string" && !this.keyboard.isDown(kh.pointer)) this.keyHold = null;
+    const h = this.hud.slotHold ?? this.keyHold;
+    if (!h) {
+      this.hud.setSlotHoldProgress(null);
+      return;
+    }
+    const verdict = discardVerdict(this.inventory.slot(h.slot), this.keptBlocks());
+    if (verdict === "empty") {
+      this.cancelSlotHold();
+      return;
+    }
+    const p = slotHoldProgress(h, now);
+    this.hud.setSlotHoldProgress(verdict === "ok" && p > 0 ? { slot: h.slot, progress: p } : null);
+    if (p < 1) return;
+    this.cancelSlotHold();
+    this.emptySlotByHold(h.slot);
+  }
+
+  /**
+   * Fin d'un appui long sur la case i (même chemin pour l'accès de test) : la case est vidée (« pouf ») si rien ne
+   * la protège ; sinon, refus dit (lampe, cadeau, bloc de l'étape). Pas de sauvegarde dédiée : l'automatique suffit.
+   */
+  private emptySlotByHold(i: number): DiscardVerdict {
+    const st = this.inventory.slot(i);
+    const verdict = discardVerdict(st, this.keptBlocks());
+    if (!st || verdict === "empty") return verdict;
+    if (verdict === "ok") {
+      this.inventory.discard(i);
+      this.sounds.play("discard");
+      this.refreshInventory();
+      const t = discardedText(st.id, st.count);
+      this.notify(t.text, { spoken: t.spoken, ms: 2200 });
+    } else {
+      this.sounds.play("deny");
+      this.notify(keepSlotText(st.id, st.count, verdict), { ms: 2500, dedupe: true });
+    }
+    return verdict;
   }
 
   private deny(text: ChildText): void {
@@ -1604,7 +1868,15 @@ export class Game {
   private collect(id: BlockId, announce = true): AddResult {
     const r = this.inventory.add(id);
     if (!r.ok) {
-      if (announce) this.tell(r.reason === "full" ? FULL_BAG : maxStackText(id, MAX_STACK), { ms: 2500 });
+      if (!announce) return r;
+      // Sac plein (V2) : le geste pour vider une case, selon l'appareil ; pas relu à chaque bloc cassé.
+      if (r.reason === "full") {
+        this.tell(this.touchUi ? FULL_BAG_TOUCH : FULL_BAG, {
+          spoken: this.touchUi ? SPOKEN_TIPS.fullBagTouch : SPOKEN_TIPS.fullBagKeys,
+          ms: 2500,
+          dedupe: true,
+        });
+      } else this.tell(maxStackText(id, MAX_STACK), { ms: 2500 });
       return r;
     }
     const first = !this.collectedTypes.has(id);
@@ -1728,6 +2000,8 @@ export class Game {
           inWater: this.player.inWater,
           headInWater: this.player.headInWater,
           climbing: this.player.climbing,
+          yaw: this.player.yaw,
+          pitch: this.player.pitch,
         },
         hour: this.sky.hour,
         night: this.sky.night,
@@ -1766,7 +2040,16 @@ export class Game {
         shelter: this.shelterNow ? { ...this.shelterNow } : null,
         celebration: this.celebration.visible,
         rewardPending: this.rewardPending ? { ...this.rewardPending } : null,
-        timeBoost: this.watchBoost(),
+        /** Le temps file (×30) : dernière étape de la mission 1, ou attente du matin avant la mission suivante (V2). */
+        timeBoost: this.watchBoost() || this.morningBoost(),
+        /** Appui long en cours sur une case (souris, doigt ou touche) et son avancement (V2). */
+        slotHold: (() => {
+          const h = this.hud.slotHold ?? this.keyHold;
+          return h ? { slot: h.slot, progress: slotHoldProgress(h, performance.now()), source: h.source } : null;
+        })(),
+        eveningHeld: this.eveningHeld(),
+        lampRevealed: this.lampIsRevealed(),
+        pendingMission: this.pendingMission?.def.id ?? null,
         tutorialDone: this.session?.profile.tutorialDone ?? null,
         companionText: this.companionPanel.hidden ? null : this.companionText.textContent,
         lamps: this.lamps.length,
@@ -1787,6 +2070,8 @@ export class Game {
         return r;
       },
       clearInventory: () => this.inventory.clear(),
+      /** Vide la case i comme au bout d'un appui long (mêmes règles : lampe, cadeau, bloc de l'étape gardés) ; renvoie le verdict (V2). */
+      emptySlot: (i: number) => this.emptySlotByHold(i),
       /** Pose un bloc sans passer par le sac (préparer un scénario de test). */
       setBlock: (x: number, y: number, z: number, id: number) => {
         this.lampsDirty = true;
@@ -1864,9 +2149,11 @@ export class Game {
       this.avatar.setBrightness(this.sky.brightness);
     }
 
-    // Jour et nuit, eau
-    const boost = this.watchBoost() ? WATCH_TIME_BOOST : 1;
-    if (!this.paused) this.phase = advancePhase(this.phase, dt * 1000, this.timeScale * boost, this.settings.night);
+    // Jour et nuit, eau. Soir retenu à 17 h pendant les étapes qui le demandent (V2) ; Soir et Nuit du panneau passent outre.
+    if (!this.paused) {
+      const next = advancePhase(this.phase, dt * 1000, this.timeMultiplier(), this.settings.night);
+      this.phase = this.eveningHeld() ? holdEvening(this.phase, next) : next;
+    }
     this.sky = skyState(solarTime(this.phase));
     this.view.setSky(this.sky);
     // Voile sous l'eau : là où est la caméra (en troisième personne, elle peut être hors de l'eau quand la tête y est).
@@ -1880,6 +2167,9 @@ export class Game {
     if (this.target) this.view.setHighlight(this.target.x, this.target.y, this.target.z);
     else this.view.hideHighlight();
     if (!this.paused) this.updateBreaking(performance.now(), dt * 1000);
+    // Appui long sur une case (V2) : seulement en jeu ; une pause l'annule.
+    if (!this.paused) this.updateSlotHold(performance.now());
+    else if (this.keyHold || this.hud.slotHold) this.cancelSlotHold();
     this.refreshInventory();
     if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
     this.updateLiving(performance.now(), dt);

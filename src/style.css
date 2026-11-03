@@ -223,6 +223,47 @@ canvas.game {
   opacity: 1;
 }
 
+/* Appui long sur une case (V2) : anneau au-dessus de la case tenue (le doigt ne le cache pas), sous l'aide d'écran.
+   Même dessin que l'anneau de casse ; l'icône du bloc est sœur de l'anneau, hors du masque. --p ∈ [0, 1]. */
+.slot-hold {
+  --p: 0;
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--slot) + 24px + env(safe-area-inset-bottom));
+  width: 48px;
+  height: 48px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.slot-hold.visible {
+  opacity: 0.95;
+}
+.slot-hold-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--ui-accent) calc(var(--p) * 360deg), rgba(0, 0, 0, 0.5) 0);
+  -webkit-mask: radial-gradient(circle, transparent 15px, #000 16px);
+  mask: radial-gradient(circle, transparent 15px, #000 16px);
+}
+.slot-hold canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+}
+.slot.holding {
+  border-color: var(--ui-accent);
+}
+.hud.slot-holding .slot-name {
+  opacity: 0;
+}
+
 /* ---------- Boutons ---------- */
 
 .btn {
@@ -664,11 +705,6 @@ canvas.game {
     clip-path: inset(0 0 0 0);
   }
 }
-.parent-hint {
-  font-size: 12px;
-  color: #fff;
-  text-shadow: 0 1px 2px #000;
-}
 
 .home-parent h1 {
   font-size: 28px;
@@ -717,6 +753,32 @@ canvas.game {
 .parent-status {
   min-height: 1.2em;
   color: var(--ui-accent);
+}
+/* Rappel d'export (V2, adulte) : en tête du mode parent, comme l'avertissement de l'accueil. */
+.parent-reminder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--ui-accent);
+  background: rgba(20, 24, 32, 0.88);
+  color: var(--ui-accent);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.parent-reminder span {
+  flex: 1 1 320px;
+}
+.parent-export-date {
+  font-size: 14px;
+}
+/* Premier réglage (V2) : le geste qui rouvre le mode parent, dit à l'adulte (plus de texte sous l'engrenage). */
+.parent-gear-note {
+  font-size: 13px;
+  opacity: 0.85;
+  line-height: 1.4;
 }
 .btn.primary {
   background: rgba(255, 210, 63, 0.9);
@@ -885,6 +947,7 @@ canvas.game {
   right: 8px;
   font-size: 34px;
   line-height: 1;
+  white-space: nowrap; /* une étoile par mission réussie (V2) */
   color: #ffd23f;
   text-shadow: 0 1px 0 #b4521a, 0 0 6px rgba(0, 0, 0, 0.35);
 }

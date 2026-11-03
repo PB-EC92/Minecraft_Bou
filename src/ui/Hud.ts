@@ -4,6 +4,7 @@ import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
 import { tileIcon } from "../render/textures";
+import { slotHoldMoved, startSlotHold, type SlotHold, type SlotHoldSource } from "../input/slotHold";
 import { nearestSlot } from "./nearestSlot";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
@@ -22,6 +23,10 @@ export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
  * (images/s), message, barre d'inventaire à 9 cases avec compteurs (J2),
  * écran de chargement, voile sous l'eau, panneau « Tests » (réglages du
  * prototype). DOM natif, pas de framework.
+ *
+ * V2 lot 1 : appui long sur une case (souris libre ou doigt) pour la vider. La
+ * barre suit l'appui (début, glissé, relâchement) ; le jeu lit `slotHold` à
+ * chaque image, décide (blocs gardés) et règle l'anneau par setSlotHoldProgress.
  */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -62,6 +67,14 @@ export class Hud {
   private slots: HTMLDivElement[] = [];
   private messageTimer = 0;
   private readonly selectHandlers: ((index: number) => void)[] = [];
+  /** Appui long en cours sur une case (souris ou doigt), ou null (V2). */
+  private hold: SlotHold | null = null;
+  /** Anneau de l'appui long, au-dessus de la case tenue, et l'icône de son bloc (sœur de l'anneau, hors du masque). */
+  private readonly holdEl: HTMLDivElement;
+  private readonly holdIcon: HTMLCanvasElement;
+  private holdIconId: BlockId | null = null;
+  /** Case qui porte la classe .holding (-1 : aucune). */
+  private holdShownSlot = -1;
 
   constructor(
     parent: HTMLElement,
@@ -108,11 +121,7 @@ export class Hud {
     }
     // Toute la barre choisit une case, marges et espaces compris : la plus proche du doigt ou du clic (J3).
     // Annuler l'événement empêche aussi le menu contextuel du navigateur sur un appui long.
-    const select = (e: MouseEvent | TouchEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const x = "changedTouches" in e ? e.changedTouches[0]?.clientX : e.clientX;
-      if (x === undefined) return;
+    const selectAt = (x: number): number => {
       const i = nearestSlot(
         x,
         this.slots.map((s) => {
@@ -121,10 +130,78 @@ export class Hud {
         }),
       );
       if (i >= 0) for (const h of this.selectHandlers) h(i);
+      return i;
     };
-    this.hotbar.addEventListener("mousedown", select);
-    this.hotbar.addEventListener("touchstart", select, { passive: false });
+    // Après la sélection, un appui gardé sur une case pleine commence l'appui long (V2) : bouton gauche seulement
+    // (le clic droit ne fait que choisir), ou le doigt qui vient de se poser.
+    this.hotbar.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const i = selectAt(e.clientX);
+      if (i >= 0 && e.button === 0) this.beginHold(i, "mouse", e.clientX, e.clientY, null);
+    });
+    this.hotbar.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const t = e.changedTouches[0];
+        if (!t) return;
+        const i = selectAt(t.clientX);
+        if (i >= 0) this.beginHold(i, "touch", t.clientX, t.clientY, t.identifier);
+      },
+      { passive: false },
+    );
+    // Fin de l'appui long : doigt levé ou annulé par le système, doigt ou souris qui glisse (l'enfant regardait
+    // ou visait), bouton relâché, fenêtre qui perd le focus. Les touchers visent la case de départ et remontent
+    // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture.
+    const fingerUp = (e: TouchEvent) => {
+      const h = this.hold;
+      if (h?.source !== "touch") return;
+      for (const t of Array.from(e.changedTouches)) if (t.identifier === h.pointer) this.cancelSlotHold();
+    };
+    this.hotbar.addEventListener("touchend", fingerUp);
+    this.hotbar.addEventListener("touchcancel", fingerUp);
+    // Le glissé est consommé : sans cela, Chromium n'envoie plus que le premier touchmove d'un toucher non annulé
+    // (la barre ne défile jamais, rien n'est perdu).
+    this.hotbar.addEventListener(
+      "touchmove",
+      (e) => {
+        e.preventDefault();
+        const h = this.hold;
+        if (h?.source !== "touch") return;
+        for (const t of Array.from(e.changedTouches)) {
+          if (t.identifier === h.pointer && slotHoldMoved(h, t.clientX, t.clientY)) this.cancelSlotHold();
+        }
+      },
+      { passive: false },
+    );
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        const h = this.hold;
+        if (h?.source === "mouse" && slotHoldMoved(h, e.clientX, e.clientY)) this.cancelSlotHold();
+      },
+      true,
+    );
+    window.addEventListener(
+      "mouseup",
+      (e) => {
+        if (e.button === 0 && this.hold?.source === "mouse") this.cancelSlotHold();
+      },
+      true,
+    );
+    window.addEventListener("blur", () => this.cancelSlotHold());
     this.root.appendChild(this.hotbar);
+
+    // Anneau de l'appui long (V2) : au-dessus de la case tenue, pour que le doigt ne le cache pas.
+    this.holdEl = this.div("slot-hold");
+    this.holdEl.setAttribute("aria-hidden", "true");
+    this.holdEl.appendChild(this.div("slot-hold-ring"));
+    this.holdIcon = document.createElement("canvas");
+    this.holdIcon.width = this.holdIcon.height = 16;
+    this.holdEl.appendChild(this.holdIcon);
+    this.root.appendChild(this.holdEl);
 
     this.loading = this.div("loading");
     this.loadingText = this.div("loading-text");
@@ -290,11 +367,15 @@ export class Hud {
     this.slots.forEach((s, i) => s.classList.toggle("selected", i === index));
   }
 
-  /** Met à jour les cases de la barre (icône, compteur) ; seules celles qui ont changé sont redessinées. */
+  /**
+   * Met à jour les cases de la barre (icône, compteur) ; seules celles qui ont changé sont redessinées. Un appui
+   * long sur une case qui se vide ou change de bloc est annulé (une pile dont on a chipé une partie, non).
+   */
   setInventory(stacks: readonly (Stack | null)[]): void {
     this.slots.forEach((el, i) => {
       const next = stacks[i] ?? null;
       const prev = this.shown[i] ?? null;
+      if (this.hold?.slot === i && next?.id !== prev?.id) this.cancelSlotHold();
       if (prev?.id === next?.id && prev?.count === next?.count) return;
       this.shown[i] = next ? { ...next } : null;
       if (prev?.id !== next?.id) {
@@ -332,12 +413,71 @@ export class Hud {
     if (on) this.breakRing.style.setProperty("--p", progress.toFixed(3));
   }
 
-  private icon(id: BlockId): HTMLCanvasElement {
+  /** Appui long en cours sur une case de la barre (souris ou doigt), ou null (V2). */
+  get slotHold(): SlotHold | null {
+    return this.hold;
+  }
+
+  /** Oublie l'appui long en cours et masque l'anneau (pause, case changée, case vidée…). */
+  cancelSlotHold(): void {
+    this.hold = null;
+    this.setSlotHoldProgress(null);
+  }
+
+  /**
+   * Anneau de l'appui long au-dessus d'une case : progression ]0, 1], ou null pour le masquer. Le jeu l'appelle à
+   * chaque image (appui à la souris, au doigt ou à la touche 1 à 9), seulement pour une case qu'il peut vider.
+   */
+  setSlotHoldProgress(s: { slot: number; progress: number } | null): void {
+    const el = s ? this.slots[s.slot] : undefined;
+    const stack = s ? (this.shown[s.slot] ?? null) : null;
+    if (!s || !el || !stack) {
+      if (this.holdShownSlot >= 0) this.slots[this.holdShownSlot]?.classList.remove("holding");
+      this.holdShownSlot = -1;
+      this.holdEl.classList.remove("visible");
+      this.root.classList.remove("slot-holding");
+      return;
+    }
+    if (this.holdShownSlot !== s.slot) {
+      if (this.holdShownSlot >= 0) this.slots[this.holdShownSlot]?.classList.remove("holding");
+      el.classList.add("holding");
+      this.holdShownSlot = s.slot;
+    }
+    if (this.holdIconId !== stack.id) {
+      this.holdIconId = stack.id;
+      const g = this.holdIcon.getContext("2d");
+      if (g) {
+        g.imageSmoothingEnabled = false;
+        g.clearRect(0, 0, 16, 16);
+        g.drawImage(this.iconBase(stack.id), 0, 0, 16, 16);
+      }
+    }
+    const r = el.getBoundingClientRect();
+    const origin = this.root.getBoundingClientRect();
+    this.holdEl.style.left = `${Math.round(r.left + r.width / 2 - origin.left)}px`;
+    this.holdEl.style.setProperty("--p", Math.min(1, Math.max(0, s.progress)).toFixed(3));
+    this.holdEl.classList.add("visible");
+    this.root.classList.add("slot-holding");
+  }
+
+  /** Commence un appui long sur la case i si elle n'est pas vide (pas la case ABC de la mission 2). */
+  private beginHold(i: number, source: SlotHoldSource, x: number, y: number, pointer: number | null): void {
+    if (i >= INVENTORY_SLOTS || !this.shown[i]) return;
+    this.hold = startSlotHold(i, performance.now(), source, x, y, pointer);
+  }
+
+  /** Icône 16 × 16 d'un bloc, dessinée une fois. */
+  private iconBase(id: BlockId): HTMLCanvasElement {
     let base = this.icons.get(id);
     if (!base) {
       base = tileIcon(this.atlas, blockDef(id).tiles.side);
       this.icons.set(id, base);
     }
+    return base;
+  }
+
+  private icon(id: BlockId): HTMLCanvasElement {
+    const base = this.iconBase(id);
     // Chaque case a son propre canvas (un élément DOM ne peut être à deux endroits).
     const c = document.createElement("canvas");
     c.width = base.width;
