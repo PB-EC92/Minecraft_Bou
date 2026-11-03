@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  SLOT_HOLD_CANCEL_OK_MS,
   SLOT_HOLD_MOVE_PX,
   SLOT_HOLD_MS,
   SLOT_HOLD_SHOW_MS,
+  slotHoldAfterCancel,
   slotHoldMoved,
   slotHoldProgress,
   startSlotHold,
@@ -50,6 +52,33 @@ describe("appui long sur une case (V2)", () => {
     const m = startSlotHold(4, 0, "mouse", 100, 200);
     expect(slotHoldMoved(m, 70, 200)).toBe(true);
     expect(slotHoldMoved(m, 95, 195)).toBe(false);
+  });
+
+  it("doigt annulé par le système (touchcancel) : avant 900 ms l'appui est abandonné ; après, il est mené au bout", () => {
+    expect(SLOT_HOLD_CANCEL_OK_MS).toBe(900);
+    const h = startSlotHold(5, 1000, "touch", 120, 900, 7);
+    expect(slotHoldAfterCancel(h, 1000)).toBeNull();
+    expect(slotHoldAfterCancel(h, 1500)).toBeNull();
+    expect(slotHoldAfterCancel(h, 1000 + SLOT_HOLD_CANCEL_OK_MS - 1)).toBeNull();
+    expect(slotHoldAfterCancel(h, 900)).toBeNull(); // horloge d'avant l'appui
+    expect(slotHoldAfterCancel(h, Number.NaN)).toBeNull();
+    for (const at of [1000 + SLOT_HOLD_CANCEL_OK_MS, 1950, 1000 + SLOT_HOLD_MS, 4000]) {
+      const done = slotHoldAfterCancel(h, at);
+      expect(done).not.toBeNull();
+      // Même case, même doigt, même origine : le jeu la vide à l'image suivante (anneau plein).
+      expect(done).toMatchObject({ slot: 5, source: "touch", pointer: 7, x: 120, y: 900 });
+      expect(slotHoldProgress(done!, at)).toBe(1);
+      expect(slotHoldProgress(done!, at + 16)).toBe(1);
+    }
+    // Un appui déjà plein garde son début ; sinon, il est avancé juste assez ; l'appui de départ n'est pas modifié.
+    expect(slotHoldAfterCancel(h, 4000)!.since).toBe(1000);
+    expect(slotHoldAfterCancel(h, 1950)!.since).toBe(1950 - SLOT_HOLD_MS);
+    expect(h.since).toBe(1000);
+  });
+
+  it("souris et clavier n'ont pas d'annulation par le système : rien n'est mené au bout", () => {
+    expect(slotHoldAfterCancel(startSlotHold(2, 0, "mouse", 10, 10), 950)).toBeNull();
+    expect(slotHoldAfterCancel(startSlotHold(2, 0, "key", 0, 0, "Digit3"), 950)).toBeNull();
   });
 
   it("une touche ne glisse jamais", () => {

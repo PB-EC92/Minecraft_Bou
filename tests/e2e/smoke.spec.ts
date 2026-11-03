@@ -10,8 +10,8 @@ const url = pathToFileURL(dist).href;
 const isTouch = (info: TestInfo) => info.project.name.startsWith("tablette");
 
 /**
- * Ligne d'infos du HUD. « .hud > » : la ligne d'état du panneau de fabrication (V2) porte aussi la classe « info »
- * (son ton), et un sélecteur ambigu ferait échouer Playwright (mode strict).
+ * Ligne d'infos du HUD, enfant direct du HUD. Jusqu'à la relecture du J8, la ligne d'état du panneau de fabrication
+ * portait aussi la classe « info » (son ton) ; ses tons sont désormais « tone-info », « tone-ok » et « tone-no ».
  */
 const INFO = ".hud > .info";
 
@@ -2076,6 +2076,70 @@ test("au doigt : garder le doigt une seconde sur une case la vide ; un doigt qui
   expect(errors).toEqual([]);
 });
 
+test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un appui allé au bout ; avant, la case est gardée ; lampe toujours gardée @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => {
+    window.cubesDebug.give(2, 4); // terre, case 1
+    window.cubesDebug.give(3, 4); // pierre, case 2
+    window.cubesDebug.give(5, 4); // sable, case 3
+    window.cubesDebug.give(13, 1); // lampe, case 4
+  });
+  // Doigt posé sur la case i, gardé ms millisecondes puis annulé par le système, dans une seule tâche de la page :
+  // aucune image ne passe pendant l'appui, le jeu ne le voit donc jamais plein avant l'annulation (seule celle-ci
+  // peut vider la case). blur : la fenêtre perd aussi le focus juste après. Rend l'appui que garde la barre.
+  const cancelAfter = (i: number, ms: number, blur = false) =>
+    page.evaluate(
+      ([slot, wait, lose]) => {
+        const target = document.querySelectorAll(".hotbar .slot")[slot]!;
+        const r = target.getBoundingClientRect();
+        const t = new Touch({ identifier: 43, target, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+        target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [t], changedTouches: [t] }));
+        const t0 = performance.now();
+        while (performance.now() - t0 < wait) {
+          // doigt immobile
+        }
+        target.dispatchEvent(new TouchEvent("touchcancel", { bubbles: true, cancelable: false, touches: [], changedTouches: [t] }));
+        if (lose) window.dispatchEvent(new Event("blur"));
+        return window.cubesDebug.state().slotHold;
+      },
+      [i, ms, blur] as const,
+    );
+  // Annulé à 500 ms : l'appui est abandonné, la case reste pleine.
+  expect(await cancelAfter(0, 500)).toBeNull();
+  await page.waitForTimeout(1300);
+  expect(invCount(await state(page), B.dirt)).toBe(4);
+  // Annulé à 950 ms : l'appui est mené au bout (anneau plein), la case est vidée à l'image suivante.
+  expect(await cancelAfter(1, 950)).toEqual({ slot: 1, progress: 1, source: "touch" });
+  await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+  await expect(page.locator(".message")).toContainText("Case vidée");
+  // Même chose si la fenêtre perd le focus avec l'annulation (geste du système).
+  expect(await cancelAfter(2, 950, true)).toEqual({ slot: 2, progress: 1, source: "touch" });
+  await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+  // Mêmes règles qu'au bout de la seconde : la lampe n'est jamais vidée, le jeu le dit.
+  await cancelAfter(3, 950);
+  await expect(page.locator(".message")).toContainText("Garde ta lampe", { timeout: 10_000 });
+  expect(invCount(await state(page), 13)).toBe(1);
+  expect((await state(page)).slotHold).toBeNull();
+  // Par le vrai chemin du doigt (CDP) : annulé aussitôt posé, case gardée ; après 950 ms, case vidée. (Sous charge,
+  // un événement du pilote peut attendre plusieurs centaines de millisecondes une image lente : les durées exactes
+  // sont vérifiées plus haut, dans la page.)
+  await page.evaluate(() => window.cubesDebug.give(3, 4)); // pierre, de nouveau en case 2
+  const cdp = await context.newCDPSession(page);
+  const c = await slotCenter(page, 1);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  expect((await state(page)).slotHold).toBeNull();
+  await page.waitForTimeout(1300);
+  expect(invCount(await state(page), B.stone)).toBe(4);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+  await page.waitForTimeout(950);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+  expect(invCount(await state(page), B.dirt)).toBe(4);
+  expect(errors).toEqual([]);
+});
+
 test("clavier : garder la touche 3 une seconde vide la case 3 ; la relâcher avant ou tourner la molette annule", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "clavier : PC uniquement");
   const errors = await openGame(page);
@@ -2340,6 +2404,10 @@ test("fabrication au clavier : F ouvre le panneau (souris libérée, jeu en paus
   ]);
   await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
   await expect(page.locator(".craft-status")).toHaveText("Clique sur une carte !");
+  // Le ton de la ligne d'état a sa propre classe : « .info » ne désigne que la ligne d'infos du HUD (relecture J8).
+  await expect(page.locator(".craft-status")).toHaveClass(/\btone-info\b/);
+  await expect(page.locator(".info")).toHaveCount(1);
+  await expect(page.locator(".craft .info, .craft .ok, .craft .no")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("fabrication-pc.png") });
   // Carte planches (armée 400 ms après l'ouverture) : 1 tronc donne 2 planches ; encore : l'addition.
   await page.waitForTimeout(500);
@@ -2347,6 +2415,9 @@ test("fabrication au clavier : F ouvre le panneau (souris libérée, jeu en paus
   await planks.click();
   await expect.poll(async () => invCount(await state(page), B.planks)).toBe(2);
   expect(invCount(await state(page), B.log)).toBe(1);
+  // Résultat en vert, comme avant le renommage des classes de ton.
+  await expect(page.locator(".craft-status")).toHaveClass(/\btone-ok\b/);
+  await expect(page.locator(".craft-status")).toHaveCSS("color", "rgb(47, 125, 50)");
   await expect(page.locator(".craft-status")).toHaveText("2 planches !");
   await page.waitForTimeout(300);
   await planks.click();
@@ -2363,7 +2434,8 @@ test("fabrication au clavier : F ouvre le panneau (souris libérée, jeu en paus
   await page.waitForTimeout(300);
   await planks.click();
   await expect(planks).toHaveClass(/shake/);
-  await expect(page.locator(".craft-status")).toHaveClass(/no/);
+  await expect(page.locator(".craft-status")).toHaveClass(/\btone-no\b/);
+  await expect(page.locator(".craft-status")).toHaveCSS("color", "rgb(180, 82, 26)");
   await expect(page.locator(".craft-status")).toContainText("tronc");
   // Main vide (les troncs épuisés) : les planches y sont passées.
   expect(s.slot).toBe(1);
@@ -2541,7 +2613,69 @@ test("fabrication au doigt : le marteau de la colonne ouvre le panneau ; un doig
   expect(errors).toEqual([]);
 });
 
-test("fabrication, mise en page : la feuille au-dessus de la barre sans la couvrir, trois cartes assez grandes dans l'écran ; le marteau ne chevauche aucun bouton @tactile", async ({ page }, testInfo) => {
+/**
+ * Touchers synthétiques sur un écran posé sur le jeu, dans la page : chaque pas est un événement (touchstart,
+ * touchend) d'un doigt sur la cible sel, au centre de sa boîte ; down liste les doigts restés posés selon le
+ * navigateur (touches), doigt compris pour un touchstart.
+ */
+async function synthTouches(page: Page, steps: { type: "touchstart" | "touchend"; id: number; sel: string; down: number[] }[]): Promise<void> {
+  await page.evaluate((list) => {
+    const at = new Map<number, Touch>();
+    for (const s of list) {
+      const target = document.querySelector(s.sel)!;
+      const r = target.getBoundingClientRect();
+      const t = new Touch({ identifier: s.id, target, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+      at.set(s.id, t);
+      const touches = s.down.map((id) => at.get(id) ?? new Touch({ identifier: id, target, clientX: 1, clientY: 1 }));
+      target.dispatchEvent(new TouchEvent(s.type, { bubbles: true, cancelable: true, touches, changedTouches: [t] }));
+    }
+  }, steps);
+}
+
+test("fabrication au doigt : un doigt dont la fin se perd ne bloque pas le panneau, un nouveau doigt reprend le geste ; la fenêtre qui perd le focus relâche la carte @tactile", async ({ page }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page);
+  await page.evaluate(() => window.cubesDebug.give(6, 3));
+  const open = async () => {
+    expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
+    await expect(page.locator(".craft")).toBeVisible();
+    await page.waitForTimeout(500); // armé 400 ms après l'ouverture
+  };
+  const PLANKS = '.craft-card[data-recipe="planches"]';
+  // Doigt fantôme que le navigateur liste encore (41 sur la carte) : la croix touchée ensuite (42) ferme le panneau.
+  await open();
+  await synthTouches(page, [
+    { type: "touchstart", id: 41, sel: PLANKS, down: [41] },
+    { type: "touchstart", id: 42, sel: ".craft-close", down: [41, 42] },
+    { type: "touchend", id: 42, sel: ".craft-close", down: [41] },
+  ]);
+  await expect(page.locator(".craft")).toBeHidden();
+  let s = await state(page);
+  expect(s.craft.open).toBe(false);
+  expect(s.paused).toBe(false);
+  expect(invCount(s, B.log)).toBe(3);
+  // Fenêtre qui perd le focus, doigt posé sur la carte : la carte est relâchée, et ce doigt, levé ensuite, ne fabrique rien.
+  await open();
+  await synthTouches(page, [{ type: "touchstart", id: 41, sel: PLANKS, down: [41] }]);
+  await expect(page.locator(PLANKS)).toHaveClass(/pressed/);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.locator(".craft-card.pressed")).toHaveCount(0);
+  await synthTouches(page, [{ type: "touchend", id: 41, sel: PLANKS, down: [] }]);
+  await page.waitForTimeout(300);
+  s = await state(page);
+  expect(invCount(s, B.planks)).toBe(0);
+  expect(s.craft.open).toBe(true);
+  // Le panneau répond toujours : la carte touchée fabrique.
+  await synthTouches(page, [
+    { type: "touchstart", id: 44, sel: PLANKS, down: [44] },
+    { type: "touchend", id: 44, sel: PLANKS, down: [] },
+  ]);
+  await expect.poll(async () => invCount(await state(page), B.planks)).toBe(2);
+  await page.evaluate(() => window.cubesDebug.closeCraft());
+  expect(errors).toEqual([]);
+});
+
+test("fabrication, mise en page : la feuille au-dessus de la barre sans la couvrir, trois cartes assez grandes dans l'écran ; le marteau ne chevauche aucun bouton ; appui long panneau ouvert : anneau et pastilles entre la barre et la feuille @tactile", async ({ page, context }, testInfo) => {
   const errors = await openGame(page);
   const vp = page.viewportSize()!;
   // Le marteau et ses voisins, panneau fermé.
@@ -2580,7 +2714,14 @@ test("fabrication, mise en page : la feuille au-dessus de la barre sans la couvr
     expect(b.y).toBeGreaterThanOrEqual(0);
     expect(b.x + b.width).toBeLessThanOrEqual(vp.width);
     expect(b.y + b.height).toBeLessThanOrEqual(vp.height);
+    expect(inside(b, sheet)).toBe(true);
   }
+  // La feuille, remontée pour l'anneau de l'appui long, tient sans défiler.
+  const sheetScrolls = await page.evaluate(() => {
+    const el = document.querySelector(".craft-sheet")!;
+    return el.scrollHeight > el.clientHeight + 1;
+  });
+  expect(sheetScrolls).toBe(false);
   // La barre reste au-dessus du voile (on peut y vider une case).
   const z = await page.evaluate(() => {
     const r = document.querySelector(".hotbar")!.getBoundingClientRect();
@@ -2588,6 +2729,18 @@ test("fabrication, mise en page : la feuille au-dessus de la barre sans la couvr
   });
   expect(z).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("fabrication.png") });
+  // Relecture J8, constat 14 : la pastille « +2 » d'une fabrication, puis l'anneau d'un appui gardé sur une case,
+  // tous deux au-dessus du voile, restent entre la barre et la feuille ; aucun ne couvre la ligne d'état.
+  await page.evaluate(() => {
+    for (const id of [2, 3, 5, 8]) window.cubesDebug.give(id, 3); // cases 2 à 5
+  });
+  expect(await craftPlanksDeltasRisen(page)).toMatchObject({ ok: true, outputSlot: 0 });
+  const risen = await layoutBoxes(page, CRAFT_LAYOUT);
+  expect(layoutProblems(risen, vp)).toEqual([]);
+  expect(risen.map((b) => b.name)).toEqual(["feuille", "barre", "pastille"]);
+  const held = await layoutBoxesDuringHold(page, CRAFT_LAYOUT, await slotPress(page, context, testInfo, 3));
+  expect(layoutProblems(held, vp)).toEqual([]);
+  expect(held.map((b) => b.name)).toEqual(expect.arrayContaining(["feuille", "barre", "anneau de l'appui long"]));
   await page.evaluate(() => window.cubesDebug.closeCraft());
   expect((await state(page)).paused).toBe(false);
   expect(errors).toEqual([]);
@@ -3298,6 +3451,62 @@ test("au doigt : le mode Poser pris par une lettre (mission 2) ne passe pas à l
   expect(errors).toEqual([]);
 });
 
+test("boîte à lettres au doigt : un doigt dont la fin se perd ne la bloque pas, un nouveau doigt reprend le geste ; la fenêtre qui perd le focus relâche la lettre @tactile", async ({ page, context }, testInfo) => {
+  test.skip(!isTouch(testInfo), "tactile : tablette uniquement");
+  const errors = await openGame(page, M2);
+  const touch = await touchDriver(context, page);
+  const center = async (sel: string) => {
+    const b = (await page.locator(sel).boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const openArmed = async () => {
+    expect(await page.evaluate(() => window.cubesDebug.openLetters())).toBe(true);
+    await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
+  };
+  // Fin de geste perdue (relecture J8, constat 0) : le touchend du doigt posé sur B n'arrive jamais à la boîte.
+  await openArmed();
+  await page.evaluate(() =>
+    window.addEventListener("touchend", (e) => e.stopImmediatePropagation(), { capture: true, once: true }),
+  );
+  const b = await center('.tray-key[data-letter="B"]');
+  await touch.tap(b.x, b.y);
+  await expect(page.locator('.tray-key[data-letter="B"]')).toHaveClass(/pressed/);
+  expect((await state(page)).letters.open).toBe(true);
+  // La croix, touchée ensuite, ferme quand même la boîte (avant : plus rien ne répondait au doigt).
+  const close = await center(".letter-tray-close");
+  await touch.tap(close.x, close.y);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  let s = await state(page);
+  expect(s.letters).toMatchObject({ open: false, hand: null });
+  expect(s.paused).toBe(false);
+  // Doigt fantôme que le navigateur liste encore (41 sur B) : M touché ensuite (42) est choisi.
+  await openArmed();
+  await synthTouches(page, [
+    { type: "touchstart", id: 41, sel: '.tray-key[data-letter="B"]', down: [41] },
+    { type: "touchstart", id: 42, sel: '.tray-key[data-letter="M"]', down: [41, 42] },
+    { type: "touchend", id: 42, sel: '.tray-key[data-letter="M"]', down: [41] },
+  ]);
+  await expect.poll(async () => (await state(page)).letters.hand).toBe("M");
+  s = await state(page);
+  expect(s.letters.open).toBe(false);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  // Fenêtre qui perd le focus, doigt posé sur B : B est relâchée, et ce doigt, levé ensuite, ne choisit rien.
+  await openArmed();
+  await synthTouches(page, [{ type: "touchstart", id: 41, sel: '.tray-key[data-letter="B"]', down: [41] }]);
+  await expect(page.locator('.tray-key[data-letter="B"]')).toHaveClass(/pressed/);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.locator(".tray-key.pressed")).toHaveCount(0);
+  await synthTouches(page, [{ type: "touchend", id: 41, sel: '.tray-key[data-letter="B"]', down: [] }]);
+  await page.waitForTimeout(300);
+  s = await state(page);
+  expect(s.letters).toMatchObject({ open: true, hand: "M" });
+  // La boîte répond toujours : la croix la ferme.
+  await touch.tap(close.x, close.y);
+  await expect(page.locator(".letter-tray")).toBeHidden();
+  expect((await state(page)).letters).toMatchObject({ open: false, hand: "M" });
+  expect(errors).toEqual([]);
+});
+
 test("mission 2 au clavier : 0 ouvre la boîte (souris libérée) ; une lettre tapée la choisit (Z gardé ne fait pas marcher) et la souris est reprise ; clic droit pose la lettre ; 0 puis Échap ferme sans choisir", async ({ page }, testInfo) => {
   test.skip(isTouch(testInfo), "clavier et souris : PC uniquement");
   const errors = await openGame(page, M2);
@@ -3415,8 +3624,9 @@ interface LayoutBox {
 }
 
 /**
- * Boîtes de l'interface à ne jamais superposer, par nom. Le message et le nom du bloc ne comptent que visibles (ils
- * restent dans la page, transparents, le reste du temps) ; le calque tactile seulement quand il est actif.
+ * Boîtes de l'interface à ne jamais superposer, par nom. Le message, le nom du bloc et l'anneau de l'appui long ne
+ * comptent que visibles (ils restent dans la page, transparents, le reste du temps ; le nom du bloc s'efface pendant
+ * un appui long) ; le calque tactile seulement quand il est actif.
  */
 const HUD_LAYOUT: Record<string, string> = {
   "ligne d'infos": ".hud > .info",
@@ -3427,7 +3637,8 @@ const HUD_LAYOUT: Record<string, string> = {
   "rond vue": ".view-btn",
   "bandeau de Pixel": ".companion",
   message: ".message.visible",
-  "nom du bloc": ".slot-name.visible",
+  "nom du bloc": ".hud:not(.slot-holding) .slot-name.visible",
+  "anneau de l'appui long": ".slot-hold.visible",
   "aide d'écran": ".hint",
   barre: ".hotbar",
   "rond pour marcher": ".joystick",
@@ -3439,28 +3650,108 @@ const HUD_LAYOUT: Record<string, string> = {
 };
 
 /**
+ * Ce qui est posé au-dessus du voile du panneau de fabrication (V2), avec la feuille : rien ne doit s'y superposer.
+ * La ligne d'état, dans la feuille, est couverte par la boîte de celle-ci.
+ */
+const CRAFT_LAYOUT: Record<string, string> = {
+  feuille: ".craft-sheet",
+  barre: ".hotbar",
+  "anneau de l'appui long": ".slot-hold.visible",
+  pastille: ".hotbar > .slot-delta",
+};
+
+/**
  * Mesure, dans une seule tâche de la page, les boîtes affichées (taille non nulle, ni display: none ni visibility:
  * hidden). letter : choisie juste avant la mesure (accès de test), pour que son nom, affiché 1,8 s, soit compté.
+ * onHold : rien n'est mesuré tout de suite ; un observateur mesure dans l'image même où l'anneau de l'appui long se
+ * montre, et range le résultat (une promesse) dans window.layoutOnHold (voir layoutBoxesDuringHold).
  */
-async function layoutBoxes(page: Page, selectors: Record<string, string>, letter: string | null = null): Promise<LayoutBox[]> {
+async function layoutBoxes(page: Page, selectors: Record<string, string>, letter: string | null = null, onHold = false): Promise<LayoutBox[]> {
   return page.evaluate(
-    ([sels, ch]) => {
+    ([sels, ch, hold]) => {
+      const measure = (): LayoutBox[] => {
+        const out: LayoutBox[] = [];
+        for (const [name, sel] of Object.entries(sels)) {
+          document.querySelectorAll(sel).forEach((el, i) => {
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            if (r.width === 0 || r.height === 0 || cs.display === "none" || cs.visibility === "hidden") return;
+            const touch = el.closest(".touch");
+            if (touch && !touch.classList.contains("enabled")) return;
+            out.push({ name: i > 0 ? `${name} ${i + 1}` : name, x: r.x, y: r.y, width: r.width, height: r.height });
+          });
+        }
+        return out;
+      };
       if (ch !== null) window.cubesDebug.chooseLetter(ch);
-      const out: LayoutBox[] = [];
-      for (const [name, sel] of Object.entries(sels)) {
-        document.querySelectorAll(sel).forEach((el, i) => {
-          const r = el.getBoundingClientRect();
-          const cs = getComputedStyle(el);
-          if (r.width === 0 || r.height === 0 || cs.display === "none" || cs.visibility === "hidden") return;
-          const touch = el.closest(".touch");
-          if (touch && !touch.classList.contains("enabled")) return;
-          out.push({ name: i > 0 ? `${name} ${i + 1}` : name, x: r.x, y: r.y, width: r.width, height: r.height });
+      if (!hold) return measure();
+      const ring = document.querySelector(".slot-hold")!;
+      (window as unknown as { layoutOnHold: Promise<LayoutBox[]> }).layoutOnHold = new Promise((resolve, reject) => {
+        const obs = new MutationObserver(() => {
+          if (!ring.classList.contains("visible")) return;
+          obs.disconnect();
+          window.clearTimeout(timer);
+          resolve(measure());
         });
-      }
-      return out;
+        const timer = window.setTimeout(() => {
+          obs.disconnect();
+          reject(new Error("anneau de l'appui long jamais visible"));
+        }, 8000);
+        obs.observe(ring, { attributes: true, attributeFilter: ["class"] });
+      });
+      return [];
     },
-    [selectors, letter] as const,
+    [selectors, letter, onHold] as const,
   );
+}
+
+/**
+ * Fabrique des planches (accès de test) et mène les pastilles « −1 » / « +2 » au bout de leur montée, dans la même
+ * tâche : elles sont mesurées à leur plus haute position, avant d'être retirées (900 ms).
+ */
+async function craftPlanksDeltasRisen(page: Page): Promise<CraftResult> {
+  return page.evaluate(() => {
+    const r = window.cubesDebug.craft("planches");
+    for (const el of Array.from(document.querySelectorAll(".hotbar > .slot-delta"))) for (const a of el.getAnimations()) a.finish();
+    return r;
+  });
+}
+
+/** Appui gardé sur la case i : souris au PC, doigt (CDP) sur tablette. */
+async function slotPress(page: Page, context: BrowserContext, info: TestInfo, i: number): Promise<{ down(): Promise<void>; up(): Promise<void> }> {
+  const c = await slotCenter(page, i);
+  if (!isTouch(info)) {
+    return {
+      down: async () => {
+        await page.mouse.move(c.x, c.y);
+        await page.mouse.down();
+      },
+      up: () => page.mouse.up(),
+    };
+  }
+  const cdp = await context.newCDPSession(page);
+  return {
+    down: async () => {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+    },
+    up: async () => {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    },
+  };
+}
+
+/**
+ * Boîtes mesurées pendant un appui long sur une case (relecture J8) : l'observateur est posé, puis l'appui commence ;
+ * la mesure est prise dans l'image où l'anneau se montre, avant que la case ne soit vidée, puis l'appui est relâché.
+ */
+async function layoutBoxesDuringHold(page: Page, selectors: Record<string, string>, press: { down(): Promise<void>; up(): Promise<void> }): Promise<LayoutBox[]> {
+  await layoutBoxes(page, selectors, null, true);
+  await press.down();
+  try {
+    return await page.evaluate(() => (window as unknown as { layoutOnHold: Promise<LayoutBox[]> }).layoutOnHold);
+  } finally {
+    await press.up();
+  }
 }
 
 /** Ce qui ne va pas : boîtes qui sortent de l'écran, paires qui se chevauchent (plus d'un pixel). */
@@ -3579,7 +3870,7 @@ test("mise en page, partie d'enfant : ronds du haut avec et sans « Tests », ba
   expect(errors).toEqual([]);
 });
 
-test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la barre), aide d'écran et modèle du mot sans chevauchement ; panneau de fabrication au-dessus des 10 cases ; boîte à lettres entière dans l'écran @tactile", async ({ page }, testInfo) => {
+test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la barre), aide d'écran et modèle du mot sans chevauchement ; appui long, panneau fermé puis ouvert ; panneau de fabrication au-dessus des 10 cases ; boîte à lettres entière dans l'écran @tactile", async ({ page, context }, testInfo) => {
   test.setTimeout(120_000);
   const errors = await openGame(page, M2);
   const vp = page.viewportSize()!;
@@ -3602,9 +3893,22 @@ test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la bar
   }
   await page.screenshot({ path: testInfo.outputPath("mission-2-lettre-en-main.png") });
 
-  // Panneau de fabrication : la feuille juste au-dessus de la barre à 10 cases, ses cartes entières dans l'écran ;
-  // la barre reste touchable (au-dessus du voile).
-  await page.evaluate(() => window.cubesDebug.give(6, 2));
+  // Appui long sur une case, panneau fermé : l'anneau, au-dessus de la case, ne touche ni l'aide d'écran ni le rond,
+  // ni les boutons (le nom du bloc s'efface pendant l'appui).
+  await page.evaluate(() => {
+    for (const id of [2, 3, 5]) window.cubesDebug.give(id, 3); // cases 1 à 3
+  });
+  const heldHud = await layoutBoxesDuringHold(page, HUD_LAYOUT, await slotPress(page, context, testInfo, 1));
+  expect(layoutProblems(heldHud, vp)).toEqual([]);
+  expect(heldHud.map((b) => b.name)).toEqual(expect.arrayContaining(["anneau de l'appui long", "aide d'écran", "barre"]));
+
+  // Panneau de fabrication : la feuille au-dessus de la barre à 10 cases, ses cartes entières dans l'écran ;
+  // la barre reste touchable (au-dessus du voile). Sac refait (sous charge, l'appui ci-dessus a pu vider sa case).
+  await page.evaluate(() => {
+    window.cubesDebug.clearInventory();
+    for (const id of [2, 3, 5]) window.cubesDebug.give(id, 3); // cases 1 à 3
+    window.cubesDebug.give(6, 2); // case 4
+  });
   expect(await page.evaluate(() => window.cubesDebug.openCraft())).toBe(true);
   await expect(page.locator(".craft")).toBeVisible();
   const sheet = (await page.locator(".craft-sheet").boundingBox())!;
@@ -3625,6 +3929,15 @@ test("mise en page de la mission 2 : lettre en main (son nom au-dessus de la bar
   });
   expect(abcOnTop).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("mission-2-fabrication.png") });
+  // Relecture J8, constat 14 : les pastilles « −1 » (case 4) et « +2 » (case 5) d'une fabrication, puis l'anneau
+  // d'un appui gardé sur une case, restent entre la barre et la feuille.
+  expect(await craftPlanksDeltasRisen(page)).toMatchObject({ ok: true, outputSlot: 4 });
+  const risen = await layoutBoxes(page, CRAFT_LAYOUT);
+  expect(layoutProblems(risen, vp)).toEqual([]);
+  expect(risen.map((b) => b.name)).toEqual(["feuille", "barre", "pastille", "pastille 2"]);
+  const held = await layoutBoxesDuringHold(page, CRAFT_LAYOUT, await slotPress(page, context, testInfo, 0));
+  expect(layoutProblems(held, vp)).toEqual([]);
+  expect(held.map((b) => b.name)).toEqual(expect.arrayContaining(["feuille", "barre", "anneau de l'appui long"]));
   await page.evaluate(() => window.cubesDebug.closeCraft());
 
   // Boîte à lettres : 26 lettres d'au moins 64 px, le modèle du mot et la croix, tout dans l'écran, sans défilement.

@@ -4,7 +4,14 @@ import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
 import { blockIcon, tileIcon } from "../render/textures";
-import { slotHoldMoved, startSlotHold, type SlotHold, type SlotHoldSource } from "../input/slotHold";
+import {
+  slotHoldAfterCancel,
+  slotHoldMoved,
+  slotHoldProgress,
+  startSlotHold,
+  type SlotHold,
+  type SlotHoldSource,
+} from "../input/slotHold";
 import { nearestSlot } from "./nearestSlot";
 import { wordIcon } from "./wordIcon";
 
@@ -201,11 +208,19 @@ export class Hud {
     );
     // Fin de l'appui long : doigt levé ou annulé par le système, doigt ou souris qui glisse (l'enfant regardait
     // ou visait), bouton relâché, fenêtre qui perd le focus. Les touchers visent la case de départ et remontent
-    // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture.
+    // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture. Un doigt annulé par le système
+    // (touchcancel) après SLOT_HOLD_CANCEL_OK_MS compte comme un appui allé au bout : Windows peut prendre un doigt
+    // gardé vers 1 s pour un clic droit ; l'appui reste alors, plein, et le jeu vide la case à l'image suivante
+    // (Game.updateSlotHold, mêmes règles que pour un appui d'une seconde).
     const fingerUp = (e: TouchEvent) => {
       const h = this.hold;
       if (h?.source !== "touch") return;
-      for (const t of Array.from(e.changedTouches)) if (t.identifier === h.pointer) this.cancelSlotHold();
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier !== h.pointer) continue;
+        const done = e.type === "touchcancel" ? slotHoldAfterCancel(h, performance.now()) : null;
+        if (done) this.hold = done;
+        else this.cancelSlotHold();
+      }
     };
     this.hotbar.addEventListener("touchend", fingerUp);
     this.hotbar.addEventListener("touchcancel", fingerUp);
@@ -238,7 +253,13 @@ export class Hud {
       },
       true,
     );
-    window.addEventListener("blur", () => this.cancelSlotHold());
+    // Fenêtre qui perd le focus : un appui en cours est abandonné ; un appui déjà allé au bout (seconde écoulée, ou
+    // doigt annulé par le système après 900 ms, peut-être avec ce même changement de focus) attend l'image suivante.
+    window.addEventListener("blur", () => {
+      const h = this.hold;
+      if (h && slotHoldProgress(h, performance.now()) >= 1) return;
+      this.cancelSlotHold();
+    });
     this.root.appendChild(this.hotbar);
 
     // Anneau de l'appui long (V2) : au-dessus de la case tenue, pour que le doigt ne le cache pas.
