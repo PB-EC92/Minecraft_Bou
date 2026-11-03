@@ -1,6 +1,6 @@
 # Plan d'attaque — « Cubes » (nom provisoire)
 
-Version 1 du plan, 23 septembre 2026, établie à partir du brief validé (`docs/BRIEF.md`). Les estimations de charge sont indicatives et non vérifiées : elles seront recalées après le jalon J0.
+Version 1 du plan, 23 septembre 2026, établie à partir du brief validé (`docs/BRIEF.md`). Les estimations de charge sont indicatives et non vérifiées : elles seront recalées après le jalon J0. Mis à jour au J8 (lot 1 de la V2, novembre 2026 ; conception détaillée dans `docs/V2-LOT1.md`).
 
 ## 1. Principes de conduite
 
@@ -40,15 +40,15 @@ Minecraft/
 
 Monde : 128 × 128 blocs, hauteur 64 (réalisé au J1). Les blocs sont rangés dans un seul `Uint8Array` (1 Mo), plus simple que des tableaux par chunk pour un monde borné ; le découpage sert au rendu : 256 sections de 16 × 16 × 16, chacune avec un numéro de version. Bords du monde : murs invisibles ; au-delà, une mer s'étend jusqu'à l'horizon.
 
-Maillage : par section, seules les faces visibles (voisin non opaque) sont générées, avec une occlusion ambiante par sommet ; trois meshs par section (opaque, découpe pour les fleurs, eau) ; remaillage de la seule section modifiée (et de ses voisines si le bloc est sur une frontière), les sections en attente étant traitées de la plus proche à la plus lointaine dans un budget de temps par image. Le greedy meshing reste en réserve si la tablette peine.
+Maillage : par section, seules les faces visibles (voisin non opaque) sont générées, avec une occlusion ambiante par sommet ; quatre couches par section depuis le J8 : opaque, découpe (fleurs), eau, verre (transparente, sans écriture de profondeur, dessinée après l'eau) ; remaillage de la seule section modifiée (et de ses voisines si le bloc est sur une frontière), les sections en attente étant traitées de la plus proche à la plus lointaine dans un budget de temps par image. Le greedy meshing reste en réserve si la tablette peine.
 
-Textures : atlas de tuiles 16 × 16 px dessinées par code sur un canvas au démarrage. Zéro image externe, style pixel-art original, aucun emprunt à Minecraft.
+Textures : atlas de tuiles 16 × 16 px dessinées par code sur un canvas au démarrage ; grille de 8 × 8 tuiles (128 × 128 px) depuis le J8, pour le verre et les 26 lettres (les tuiles 0 à 18 n'ont pas bougé). Les lettres utilisent une police 5 × 7 dessinée pour le jeu (`render/font.ts`), en une seule encre sombre. Zéro image externe, style pixel-art original, aucun emprunt à Minecraft.
 
 Génération : bruit de gradient 2D à graine (réalisé au J1, type Perlin) ; quatre types de monde (prairie, île, montagne, désert) avec herbe, terre, pierre, sable, neige, eau, arbres, fleurs, cactus. Même type et même graine donnent le même monde. Réalisé au J4 autrement : trois mondes par enfant, chacun avec une graine tirée à sa création et enregistrée avec lui. Pierres brillantes en surface depuis le J5 (générateur version 2).
 
 Physique : boîte du joueur contre les blocs (AABB), gravité, saut, aucun dégât de chute ; au J1, montée automatique des marches d'un bloc, et dans l'eau on flotte (nager vers le haut, plonger), sans noyade.
 
-Blocs V1 (livrés) : herbe, terre, pierre, sable, tronc, planches, feuilles, eau, deux fleurs, neige, cactus, lampe, clôture, pierre brillante (donne la lampe), arc-en-ciel (cadeau de la mission 1). Écarts : pas de verre ; les planches existent mais l'enfant ne peut pas en trouver (craft en V2) ; le bloc-lettre sera ajouté en V2 à la fin du registre (voir `RECETTE-V1.md`).
+Blocs V1 (livrés) : herbe, terre, pierre, sable, tronc, planches, feuilles, eau, deux fleurs, neige, cactus, lampe, clôture, pierre brillante (donne la lampe), arc-en-ciel (cadeau des missions). Blocs du J8 (V2 lot 1), ajoutés à la fin du registre : **verre** (17 : plein, transparent, se casse en 0,3 s et revient au sac) et **lettres A à Z** (18 à 43 : la lettre sur les quatre côtés, planches dessus et dessous, se cassent en 0,2 s sans rien rapporter, jamais dans le sac). Planches, clôtures et verre se fabriquent (`engine/crafting.ts` : 1 tronc → 2 planches, 2 planches → 1 clôture, 1 sable → 2 verres) ; un tronc ne donne plus de clôture.
 
 Contrôles clavier : touches repérées par position physique (`KeyboardEvent.code`), ce qui donne ZQSD en AZERTY et WASD en QWERTY sans aucun réglage. Regard à la souris via Pointer Lock.
 
@@ -56,17 +56,17 @@ Tactile : moitié gauche de l'écran = joystick virtuel ; moitié droite = gliss
 
 Audio : sons synthétisés par Web Audio (aucun fichier). Voix : `speechSynthesis` avec une voix fr-FR ; repli texte + icônes + sons si aucune voix française n'est disponible.
 
-Jour/nuit : cycle de 12 minutes au J1 (9 de jour, 3 de nuit), nuit jamais noire ; durée réglable en mode parent (J4).
+Jour/nuit : cycle de 12 minutes au J1 (9 de jour, 3 de nuit), nuit jamais noire ; durée réglable en mode parent (J4). Depuis le J8, le soir s'arrête à 17 h pendant les étapes qui le demandent (tutoriel, mission 1 jusqu'à l'abri, mission 2), et la mission 2 ne commence que de jour (6 h 30 à 16 h 30 ; sinon le temps file ×30 jusqu'au matin).
 
 Créatures : machine à états simple. Le jour elles errent loin du joueur ; la nuit elles s'approchent, chipent un bloc de l'inventaire au contact, fuient à quelques blocs d'une lampe et ne franchissent pas les clôtures.
 
-Sauvegarde : `localStorage` par profil (réalisé au J4 : écart avec le monde régénéré depuis sa graine, encodé en base64, plus inventaire, position, heure, progression de mission ; J6 : cadeau et écran de félicitations en attente) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, Chrome et Edge partagent le stockage local entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`. Firefox, navigateur du convertible, le rattacherait au chemin exact du fichier (non vérifié) : le J4 doit en tenir compte (toujours remplacer le fichier au même endroit sous le même nom, montrer en mode parent où vit la sauvegarde, proposer l'export avant une mise à jour).
+Sauvegarde : `localStorage` par profil (réalisé au J4 : écart avec le monde régénéré depuis sa graine, encodé en base64, plus inventaire, position, heure, progression de mission ; J6 : cadeau et écran de félicitations en attente ; J8 : marteau découvert `craftSeen` dans le profil, mots écrits de la mission 2, date du dernier export `cubes:dernier-export` ; formats et `GENERATOR_VERSION` inchangés) ; export = téléchargement d'un fichier JSON ; import = sélecteur de fichier. En `file://`, Chrome et Edge partagent le stockage local entre tous les fichiers ouverts localement : les clés sont préfixées `cubes:`. Firefox, navigateur du convertible, le rattacherait au chemin exact du fichier (non vérifié) : le J4 doit en tenir compte (toujours remplacer le fichier au même endroit sous le même nom, montrer en mode parent où vit la sauvegarde, proposer l'export avant une mise à jour).
 
-Missions : données déclaratives (étapes, conditions observées sur l'état du jeu, textes en deux variantes débutant/autonome, récompense). Le moteur observe le jeu et fait avancer la mission ; le compagnon porte les dialogues.
+Missions : données déclaratives (étapes, conditions observées sur l'état du jeu, textes en deux variantes débutant/autonome, récompense). Le moteur observe le jeu et fait avancer la mission ; le compagnon porte les dialogues. Campagne au J8 : tutoriel, mission 1 (l'abri), mission 2 (« Les mots » : lettres posées dans le monde, lues par `engine/words.ts`, copie pour le débutant et dictée pour l'autonome, aide progressive).
 
-Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil. Réalisé : prénoms, niveau de lecture (qui règle aussi la longueur des phrases), voix, nuit (normale, courte, pas de nuit), Grignotes, panneau Tests (J7), progression (J6), effacer un monde, export et import. La plage de nombres n'est pas faite (sans effet sur la mission 1) : backlog V2.
+Mode parent : appui long de trois secondes sur l'engrenage de l'écran d'accueil. Réglages : voix, longueur des phrases, plage de nombres, durée de la nuit, créatures actives ou non. Progression par profil. Réalisé : prénoms, niveau de lecture (qui règle aussi la longueur des phrases), voix, nuit (normale, courte, pas de nuit), Grignotes, panneau Tests (J7), progression (J6, mots écrits au J8), effacer un monde, export et import, date du dernier export et rappel au-delà de 7 jours (J8). Plus aucun texte sous l'engrenage (J8) : le geste est rappelé une fois à l'adulte, à l'écran du premier réglage. La plage de nombres n'est pas faite (sans effet sur les missions 1 et 2) : backlog V2.
 
-Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, 580 ko au J1, 700 ko environ à la 1.0-rc, Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
+Build : `npm run build` produit `dist/cubes.html`. Taille mesurée : environ 550 ko au J0.1, 580 ko au J1, 706 ko à la 1.0-rc, 813 ko à la 1.1-rc (J8), Three.js minifié compris (l'estimation initiale de 2 à 3 Mo était large), très en dessous du plafond de 20 Mo du dépôt de fichiers vers le poste.
 
 ### Ce qu'impose le fichier local (`file://`)
 
@@ -85,6 +85,7 @@ Un fichier ouvert par double-clic ne peut ni charger des modules ES externes ni 
 | J5 | Compagnon, moteur de missions, créatures, lampe, clôture, lance-bulles | Le compagnon parle ; les créatures rôdent la nuit | 2 |
 | J6 | Tutoriel, mission 1 complète, finitions | Mission 1 jouable de bout en bout | 2 |
 | J7 | Recette V1 avec les enfants, corrections | Version 1.0 | 1 |
+| J8 | V2, lot 1 : fabrication, verre, mission 2 « Les mots », suites de la recette V1 | Version 1.1-rc | 2 (réalisé : conception le 01/11, intégration le 03/11/2026) |
 
 Total indicatif : 13 à 15 sessions de travail (J0.1 compris), au fil de l'eau (une de plus qu'au départ, pour les ajouts du 23/09 : types de monde, vue à la 3e personne, lance-bulles).
 
@@ -148,7 +149,17 @@ Mission 0 (tutoriel, trois étapes : se déplacer, casser, poser) puis mission 1
 
 Vérification des quatre critères de réussite du brief avec les enfants, corrections, version 1.0, mise à jour de la documentation, tri du backlog V2.
 
-État : première partie livrée le 25/09/2026 (voir `JOURNAL.md`) : version **1.0-rc**, recette technique (`RECETTE-V1.md`), corrections des limites connues et des écarts relevés par l'audit, protocole de recette avec les enfants dans `RETOURS.md`, backlog V2 trié (§6). Reste : la séance avec les enfants (Pierre), les corrections qui en sortiront, puis le passage à « 1.0 ».
+État : première partie livrée le 25/09/2026 (voir `JOURNAL.md`) : version **1.0-rc**, recette technique (`RECETTE-V1.md`), corrections des limites connues et des écarts relevés par l'audit, protocole de recette avec les enfants dans `RETOURS.md`, backlog V2 trié (§6). Reste : la séance avec les enfants (Pierre), les corrections qui en sortiront, puis le passage à « 1.0 ». Décision de Pierre (01/11/2026) : la 1.0 sera déclarée après cette séance ; le lot 1 de la V2 est livré avant, en **1.1-rc**.
+
+### J8 — V2, lot 1
+
+Conception le 01/11/2026 (`docs/V2-LOT1.md`, avec les quinze décisions de Pierre), réalisation en paquets parallèles (modules purs) puis intégration. Contenu :
+- **Fabrication** : marteau (rond du haut, bouton de la colonne tactile, touche F), panneau de trois cartes (1 tronc → 2 planches, 2 planches → 1 clôture, 1 sable → 2 verres), additions pour le débutant (« 2 + 2 = 4 planches ! »), refus expliqués, réserve de l'étape « 6 troncs » ; présenté par Pixel à l'étape abri, puis retenu dans le profil (`craftSeen`).
+- **Verre** : bloc plein et transparent, couche de rendu à part ; compte pour l'abri, arrête les Grignotes.
+- **Mission 2 « Les mots »** : case ABC (touche 0) et boîte de 26 lettres ; une lettre, trois mots, le prénom (sans accent) ; copie avec modèle, syllabes et cases claires pour le débutant ; dictée lue même voix coupée pour l'autonome ; aide progressive jusqu'à la lettre mise en main ou au mot entier ; on n'échoue jamais ; félicitations, cadeau, deuxième étoile.
+- **Suites de la recette V1** (décisions de Pierre, voir `RECETTE-V1.md` §5) : vider une case par un appui long d'une seconde (doigt, clic, touche 1 à 9 ; jamais la lampe, le cadeau ni le bloc de l'étape) ; troncs sans clôture ; soir retenu à 17 h ; plus de texte sous l'engrenage ; lampe à découvrir ; date du dernier export et rappel.
+
+État : réalisé le 03/11/2026 (voir `JOURNAL.md`), version **1.1-rc**, vérifié dans Chromium seulement (tests unitaires et de fumée). Reste : le protocole « J8 / V2 lot 1 » de `RETOURS.md` sur le convertible sous Firefox, puis les séances avec les enfants (mission 2 avec chacun).
 
 ## 4. Organisation du travail
 
@@ -173,7 +184,9 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 | Ergonomie inadaptée à 6 ans | Frustration | Tests enfants dès J2, tutoriel J6, gros boutons, aucun échec bloquant |
 | Dérive de périmètre (quatre domaines pédagogiques) | V1 jamais terminée | Périmètre gelé, une seule mission en V1, backlog V2 |
 | `node_modules` dans OneDrive | Synchronisation dégradée | Voir section 4 |
-| Perte de sauvegarde (vidage du navigateur) | Monde perdu | Export JSON proposé régulièrement, rappel en mode parent |
+| Perte de sauvegarde (vidage du navigateur) | Monde perdu | Export JSON ; depuis le J8, date du dernier export et rappel au-delà de 7 jours dans le mode parent |
+| Appui long au doigt sous Firefox et Windows (J8) : transformé en clic droit, ou `touchcancel` vers 1 s | La case ne se vide pas au doigt | À vérifier sur le convertible (protocole J8) ; parade prévue : traiter un `touchcancel` reçu après 900 ms comme une fin d'appui, ou passer à 800 ms |
+| Retour à la 1.0-rc après la 1.1-rc (J8) | Mondes avec verre ou lettres régénérés (copie de secours gardée) ; monde en mission 2 repris à la mission 1 | Exporter avant la mise à jour ; ne plus rouvrir les mondes avec la 1.0-rc |
 | Stockage local indisponible sur la tablette | Aucune sauvegarde possible | Levé : « Stockage local : ok » sur le convertible (Firefox, `file://`) |
 | Firefox rattache le stockage local au chemin exact du fichier (non vérifié) | Une copie du jeu ailleurs, ou renommée, ne retrouve pas les mondes | À vérifier avant le J4 (deux copies du fichier suffisent) ; toujours remplacer le fichier au même endroit sous le même nom ; export avant chaque mise à jour |
 | L'enfant sort du jeu par accident sur le convertible (barre des tâches, balayage depuis un bord, onglet fermé) | Monde perdu tant qu'il n'y a pas de sauvegarde | J3 : plein écran proposé à l'enfant, commandes loin des bords ; ligne au protocole ; au besoin, réglages Windows (masquer la barre des tâches, raccourci Firefox en mode kiosque) |
@@ -181,15 +194,18 @@ Gestion de versions (depuis J0.1) : le projet est un dépôt git. L'intégration
 | Plan B serveur : les sauvegardes sont liées à l'adresse du PC ; si la box lui en attribue une autre, elles « disparaissent » | Monde perdu en apparence | Réserver l'adresse du PC dans la box ; export régulier |
 | Perte du contexte 3D quand la tablette passe à une autre appli | Écran noir ou figé au retour | Gérée au J1 ; vérifié sur le convertible (retour après 30 s dans une autre appli) |
 
-## 6. Backlog V2 (non planifié, trié au J7)
+## 6. Backlog V2 (trié au J7, mis à jour au J8)
 
 Trié par intérêt pour les enfants et par coût estimé (non vérifié). À revoir après la séance de recette.
 
+**Livré au J8 (V2 lot 1, version 1.1-rc).**
+- Fabrication simple : planches à partir d'un tronc, clôture à partir de planches, verre à partir de sable.
+- Mission 2, lecture et écriture : mots composés en blocs-lettres (26 blocs ajoutés à la fin du registre), copie ou dictée selon le niveau.
+- Suites de la recette : geste pour vider une case du sac, soir retenu jusqu'à l'abri, rappel d'export dans le mode parent, lampe à découvrir, plus de texte sous l'engrenage.
+
 **Priorité 1 — prolonge directement la V1.**
-- Craft simple : planches à partir d'un tronc (aujourd'hui introuvables par l'enfant), puis verre à partir de sable.
-- Mission 2, lecture et écriture : mots à composer en blocs-lettres (nouveau bloc-lettre, ajouté à la fin du registre).
 - Nom définitif choisi par les enfants (un seul endroit à changer : `src/game/identity.ts`).
-- Selon les retours : geste pour vider une case du sac, nuit retenue jusqu'à l'abri, rappel d'export dans le mode parent.
+- Corrections issues du protocole J8 sur le convertible et des séances avec les enfants (appui long au doigt sous Firefox, durée de la mission 2, lisibilité des lettres), puis passage à la version 1.0.
 
 **Priorité 2 — les autres domaines du brief.**
 - Mission 3, mathématiques : construction symétrique à compléter ; « plage de nombres » du mode parent.
@@ -205,7 +221,7 @@ Trié par intérêt pour les enfants et par coût estimé (non vérifié). À re
 
 ## 7. Éléments non vérifiés à confirmer
 
-Présence et version de Node.js sur le poste ; modèle de la tablette et ses performances WebGL ; voix de synthèse françaises sur PC et tablette ; Pointer Lock et ouverture `file://` sur PC et tablette ; estimations de sessions ; taille du fichier final. Les quatre premiers points sont levés (J0 à J2 ; la tablette est un convertible Windows sous Firefox). Restent : les images par seconde à 128 blocs sur le convertible ; le stockage local de Firefox par chemin de fichier (avant le J4).
+Présence et version de Node.js sur le poste ; modèle de la tablette et ses performances WebGL ; voix de synthèse françaises sur PC et tablette ; Pointer Lock et ouverture `file://` sur PC et tablette ; estimations de sessions ; taille du fichier final. Les quatre premiers points sont levés (J0 à J2 ; la tablette est un convertible Windows sous Firefox). Restent : les images par seconde à 128 blocs sur le convertible ; le stockage local de Firefox par chemin de fichier (avant le J4) ; pour le J8, tout ce que liste le protocole « J8 / V2 lot 1 » de `RETOURS.md` (appui long au doigt, voix des lettres et de la dictée, rendu du verre, barre à 10 cases, durée de la mission 2).
 
 ## Sources
 

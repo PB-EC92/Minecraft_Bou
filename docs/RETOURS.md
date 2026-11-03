@@ -4,6 +4,77 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
+## Protocole J8 / V2 lot 1 (version 1.1-rc)
+
+Sur le convertible replié, Firefox. **Avant** : avec l'ancien fichier (1.0-rc), mode parent → **Exporter** ; puis remplacer `cubes.html` au même endroit, sous le même nom. Ligne d'infos (mode parent → « Afficher le panneau Tests et les infos techniques ») terminée par « 1.1-rc ». Juste après la mise à jour, le mode parent dit « Dernier export : jamais » : c'est normal (la 1.0-rc ne gardait pas cette date). **Ne plus rouvrir ces mondes avec la 1.0-rc** : elle ne connaît ni le verre, ni les lettres, ni la mission 2 (un monde qui en contient serait mis de côté en copie de secours et régénéré ; un monde en mission 2 repartirait à la mission 1).
+
+Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici, sauf quand Firefox, Windows, la voix ou la vraie carte graphique peuvent changer le résultat. Colonne « Convertible » : oui / non, et ce qu'on a vu.
+
+### Sac : vider une case
+
+| Vérification | Convertible |
+|---|---|
+| Sac bien rempli : garder le doigt **une seconde** sur une case. Un anneau se remplit **au-dessus** de la case (visible malgré le doigt), puis « pouf » : la case est vidée. Noter : menu contextuel de Firefox ? appui coupé vers 1 s sans vider (Windows annule le toucher) ? | |
+| Toucher bref sur une case : elle est choisie, aucun anneau ; doigt qui glisse le long de la barre : rien n'est vidé | |
+| Lampe et blocs arc-en-ciel : pas d'anneau, le jeu dit de les garder (« Garde ta lampe ! ») ; pendant l'étape « 6 troncs », les troncs ne se vident pas (« Garde tes troncs ! ») | |
+| Sac plein : le jeu conseille une case à vider, qui palpite | |
+| Déplié, clavier : garder la touche **3** une seconde vide la case 3 ; la relâcher avant ne vide rien. Souris non capturée : garder le clic une seconde sur une case la vide | |
+
+### Fabrication et verre
+
+| Vérification | Convertible |
+|---|---|
+| Partie d'enfant, nouveau monde : pas de marteau avant l'étape abri ; à l'étape abri, Pixel le présente (après au moins 15 s) et il brille (rond du haut et bouton orange de la colonne, sous le plein écran) | |
+| Toucher le marteau : panneau de trois cartes ; toucher « Planches » : 1 tronc → 2 planches ; au deuxième tronc, le débutant voit « 2 + 2 = 4 planches ! » (et l'entend) | |
+| Garder le doigt sur une carte : **une seule** fabrication, pas de menu contextuel ; glisser le doigt sur le panneau : la vue ne tourne pas ; le voile ou la croix ferment ; rien n'a été cassé ni posé derrière | |
+| 2 planches → 1 clôture ; 1 sable → 2 verres. Carte impossible : elle tremble et le panneau dit pourquoi | |
+| Déplié : **F** ouvre et ferme ; **Échap en plein écran** : noter si Firefox quitte d'abord le plein écran, et si le panneau se ferme ; après fermeture, un clic recapture la souris (« Clique pour jouer ») | |
+| Verre posé, **de jour puis de nuit** : on voit à travers, on ne passe pas ; « On voit à travers ! » à la première vitre | |
+| **Aquarium** (bassin d'eau entouré de verre) et **maison de verre** (murs et toit) : rien ne disparaît selon l'angle ; noter les défauts (vitres qui en cachent d'autres, halo de lampe ou bulles teintés derrière une vitre) | |
+| Images par seconde (ligne d'infos) en regardant à travers plusieurs vitres, de près et de loin | |
+
+### Mission 2 « Les mots » (avec chaque enfant)
+
+| Vérification | Convertible |
+|---|---|
+| Mission 1 finie (souvent la nuit) : après « Continuer », Pixel dit qu'on écrira demain ; le temps file jusqu'au matin, sans carillon ; la mission 2 commence au matin | |
+| Case **ABC** au bout de la barre : la toucher ouvre la boîte. **Portrait puis paysage** : les 26 lettres tiennent dans l'écran, sans défilement, assez grosses pour le doigt | |
+| Choisir une lettre : la voix dit son **nom** (« emme », « erre ») ; la lettre est en main (mode Poser) ; elle se pose sous la croix | |
+| Débutant : le mot est montré dans le bandeau (syllabes) ; des **cases claires** dans le monde, à quelle distance (prévu : 4 à 7 blocs) ; sans progrès, l'aide monte jusqu'à mettre la lettre dans la main (vers 50 s) | |
+| Autonome : le mot est **dicté, pas écrit**, et lu **même voix coupée** (mots dictés et indices seulement) ; les mots sont-ils compris avec la voix du convertible ? un indice de plus toutes les 30 s ou à chaque essai | |
+| Prénom (étape 4) : écrit sans accent ; pour un prénom à accents, copie du prénom en capitales | |
+| **Lisibilité des lettres** posées, à 5, 15 et 30 blocs, de jour et le soir (17 h) | |
+| **Barre à 10 cases en portrait** : la case ABC, le rond et les boutons ne se chevauchent pas ; la touche « 0 » se lit ; la lettre tenue se voit dans la case ABC | |
+| **Durée réelle de la mission 2**, de la première lettre aux félicitations, pour chaque enfant (noter aussi le temps par mot) | |
+| Félicitations : chaque mot écrit en lettres-blocs, cadeau ; accueil : deux étoiles ; mode parent : « mots écrits : … » | |
+
+### Soir retenu, lampe, mode parent
+
+| Vérification | Convertible |
+|---|---|
+| Mission 1 (avant l'abri), panneau Tests visible : l'heure s'arrête à 17 h, « Temps ×20 » compris ; une fois l'abri fait, le temps reprend, carillon vers 17 h 30 puis nuit | |
+| Profil autonome, avant la fin de la mission 1 : le signal de la nuit ne parle pas de la lampe ; à la dernière étape, l'enfant découvre seul que les Grignotes fuient la lampe | |
+| Écran « Qui joue ? » : plus aucun texte sous l'engrenage ; 3 s de doigt l'ouvrent toujours | |
+| Mode parent : rappel en tête (« jamais exporté ») et « Exporter maintenant » ; après un **vrai téléchargement** (fichier dans Téléchargements), la date devient « aujourd'hui » et le rappel disparaît ; fermer puis rouvrir le jeu : la date est gardée | |
+| Importer ce fichier : tout est remplacé, la date reste | |
+
+### Séance enfants J8
+
+Profil 6 ans d'abord, seul, sur un monde dont la mission 1 est finie (ou un nouveau monde : la mission 1 puis la mission 2). Noter chaque appel à l'aide et sa raison. À observer : vide-t-il des cases sans le vouloir (appui long) ? Trouve-t-il le marteau, comprend-il les cartes et l'addition ? Que fait-il du verre ? Comprend-il la case ABC et la boîte ? Recopie-t-il le mot avec les cases claires ? Combien de temps par mot ? Puis le profil 8 ans : la dictée est-elle comprise, trop facile, trop longue ? Les deux : la mission 2 les amuse-t-elle ?
+
+## Séance du … — J8
+
+Appareil : convertible, Firefox, portrait / paysage
+Testeurs :
+
+Ce qui marche :
+
+Ce qui coince :
+
+Temps de la mission 2 (par enfant, par mot) :
+
+Idées des enfants :
+
 ## Protocole de recette V1 (J7, version 1.0-rc)
 
 Sur le convertible replié, Firefox ; ligne d'infos (mode parent → « Afficher le panneau Tests et les infos techniques ») terminée par « 1.0-rc ». **Exporter les sauvegardes avant** de remplacer le fichier. Pendant les parties des enfants, le panneau Tests et la ligne d'infos sont désormais masqués : les réafficher seulement pour relever un diagnostic.
