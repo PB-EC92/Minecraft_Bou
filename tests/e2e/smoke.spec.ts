@@ -1739,11 +1739,17 @@ test("sans Grignotes : la dernière étape se valide peu après la tombée de la
   // Un nouveau monde commence le matin, pas à l'heure (de nuit) du monde précédent.
   await page.getByRole("button", { name: "Continuer" }).click();
   await expect.poll(async () => (await state(page)).pendingMission).toBe("mots");
-  await page.evaluate(() => window.cubesDebug.newWorld("plat", 2));
+  // Mode adresse : la mission 2 en attente n'est pas perdue en changeant de monde (constat 9 de la revue du J8). Lue
+  // dans la même tâche que newWorld, avant toute image : de jour, elle commence dès l'échéance passée (1,5 s après
+  // « Continuer »), et une lecture plus tardive la trouverait déjà commencée.
+  expect(
+    await page.evaluate(() => {
+      window.cubesDebug.newWorld("plat", 2);
+      return window.cubesDebug.state().pendingMission;
+    }),
+  ).toBe("mots");
   await expect.poll(async () => Math.round((await state(page)).hour)).toBe(8);
-  // Mode adresse : la mission 2 en attente n'est pas perdue en changeant de monde (constat 9 de la revue du J8) ;
-  // de jour, elle commence.
-  expect((await state(page)).pendingMission).toBe("mots");
+  // De jour, elle commence.
   await expect.poll(async () => (await state(page)).missionId, { timeout: 20_000 }).toBe("mots");
   expect(errors).toEqual([]);
 });
