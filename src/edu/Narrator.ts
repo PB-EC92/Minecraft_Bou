@@ -152,6 +152,14 @@ export class Narrator {
     this.cancelDictation();
   }
 
+  /**
+   * Annule seulement la lecture différée en attente (compte du ramassage), pas la dictée (V2 lot 1) : un écran posé
+   * sur le jeu (panneau de fabrication) ne doit pas faire perdre le mot redit ou l'indice dicté (décision 13).
+   */
+  cancelDelayedSpeech(): void {
+    this.cancelDelayed();
+  }
+
   /** Une nouvelle lecture remplace la lecture différée en attente (pas la dictée, qui attend son tour). */
   private speakOrSchedule(say: Say, delayMs: number | undefined): void {
     this.cancelDelayed();

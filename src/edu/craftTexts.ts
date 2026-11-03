@@ -237,6 +237,17 @@ export function craftRefusalText(
 }
 
 /**
+ * Panneau ouvert sans aucune recette possible (V2 lot 1) : le refus à dire plutôt que « Il manque des blocs ! ». Le
+ * sac plein passe d'abord (vider une case débloque la carte), puis le maximum ; null si une recette est possible, ou
+ * si les refus ne viennent que d'ingrédients qui manquent ou sont gardés pour la mission (CRAFT_NOTHING suffit).
+ */
+export function craftBlocker(plans: readonly CraftPlan[]): Extract<CraftPlan, { ok: false }> | null {
+  if (plans.some((p) => p.ok)) return null;
+  const refused = plans.filter((p): p is Extract<CraftPlan, { ok: false }> => !p.ok);
+  return refused.find((p) => p.reason === "full") ?? refused.find((p) => p.reason === "max") ?? null;
+}
+
+/**
  * Présentation du marteau par Pixel. `r` : la première recette possible (son exemple suit la consigne) ; `touch` :
  * au doigt, sinon clavier et souris (la souris capturée ne clique jamais un bouton : on dit la touche F).
  */

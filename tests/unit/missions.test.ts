@@ -14,6 +14,7 @@ import {
   progressLabel,
   resumeMission,
   SHELTER_PARTS,
+  shelterPassed,
   starsEarned,
   stepText,
   TUTORIAL,
@@ -435,6 +436,23 @@ describe("suites de recette (V2 lot 1)", () => {
     expect(TUTORIAL.steps.map((s) => s.holdEvening === true)).toEqual([true, true, true]);
     expect(MISSION_1.steps.map((s) => s.holdEvening === true)).toEqual([true, true, true, false, false, false]);
     expect(MISSION_2.steps.map((s) => s.holdEvening === true)).toEqual([true, true, true, true, true]);
+  });
+
+  it("abri passé (marteau acquis, même jamais présenté) : après l'étape abri de la mission 1, mission finie et mission 2 comprises", () => {
+    const shelter = MISSION_1.steps.findIndex((s) => s.goal.kind === "shelter");
+    expect(shelter).toBe(2);
+    expect(shelterPassed(null, 0)).toBe(false);
+    expect(shelterPassed(TUTORIAL, 0)).toBe(false);
+    expect(shelterPassed(TUTORIAL, TUTORIAL.steps.length)).toBe(false); // tutoriel fini
+    for (let i = 0; i <= shelter; i++) expect(shelterPassed(MISSION_1, i)).toBe(false); // l'étape abri : Pixel le présente
+    for (let i = shelter + 1; i < MISSION_1.steps.length; i++) expect(shelterPassed(MISSION_1, i)).toBe(true);
+    expect(shelterPassed(MISSION_1, MISSION_1.steps.length)).toBe(true); // mission 1 finie (monde de la 1.0-rc : step 6)
+    expect(shelterPassed(MISSION_2, 0)).toBe(true);
+    expect(shelterPassed(MISSION_2, MISSION_2.steps.length)).toBe(true);
+    expect(shelterPassed({ ...MISSION_2 }, 0)).toBe(false); // une mission hors campagne
+    // Même verdict que la progression relue d'une sauvegarde.
+    expect(shelterPassed(MISSION_1, new MissionRunner(MISSION_1, { id: "abri", step: 6, counts: {} }).stepIndex)).toBe(true);
+    expect(shelterPassed(MISSION_1, new MissionRunner(MISSION_1, { id: "abri", step: 2, counts: {} }).stepIndex)).toBe(false);
   });
 
   it("lampe à découvrir (décision 6) : pas d'indice avant de l'avoir vue agir", () => {
