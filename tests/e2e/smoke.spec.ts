@@ -1460,6 +1460,19 @@ test("partie d'un enfant : le tutoriel est enregistré avec le monde et reprend 
   expect(s.missionId).toBe("tuto");
   expect(s.mission).toEqual({ step: 0, done: false });
   expect(s.tutorialDone).toBe(false);
+  // Île à graine tirée au hasard : un tronc (ou une marche de deux blocs) peut se dresser juste devant l'apparition,
+  // et Z gardé n'avance plus (l'enfant, lui, se tournerait). Un couloir de 8 blocs, sol compris, est dégagé droit
+  // devant (regard vers −z) : la marche ne dépend plus du terrain.
+  await page.evaluate(() => {
+    const d = window.cubesDebug;
+    d.look(0, 0);
+    const p = d.state().player;
+    const [x, y, z] = [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)];
+    for (let k = 1; k <= 8; k++) {
+      d.setBlock(x, y - 1, z - k, 1);
+      for (let dy = 0; dy <= 2; dy++) d.setBlock(x, y + dy, z - k, 0);
+    }
+  });
   // Marcher (touche Z = KeyW en AZERTY) : l'étape « marcher » est validée.
   await page.keyboard.down("KeyW");
   await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(1);
