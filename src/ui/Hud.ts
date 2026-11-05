@@ -1,11 +1,37 @@
 import { blockDef, type BlockId } from "../engine/blocks";
+import { GAME_NAME } from "../game/identity";
 import { INVENTORY_SLOTS, type Stack } from "../engine/inventory";
 import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
-import { tileIcon } from "../render/textures";
+import { blockIcon, tileIcon } from "../render/textures";
+import {
+  slotHoldAfterBlur,
+  slotHoldAfterCancel,
+  slotHoldMoved,
+  startSlotHold,
+  type SlotHold,
+  type SlotHoldSource,
+} from "../input/slotHold";
+import { nearestSlot } from "./nearestSlot";
+import { wordIcon } from "./wordIcon";
 
 /** Distances de rendu proposées dans le panneau (blocs). */
 export const RENDER_DISTANCES = [32, 48, 64, 96, 128] as const;
+
+/** Durée de l'animation « case qui remue » (bordure jaune sous « réduire les animations ») (ms). */
+const WIGGLE_MS = 1500;
+/** Durée d'affichage d'une pastille « +2 » ou « −1 » au-dessus d'une case (ms). */
+const SLOT_DELTA_MS = 900;
+/** Indice de la case ABC (mission 2) : juste après les 9 cases du sac. */
+export const LETTERS_CELL = INVENTORY_SLOTS;
+
+/** État de la case ABC (mission 2) : visible, tuile de la lettre tenue (null : « ABC »), choisie, à faire remarquer. */
+export interface LettersCellState {
+  visible: boolean;
+  tile: number | null;
+  selected: boolean;
+  hint: boolean;
+}
 
 /** Heures proposées dans le panneau. */
 export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
@@ -20,6 +46,16 @@ export const HOUR_PRESETS: readonly { label: string; hour: number }[] = [
  * (images/s), message, barre d'inventaire à 9 cases avec compteurs (J2),
  * écran de chargement, voile sous l'eau, panneau « Tests » (réglages du
  * prototype). DOM natif, pas de framework.
+ *
+ * V2 lot 1 : appui long sur une case (souris libre ou doigt) pour la vider. La
+ * barre suit l'appui (début, glissé, relâchement) ; le jeu lit `slotHold` à
+ * chaque image, décide (blocs gardés) et règle l'anneau par setSlotHoldProgress.
+ * Fabrication : la barre passe au-dessus du voile du panneau (setCraftOpen), la
+ * case à vider remue (wiggleSlot), des pastilles « −1 » / « +2 » (slotDelta).
+ * Mission 2 : une 10e case « ABC » au bout de la barre (setLettersCell), hors du
+ * sac ; elle ouvre la boîte à lettres et montre la lettre tenue. Visible, elle
+ * pose la classe .letters-on sur la racine du jeu (cases un peu plus petites,
+ * rond et boutons tactiles remontés en portrait).
  */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -60,9 +96,24 @@ export class Hud {
   private slots: HTMLDivElement[] = [];
   private messageTimer = 0;
   private readonly selectHandlers: ((index: number) => void)[] = [];
+  /** Appui long en cours sur une case (souris ou doigt), ou null (V2). */
+  private hold: SlotHold | null = null;
+  /** Anneau de l'appui long, au-dessus de la case tenue, et l'icône de son bloc (sœur de l'anneau, hors du masque). */
+  private readonly holdEl: HTMLDivElement;
+  private readonly holdIcon: HTMLCanvasElement;
+  private holdIconId: BlockId | null = null;
+  /** Case qui porte la classe .holding (-1 : aucune). */
+  private holdShownSlot = -1;
+  /** Fin de l'animation « case qui remue » de chaque case (fabrication refusée, sac plein) (V2). */
+  private readonly wiggleTimers = new Map<number, number>();
+  /** Case ABC de la mission 2 (10e case, hors du tableau slots : setInventory l'effacerait) et ce qu'elle montre. */
+  private readonly lettersCell: HTMLDivElement;
+  private readonly lettersIcon: HTMLDivElement;
+  private lettersShown: LettersCellState = { visible: false, tile: null, selected: false, hint: false };
+  private lettersDrawn: number | null | undefined = undefined;
 
   constructor(
-    parent: HTMLElement,
+    private readonly host: HTMLElement,
     private readonly atlas: HTMLCanvasElement,
     version: string,
   ) {
@@ -100,18 +151,127 @@ export class Hud {
       count.className = "count";
       slot.appendChild(count);
       this.shown.push(null);
-      const select = (e: Event) => {
-        e.preventDefault();
-        e.stopPropagation();
-        for (const h of this.selectHandlers) h(i);
-      };
-      slot.addEventListener("mousedown", select);
-      slot.addEventListener("touchstart", select, { passive: false });
       slot.addEventListener("animationend", () => slot.classList.remove("pulse"));
       this.hotbar.appendChild(slot);
       this.slots.push(slot);
     }
+    // Case ABC (mission 2) : 10e enfant de la barre, cachée tant que la boîte à lettres n'est pas ouverte à l'enfant.
+    this.lettersCell = this.div("slot letters");
+    this.lettersCell.hidden = true;
+    this.lettersCell.setAttribute("role", "button");
+    this.lettersCell.setAttribute("aria-label", "Boîte à lettres");
+    this.lettersCell.title = "Boîte à lettres (touche 0)";
+    const lettersKey = document.createElement("span");
+    lettersKey.className = "key";
+    lettersKey.textContent = "0";
+    this.lettersIcon = this.div("letters-icon");
+    const lettersCaption = document.createElement("span");
+    lettersCaption.className = "letters-caption";
+    lettersCaption.textContent = "ABC";
+    this.lettersCell.append(lettersKey, this.lettersIcon, lettersCaption);
+    this.lettersCell.addEventListener("animationend", () => this.lettersCell.classList.remove("pulse"));
+    this.hotbar.appendChild(this.lettersCell);
+    // Toute la barre choisit une case, marges et espaces compris : la plus proche du doigt ou du clic (J3).
+    // Annuler l'événement empêche aussi le menu contextuel du navigateur sur un appui long. La case ABC n'est
+    // candidate que visible (une case masquée aurait un centre à 0).
+    const selectAt = (x: number): number => {
+      const cells = this.lettersCell.hidden ? this.slots : [...this.slots, this.lettersCell];
+      const i = nearestSlot(
+        x,
+        cells.map((s) => {
+          const r = s.getBoundingClientRect();
+          return r.left + r.width / 2;
+        }),
+      );
+      if (i >= 0) for (const h of this.selectHandlers) h(i);
+      return i;
+    };
+    // Après la sélection, un appui gardé sur une case pleine commence l'appui long (V2) : bouton gauche seulement
+    // (le clic droit ne fait que choisir), ou le doigt qui vient de se poser.
+    this.hotbar.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const i = selectAt(e.clientX);
+      if (i >= 0 && e.button === 0) this.beginHold(i, "mouse", e.clientX, e.clientY, null);
+    });
+    this.hotbar.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const t = e.changedTouches[0];
+        if (!t) return;
+        const i = selectAt(t.clientX);
+        if (i >= 0) this.beginHold(i, "touch", t.clientX, t.clientY, t.identifier);
+      },
+      { passive: false },
+    );
+    // Fin de l'appui long : doigt levé ou annulé par le système, doigt ou souris qui glisse (l'enfant regardait
+    // ou visait), bouton relâché, fenêtre qui perd le focus. Les touchers visent la case de départ et remontent
+    // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture. Un doigt annulé par le système
+    // (touchcancel) après SLOT_HOLD_CANCEL_OK_MS compte comme un appui allé au bout : Windows peut prendre un doigt
+    // gardé vers 1 s pour un clic droit ; l'appui reste alors, plein, et le jeu vide la case à l'image suivante
+    // (Game.updateSlotHold, mêmes règles que pour un appui d'une seconde).
+    const fingerUp = (e: TouchEvent) => {
+      const h = this.hold;
+      if (h?.source !== "touch") return;
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier !== h.pointer) continue;
+        const done = e.type === "touchcancel" ? slotHoldAfterCancel(h, performance.now()) : null;
+        if (done) this.hold = done;
+        else this.cancelSlotHold();
+      }
+    };
+    this.hotbar.addEventListener("touchend", fingerUp);
+    this.hotbar.addEventListener("touchcancel", fingerUp);
+    // Le glissé est consommé : sans cela, Chromium n'envoie plus que le premier touchmove d'un toucher non annulé
+    // (la barre ne défile jamais, rien n'est perdu).
+    this.hotbar.addEventListener(
+      "touchmove",
+      (e) => {
+        e.preventDefault();
+        const h = this.hold;
+        if (h?.source !== "touch") return;
+        for (const t of Array.from(e.changedTouches)) {
+          if (t.identifier === h.pointer && slotHoldMoved(h, t.clientX, t.clientY)) this.cancelSlotHold();
+        }
+      },
+      { passive: false },
+    );
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        const h = this.hold;
+        if (h?.source === "mouse" && slotHoldMoved(h, e.clientX, e.clientY)) this.cancelSlotHold();
+      },
+      true,
+    );
+    window.addEventListener(
+      "mouseup",
+      (e) => {
+        if (e.button === 0 && this.hold?.source === "mouse") this.cancelSlotHold();
+      },
+      true,
+    );
+    // Fenêtre qui perd le focus : un appui en cours est abandonné ; un appui déjà allé au bout (seconde écoulée, ou
+    // doigt annulé par le système après 900 ms) attend l'image suivante. Un doigt tenu depuis 900 ms est mené au bout
+    // (slotHoldAfterBlur) : le même geste du système peut faire perdre le focus avant d'annuler le doigt.
+    window.addEventListener("blur", () => {
+      const h = this.hold;
+      const kept = h ? slotHoldAfterBlur(h, performance.now()) : null;
+      if (kept) this.hold = kept;
+      else this.cancelSlotHold();
+    });
     this.root.appendChild(this.hotbar);
+
+    // Anneau de l'appui long (V2) : au-dessus de la case tenue, pour que le doigt ne le cache pas.
+    this.holdEl = this.div("slot-hold");
+    this.holdEl.setAttribute("aria-hidden", "true");
+    this.holdEl.appendChild(this.div("slot-hold-ring"));
+    this.holdIcon = document.createElement("canvas");
+    this.holdIcon.width = this.holdIcon.height = 16;
+    this.holdEl.appendChild(this.holdIcon);
+    this.root.appendChild(this.holdEl);
 
     this.loading = this.div("loading");
     this.loadingText = this.div("loading-text");
@@ -124,7 +284,7 @@ export class Hud {
     this.root.appendChild(this.panelToggle);
 
     this.panel = this.div("panel");
-    this.panel.appendChild(this.title(`Prototype ${version} — tests techniques`));
+    this.panel.appendChild(this.title(`${GAME_NAME} ${version} — réglages de test`));
 
     const rowScreen = this.row();
     this.fullscreenButton = this.button("Plein écran");
@@ -206,7 +366,7 @@ export class Hud {
     this.voiceSelect.setAttribute("aria-label", "Voix");
     this.panel.appendChild(this.voiceSelect);
     this.voiceText = document.createElement("textarea");
-    this.voiceText.value = "Bonjour ! Je suis ton compagnon. Bienvenue dans Cubes. Ramasse six bois et quatre pierres.";
+    this.voiceText.value = `Bonjour ! Je suis ton compagnon. Bienvenue dans ${GAME_NAME}. Ramasse six bois et quatre pierres.`;
     this.panel.appendChild(this.voiceText);
     const rowVoice = this.row();
     this.speakButton = this.button("Tester la voix");
@@ -232,7 +392,7 @@ export class Hud {
       this.panel.addEventListener(ev, (e) => e.stopPropagation());
     }
 
-    parent.appendChild(this.root);
+    host.appendChild(this.root);
   }
 
   private div(className: string): HTMLDivElement {
@@ -273,15 +433,55 @@ export class Hud {
     this.selectHandlers.push(h);
   }
 
+  /** Case choisie : 0 à 8 (sac), ou LETTERS_CELL (case ABC de la mission 2). */
   setSelectedSlot(index: number): void {
     this.slots.forEach((s, i) => s.classList.toggle("selected", i === index));
+    this.lettersCell.classList.toggle("selected", index === LETTERS_CELL);
+    this.lettersShown = { ...this.lettersShown, selected: index === LETTERS_CELL };
   }
 
-  /** Met à jour les cases de la barre (icône, compteur) ; seules celles qui ont changé sont redessinées. */
+  /**
+   * Case ABC de la mission 2 (V2 lot 1) : visible ou non (classe .letters-on sur la racine du jeu), tuile de la
+   * lettre tenue (sinon le grand « ABC » en tuiles de lettres), choisie, et anneau qui palpite pendant l'étape 0.
+   * Appelée à chaque image : seul ce qui change est redessiné.
+   */
+  setLettersCell(s: LettersCellState): void {
+    const prev = this.lettersShown;
+    if (prev.visible === s.visible && prev.tile === s.tile && prev.selected === s.selected && prev.hint === s.hint) return;
+    this.lettersShown = { ...s };
+    if (prev.visible !== s.visible) {
+      this.lettersCell.hidden = !s.visible;
+      this.host.classList.toggle("letters-on", s.visible);
+    }
+    this.lettersCell.classList.toggle("selected", s.selected);
+    this.lettersCell.classList.toggle("pulse-hint", s.visible && s.hint);
+    this.lettersCell.classList.toggle("holding-letter", s.tile !== null);
+    if (this.lettersDrawn !== s.tile) {
+      const first = this.lettersDrawn !== undefined;
+      this.lettersDrawn = s.tile;
+      const icon = s.tile === null ? wordIcon(this.atlas, "ABC") : tileIcon(this.atlas, s.tile);
+      icon.className = s.tile === null ? "letters-abc" : "letters-tile";
+      this.lettersIcon.replaceChildren(icon);
+      if (first && s.tile !== null) this.pulseLettersCell();
+    }
+  }
+
+  /** Petite animation de la case ABC (une lettre vient d'arriver dans la main). */
+  private pulseLettersCell(): void {
+    this.lettersCell.classList.remove("pulse");
+    void this.lettersCell.offsetWidth; // relance l'animation
+    this.lettersCell.classList.add("pulse");
+  }
+
+  /**
+   * Met à jour les cases de la barre (icône, compteur) ; seules celles qui ont changé sont redessinées. Un appui
+   * long sur une case qui se vide ou change de bloc est annulé (une pile dont on a chipé une partie, non).
+   */
   setInventory(stacks: readonly (Stack | null)[]): void {
     this.slots.forEach((el, i) => {
       const next = stacks[i] ?? null;
       const prev = this.shown[i] ?? null;
+      if (this.hold?.slot === i && next?.id !== prev?.id) this.cancelSlotHold();
       if (prev?.id === next?.id && prev?.count === next?.count) return;
       this.shown[i] = next ? { ...next } : null;
       if (prev?.id !== next?.id) {
@@ -304,6 +504,47 @@ export class Hud {
     el.classList.add("pulse");
   }
 
+  /**
+   * Case à vider, montrée du doigt (V2, fabrication refusée sac plein) : elle remue trois fois (bordure jaune
+   * fixe sous « réduire les animations »).
+   */
+  wiggleSlot(index: number): void {
+    const el = this.slots[index];
+    if (!el) return;
+    window.clearTimeout(this.wiggleTimers.get(index));
+    el.classList.remove("wiggle");
+    void el.offsetWidth; // relance l'animation
+    el.classList.add("wiggle");
+    this.wiggleTimers.set(
+      index,
+      window.setTimeout(() => {
+        el.classList.remove("wiggle");
+        this.wiggleTimers.delete(index);
+      }, WIGGLE_MS),
+    );
+  }
+
+  /**
+   * Petite pastille au-dessus d'une case (V2, fabrication) : « −1 » sur l'ingrédient, « +2 » sur le résultat. Enfant
+   * de la barre, pas de la case (qui coupe ce qui dépasse), retirée au bout de SLOT_DELTA_MS.
+   */
+  slotDelta(index: number, label: string): void {
+    const el = this.slots[index];
+    if (!el) return;
+    const d = document.createElement("span");
+    d.className = "slot-delta";
+    d.setAttribute("aria-hidden", "true");
+    d.textContent = label;
+    d.style.left = `${el.offsetLeft + el.offsetWidth / 2}px`;
+    this.hotbar.appendChild(d);
+    window.setTimeout(() => d.remove(), SLOT_DELTA_MS);
+  }
+
+  /** Panneau de fabrication ouvert (V2) : la barre (et l'anneau de l'appui long) passe au-dessus de son voile. */
+  setCraftOpen(on: boolean): void {
+    this.root.classList.toggle("craft-open", on);
+  }
+
   /** Nom du bloc tenu, affiché brièvement au-dessus de la barre (entraînement à la lecture). */
   showSlotName(text: string, durationMs = 1800): void {
     this.slotName.textContent = text;
@@ -319,18 +560,86 @@ export class Hud {
     if (on) this.breakRing.style.setProperty("--p", progress.toFixed(3));
   }
 
-  private icon(id: BlockId): HTMLCanvasElement {
+  /** Appui long en cours sur une case de la barre (souris ou doigt), ou null (V2). */
+  get slotHold(): SlotHold | null {
+    return this.hold;
+  }
+
+  /** Oublie l'appui long en cours et masque l'anneau (pause, case changée, case vidée…). */
+  cancelSlotHold(): void {
+    this.hold = null;
+    this.setSlotHoldProgress(null);
+  }
+
+  /**
+   * Anneau de l'appui long au-dessus d'une case : progression ]0, 1], ou null pour le masquer. Le jeu l'appelle à
+   * chaque image (appui à la souris, au doigt ou à la touche 1 à 9), seulement pour une case qu'il peut vider.
+   */
+  setSlotHoldProgress(s: { slot: number; progress: number } | null): void {
+    const el = s ? this.slots[s.slot] : undefined;
+    const stack = s ? (this.shown[s.slot] ?? null) : null;
+    if (!s || !el || !stack) {
+      if (this.holdShownSlot >= 0) this.slots[this.holdShownSlot]?.classList.remove("holding");
+      this.holdShownSlot = -1;
+      this.holdEl.classList.remove("visible");
+      this.root.classList.remove("slot-holding");
+      return;
+    }
+    if (this.holdShownSlot !== s.slot) {
+      if (this.holdShownSlot >= 0) this.slots[this.holdShownSlot]?.classList.remove("holding");
+      el.classList.add("holding");
+      this.holdShownSlot = s.slot;
+    }
+    if (this.holdIconId !== stack.id) {
+      this.holdIconId = stack.id;
+      const g = this.holdIcon.getContext("2d");
+      if (g) {
+        g.imageSmoothingEnabled = false;
+        g.clearRect(0, 0, 16, 16);
+        g.drawImage(this.iconBase(stack.id), 0, 0, 16, 16);
+      }
+    }
+    const r = el.getBoundingClientRect();
+    const origin = this.root.getBoundingClientRect();
+    this.holdEl.style.left = `${Math.round(r.left + r.width / 2 - origin.left)}px`;
+    this.holdEl.style.setProperty("--p", Math.min(1, Math.max(0, s.progress)).toFixed(3));
+    this.holdEl.classList.add("visible");
+    this.root.classList.add("slot-holding");
+  }
+
+  /** Commence un appui long sur la case i si elle n'est pas vide (pas la case ABC de la mission 2). */
+  private beginHold(i: number, source: SlotHoldSource, x: number, y: number, pointer: number | null): void {
+    if (i >= INVENTORY_SLOTS || !this.shown[i]) return;
+    this.hold = startSlotHold(i, performance.now(), source, x, y, pointer);
+  }
+
+  /** Icône 16 × 16 d'un bloc, dessinée une fois. */
+  private iconBase(id: BlockId): HTMLCanvasElement {
     let base = this.icons.get(id);
     if (!base) {
-      base = tileIcon(this.atlas, blockDef(id).tiles.side);
+      // Le verre est posé sur un fond de ciel : sur le fond gris de la case, une vitre paraîtrait grise (V2).
+      base = blockIcon(this.atlas, id);
       this.icons.set(id, base);
     }
+    return base;
+  }
+
+  private icon(id: BlockId): HTMLCanvasElement {
+    const base = this.iconBase(id);
     // Chaque case a son propre canvas (un élément DOM ne peut être à deux endroits).
     const c = document.createElement("canvas");
     c.width = base.width;
     c.height = base.height;
     c.getContext("2d")?.drawImage(base, 0, 0);
     return c;
+  }
+
+  /** Panneau « Tests » et ligne d'infos techniques : pour l'adulte, masqués pendant les parties des enfants (J7). */
+  setDevTools(on: boolean): void {
+    this.info.hidden = !on;
+    this.panelToggle.hidden = !on;
+    this.root.classList.toggle("no-devtools", !on);
+    if (!on) this.panel.classList.remove("open");
   }
 
   setInfo(text: string): void {

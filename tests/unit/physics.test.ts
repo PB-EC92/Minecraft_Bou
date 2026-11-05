@@ -36,6 +36,21 @@ describe("physics", () => {
     expect(collides(world, b)).toBe(false);
   });
 
+  it("un mur de verre arrête le joueur comme un mur (V2 lot 1)", () => {
+    const world = World.createFlat(16, 16, 16, 4);
+    for (let y = 4; y < 7; y++) world.set(10, y, 8, BlockId.Glass);
+    const b = playerBox(9, 4.001, 8.5);
+    const r = sweep(world, b, 3, 0, 0);
+    expect(r.hitX).toBe(true);
+    expect(b.maxX).toBeLessThanOrEqual(10);
+    expect(collides(world, b)).toBe(false);
+    // Une vitre au sol porte le joueur.
+    world.set(4, 4, 4, BlockId.Glass);
+    const top = playerBox(4.5, 7, 4.5);
+    expect(sweep(world, top, 0, -5, 0).hitY).toBe(true);
+    expect(top.minY).toBeCloseTo(5, 3);
+  });
+
   it("ne traverse pas un bloc à grande vitesse", () => {
     const world = World.createFlat(16, 16, 16, 4);
     world.set(8, 6, 8, BlockId.Stone); // plafond fin au-dessus de la tête

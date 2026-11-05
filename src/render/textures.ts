@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import { Tile } from "../engine/blocks";
+import { blockDef, LETTERS, Tile, type BlockId } from "../engine/blocks";
 import { createRng } from "../engine/random";
 import { ATLAS_HEIGHT, ATLAS_WIDTH, TILE_SIZE, tileOrigin } from "./atlas";
+import { letterInkPixels } from "./font";
 
 type Rgb = [number, number, number];
 
@@ -13,10 +14,27 @@ function css(c: Rgb): string {
   return `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
 }
 
+/** Blocs-lettres (V2 lot 1) : papier crème, cadre bois, encre. */
+const LETTER_PAPER: Rgb = [247, 239, 216];
+const LETTER_PAPER_DARK: Rgb = [232, 220, 190];
+const LETTER_FRAME: Rgb = [176, 132, 82];
+/**
+ * Une seule encre sombre pour toutes les lettres (décision 9 de Pierre : pas de
+ * code de couleur voyelles / consonnes). Contraste d'environ 13:1 avec le
+ * papier, de jour (environ 3:1 en pleine nuit, luminosité 0,4).
+ */
+const LETTER_INK: Rgb = [40, 32, 28];
+
 /**
  * Atlas de textures dessiné par code (pixel-art original, aucune image
  * externe) : grille de tuiles de 16 × 16 px (voir atlas.ts). Le rendu est
- * déterministe (graine fixe). Les tuiles de fleurs ont un fond transparent.
+ * déterministe (graine fixe). Les tuiles de fleurs ont un fond transparent ;
+ * celle du verre est translucide (alpha par pixel).
+ *
+ * Les tuiles du V2 lot 1 (verre, lettres) sont dessinées à la fin, sans toucher
+ * au générateur des tuiles existantes : le verre n'a aucun tirage aléatoire,
+ * chaque lettre a son propre générateur. Les tuiles 0 à 18 restent donc
+ * identiques, pixel pour pixel.
  */
 export function drawAtlas(): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -163,6 +181,102 @@ export function drawAtlas(): HTMLCanvasElement {
     }
   }
 
+  // J5 — Lampe : cage de bois sombre, verre jaune lumineux au centre
+  const frame: Rgb = [92, 62, 34];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const edge = x < 2 || y < 2 || x > S - 3 || y > S - 3 || x === 7 || x === 8;
+      const d = Math.hypot(x - 7.5, y - 7.5);
+      px(Tile.Lamp, x, y, edge ? mix(frame, [60, 40, 22], rng() * 0.4) : mix([255, 236, 140], [250, 190, 60], Math.min(1, d / 7) * 0.8 + rng() * 0.1));
+    }
+  }
+
+  // Clôture : planches verticales claires sur fond sombre, deux traverses
+  const fence: Rgb = [196, 150, 96];
+  const fenceDark: Rgb = [120, 84, 48];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const post = x % 5 < 3;
+      const rail = y === 4 || y === 5 || y === 11 || y === 12;
+      px(Tile.Fence, x, y, post || rail ? mix(fence, fenceDark, rng() * 0.35) : mix([70, 52, 34], [50, 36, 24], rng()));
+    }
+  }
+
+  // Pierre brillante : pierre grise semée de cristaux cyan et blancs
+  noiseFill(Tile.GlowStone, stone, stoneDark, 0.5);
+  for (let i = 0; i < 9; i++) {
+    const cx = 2 + Math.floor(rng() * (S - 4));
+    const cy = 2 + Math.floor(rng() * (S - 4));
+    px(Tile.GlowStone, cx, cy, [230, 255, 255]);
+    px(Tile.GlowStone, cx + 1, cy, [110, 230, 245]);
+    px(Tile.GlowStone, cx - 1, cy, [110, 230, 245]);
+    px(Tile.GlowStone, cx, cy + 1, [80, 200, 230]);
+    px(Tile.GlowStone, cx, cy - 1, [160, 245, 255]);
+  }
+
+  // J6 — Arc-en-ciel : six bandes de couleur, bord clair, quelques paillettes
+  const bands: Rgb[] = [
+    [232, 72, 72],
+    [244, 150, 56],
+    [246, 214, 70],
+    [92, 190, 92],
+    [72, 140, 226],
+    [150, 96, 206],
+  ];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const band = bands[Math.min(bands.length - 1, Math.floor(((y - 1) / (S - 2)) * bands.length))] ?? bands[0]!;
+      const edge = x === 0 || y === 0 || x === S - 1 || y === S - 1;
+      px(Tile.Rainbow, x, y, edge ? [250, 246, 236] : mix(band, [255, 255, 255], rng() * 0.18));
+    }
+  }
+  for (let i = 0; i < 5; i++) px(Tile.Rainbow, 2 + Math.floor(rng() * (S - 4)), 2 + Math.floor(rng() * (S - 4)), [255, 255, 255]);
+
+  // ---------- V2 lot 1 ----------
+
+  // Verre : vitre bleutée translucide, cadre bleu-vert, reflet vertical, petite étincelle (sans tirage aléatoire).
+  // Ni cadre blanc ni stries en diagonale : dessin propre à ce jeu. Chaque pixel est peint une fois sur une tuile
+  // vidée, donc son alpha est exact (la transparence vient de la tuile, voir le matériau du verre dans SceneView).
+  const [gx, gy] = tileOrigin(Tile.Glass);
+  ctx.clearRect(gx, gy, S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const edge = x === 0 || y === 0 || x === S - 1 || y === S - 1;
+      const spark = x === 11 && y === 3 ? 0.85 : Math.abs(x - 11) + Math.abs(y - 3) === 1 ? 0.45 : 0;
+      const band = x === 3 && y >= 3 && y <= 11 ? 0.6 : x === 4 && y >= 4 && y <= 9 ? 0.35 : 0;
+      let c: Rgb;
+      let a: number;
+      if (edge) {
+        c = [118, 178, 204];
+        a = 0.92;
+      } else if (spark > 0 || band > 0) {
+        c = [255, 255, 255];
+        a = Math.max(spark, band);
+      } else {
+        const t = y / (S - 1);
+        c = mix([200, 230, 248], [176, 214, 240], t);
+        a = 0.24 + 0.08 * t;
+      }
+      ctx.fillStyle = `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
+      ctx.fillRect(gx + x, gy + y, 1, 1);
+    }
+  }
+
+  // Lettres A à Z (côtés des blocs-lettres) : papier crème au grain léger, cadre bois d'un pixel, lettre en encre
+  // sombre (police 5 × 7 agrandie deux fois, voir font.ts). Un générateur par lettre : le tirage des autres tuiles
+  // ne change pas, quel que soit l'ordre dans lequel elles sont dessinées.
+  for (let k = 0; k < LETTERS.length; k++) {
+    const tile = Tile.LetterA + k;
+    const lr = createRng(9100 + k);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const edge = x === 0 || y === 0 || x === S - 1 || y === S - 1;
+        px(tile, x, y, edge ? LETTER_FRAME : mix(LETTER_PAPER, LETTER_PAPER_DARK, lr() * 0.35));
+      }
+    }
+    for (const [x, y] of letterInkPixels(LETTERS.charAt(k))) px(tile, x, y, LETTER_INK);
+  }
+
   return canvas;
 }
 
@@ -184,6 +298,29 @@ export function tileIcon(atlas: HTMLCanvasElement, tile: number): HTMLCanvasElem
   const ctx = c.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
   const [ox, oy] = tileOrigin(tile);
+  ctx.drawImage(atlas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
+  return c;
+}
+
+/**
+ * Icône d'un bloc (V2 lot 1) : la tuile de ses côtés, dans un canvas neuf de 16 × 16 à chaque appel. Sert partout
+ * où un bloc est montré à l'enfant (barre, bandeau de Pixel, félicitations, cartes de fabrication).
+ * Le verre est posé sur un dégradé de ciel : sur le fond sombre d'une case, une vitre translucide paraîtrait grise.
+ */
+export function blockIcon(atlas: HTMLCanvasElement, id: BlockId): HTMLCanvasElement {
+  const def = blockDef(id);
+  if (def.shape !== "glass") return tileIcon(atlas, def.tiles.side);
+  const c = document.createElement("canvas");
+  c.width = TILE_SIZE;
+  c.height = TILE_SIZE;
+  const ctx = c.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  const sky = ctx.createLinearGradient(0, 0, 0, TILE_SIZE);
+  sky.addColorStop(0, "rgb(150,200,240)");
+  sky.addColorStop(1, "rgb(225,242,252)");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  const [ox, oy] = tileOrigin(def.tiles.side);
   ctx.drawImage(atlas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
   return c;
 }

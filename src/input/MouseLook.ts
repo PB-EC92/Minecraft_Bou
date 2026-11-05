@@ -180,6 +180,15 @@ export class MouseLook {
     for (const h of this.lockHandlers) h(false);
   }
 
+  /**
+   * Oublie l'appui « casser » et le glisser en cours, sans prévenir personne (V2 : un écran posé sur le jeu
+   * s'ouvre, l'appui ne doit ni casser ni être compté comme un clic bref au relâchement).
+   */
+  cancelPress(): void {
+    this.breakPress = null;
+    this.dragging = false;
+  }
+
   /** Consomme et remet à zéro les deltas accumulés depuis la dernière image. */
   consume(): { yaw: number; pitch: number } {
     const r = { yaw: this.yawDelta, pitch: this.pitchDelta };

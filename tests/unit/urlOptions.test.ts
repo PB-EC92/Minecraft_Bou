@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatUrlOptions, parseSeed, parseUrlOptions } from "../../src/game/urlOptions";
+import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "../../src/game/renderDistance";
+import { formatUrlOptions, parseDistance, parseSeed, parseUrlOptions } from "../../src/game/urlOptions";
 
 describe("options de l'adresse", () => {
   it("lit monde, graine, heure et distance", () => {
@@ -21,5 +22,55 @@ describe("options de l'adresse", () => {
 
   it("aller-retour", () => {
     expect(parseUrlOptions(formatUrlOptions("montagne", 77))).toEqual({ type: "montagne", seed: 77 });
+    expect(parseUrlOptions(formatUrlOptions("ile", 5, 128, 96))).toEqual({ type: "ile", seed: 5, distance: 128 });
+  });
+
+  it("options du J5 : créatures (à 1) et mission (J6 : 0 = tutoriel, 1 = mission 1 ; V2 lot 1 : 2 = mission 2)", () => {
+    expect(parseUrlOptions("#monde=plat&creatures=1&mission=1")).toEqual({ type: "plat", creatures: true, mission: 1 });
+    expect(parseUrlOptions("#monde=plat&mission=0")).toEqual({ type: "plat", mission: 0 });
+    expect(parseUrlOptions("#monde=plat&mission=2")).toEqual({ type: "plat", mission: 2 });
+    for (const bad of ["3", "-1", "deux", "1.5", ""]) expect(parseUrlOptions(`#monde=plat&mission=${bad}`)).toEqual({ type: "plat" });
+    expect(parseUrlOptions("#monde=plat&creatures=0")).toEqual({ type: "plat" });
+  });
+
+  it("niveau de lecture (V2 lot 1) : &lecture=debutant ou autonome, accents et casse tolérés, le reste ignoré", () => {
+    expect(parseUrlOptions("#monde=plat&graine=1&mission=2&lecture=autonome")).toEqual({ type: "plat", seed: 1, mission: 2, lecture: "autonome" });
+    expect(parseUrlOptions("#lecture=debutant")).toEqual({ lecture: "debutant" });
+    expect(parseUrlOptions("#lecture=D%C3%A9butant")).toEqual({ lecture: "debutant" });
+    expect(parseUrlOptions("#lecture=AUTONOME")).toEqual({ lecture: "autonome" });
+    for (const bad of ["expert", "", "1"]) expect(parseUrlOptions(`#monde=plat&lecture=${bad}`)).toEqual({ type: "plat" });
+  });
+
+  it("n'écrit la distance que si elle diffère de la valeur par défaut", () => {
+    expect(formatUrlOptions("prairie", 12, 96, 96)).toBe("#monde=prairie&graine=12");
+    expect(formatUrlOptions("prairie", 12, 48, 96)).toBe("#monde=prairie&graine=12&distance=48");
+    expect(formatUrlOptions("prairie", 12)).toBe("#monde=prairie&graine=12");
+  });
+
+  it("distance : entière, de 16 à 256", () => {
+    expect(parseDistance("128")).toBe(128);
+    expect(parseDistance(" 47.6 ")).toBe(48);
+    expect(parseDistance("8")).toBeUndefined();
+    expect(parseDistance("300")).toBeUndefined();
+    expect(parseDistance("abc")).toBeUndefined();
+    expect(parseDistance("")).toBeUndefined();
+    expect(parseDistance(null)).toBeUndefined();
+  });
+});
+
+describe("distance de rendu au démarrage", () => {
+  it("96 par défaut, quel que soit le pointeur", () => {
+    expect(DEFAULT_RENDER_DISTANCE).toBe(96);
+    expect(initialRenderDistance(undefined, null)).toBe(96);
+  });
+  it("le choix retenu de l'adulte passe avant la valeur par défaut", () => {
+    expect(initialRenderDistance(undefined, "128")).toBe(128);
+    expect(initialRenderDistance(undefined, "n'importe quoi")).toBe(96);
+  });
+  it("l'adresse passe avant tout", () => {
+    expect(initialRenderDistance(48, "128")).toBe(48);
+  });
+  it("clé de stockage préfixée cubes:", () => {
+    expect(DISTANCE_STORAGE_KEY.startsWith("cubes:")).toBe(true);
   });
 });

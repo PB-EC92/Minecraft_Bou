@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // Tests de fumée sur le fichier construit (dist/cubes.html) ouvert en file://,
 // exactement comme le fera l'enfant par double-clic. WebGL est rendu en
 // logiciel (SwiftShader) : les performances mesurées ici ne veulent rien dire,
-// seul le fonctionnement compte.
+// seul le fonctionnement compte. Seul Chromium est disponible ici : ce qui est
+// propre à Firefox (navigateur du convertible des enfants) se vérifie à la main.
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
@@ -17,16 +18,17 @@ export default defineConfig({
   },
   projects: [
     { name: "pc", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 720 } } },
+    // Le convertible des enfants replié en mode tablette, en portrait (fenêtre relevée par le diagnostic
+    // de Pierre : 1080 × 1802 à 1×). hasTouch donne « pointer: coarse », comme sur l'appareil.
     {
       name: "tablette",
-      use: {
-        browserName: "chromium",
-        viewport: { width: 1180, height: 820 },
-        hasTouch: true,
-        isMobile: true,
-        deviceScaleFactor: 2,
-        userAgent: "Mozilla/5.0 (Linux; Android 14; Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
-      },
+      use: { browserName: "chromium", viewport: { width: 1080, height: 1802 }, hasTouch: true, deviceScaleFactor: 1 },
+    },
+    // Le même en paysage : seulement les cas tactiles (titre contenant @tactile).
+    {
+      name: "tablette-paysage",
+      grep: /@tactile/,
+      use: { browserName: "chromium", viewport: { width: 1920, height: 1080 }, hasTouch: true, deviceScaleFactor: 1 },
     },
   ],
 });

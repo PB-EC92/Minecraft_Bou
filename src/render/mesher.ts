@@ -4,13 +4,29 @@ import { tileUv } from "./atlas";
 
 /**
  * Maillage d'une section de 16³ blocs (calcul pur, sans Three.js : testé en
- * Node). Trois couches, chacune dessinée avec son matériau :
+ * Node). Cinq couches, chacune dessinée avec son matériau :
  * - opaque : cubes pleins (faces au contact d'un bloc non opaque seulement) ;
  * - cutout : plantes en croix (fleurs), texture à trous ;
- * - water : eau semi-transparente (faces au contact de l'air seulement).
+ * - water : eau semi-transparente (faces au contact de l'air seulement) ;
+ * - glass : verre (V2 lot 1), cube transparent dessiné comme les cubes, mais
+ *   dans sa propre couche ; ses faces sont cachées contre un bloc opaque ou
+ *   contre un autre verre (vitre continue). Le verre n'est pas opaque : les
+ *   faces de ses voisins restent dessinées (on les voit à travers) et il ne
+ *   fait pas d'ombre (l'occlusion ambiante ne compte que les opaques) ;
+ * - glassWet : les faces de verre dont le voisin est de l'eau (même règle et
+ *   même matériau que glass). Le choix se fait face par face, d'après le
+ *   voisin, jamais bloc par bloc : une telle face n'est tournée que vers l'eau,
+ *   elle ne se voit donc qu'à travers l'eau ; caméra hors de l'eau, le rendu
+ *   la dessine avant l'eau (verre noyé, vitre du fond d'un aquarium : teintés
+ *   par l'eau), alors que les faces au contact de l'air restent dessinées après
+ *   l'eau ; caméra sous l'eau, tout le verre passe après l'eau (ChunkRenderer).
  *
  * Les faces tournées vers l'extérieur du monde ne sont pas produites : on ne
  * peut pas sortir du monde, elles ne seraient jamais vues.
+ *
+ * Orientation des textures : sur les 4 faces latérales, u croît vers la droite
+ * du spectateur placé devant la face (vecteur (−n) × haut) et v vers le haut.
+ * Une lettre (côtés des blocs-lettres) n'est donc jamais vue en miroir.
  *
  * Ombrage sans lumière : un facteur fixe par orientation de face et une
  * occlusion ambiante par sommet (coins sombres là où les blocs se touchent).
@@ -31,6 +47,10 @@ export interface SectionMesh {
   opaque: MeshData | null;
   cutout: MeshData | null;
   water: MeshData | null;
+  glass: MeshData | null;
+  /** Faces de verre dont le voisin est de l'eau (dessinées avant l'eau, caméra hors de l'eau). */
+  glassWet: MeshData | null;
+  /** Somme des faces des cinq couches. */
   faces: number;
 }
 
@@ -201,9 +221,76 @@ class Builder {
 const opaqueB = new Builder();
 const cutoutB = new Builder();
 const waterB = new Builder();
+const glassB = new Builder();
+const glassWetB = new Builder();
+const ghostB = new Builder();
 
 /** Tuiles pré-calculées : UV[bloc][face]. */
 const UVS: (readonly [number, number, number, number])[][] = BLOCKS.map((d: BlockDef) => FACES.map((f) => tileUv(d.tiles[f.which])));
+
+const EMPTY_MESH = (): MeshData => ({
+  positions: new Float32Array(0),
+  uvs: new Float32Array(0),
+  colors: new Uint8Array(0),
+  indices: new Uint16Array(0),
+  faces: 0,
+});
+
+/** Case d'un cube fantôme : position du bloc (coin bas) et bloc représenté. */
+export interface GhostCubeCell {
+  x: number;
+  y: number;
+  z: number;
+  id: BlockId;
+}
+
+/** Cubes fantômes produits : le maillage, et le nombre de cubes dessinés (identifiant valide). */
+export interface GhostMeshData extends MeshData {
+  cubes: number;
+}
+
+/** Bloc dessinable en cube fantôme (dans le registre, pas l'air). Un autre identifiant est ignoré : il ne cache rien. */
+export const isGhostDrawable = (id: number): boolean => UVS[id] !== undefined && id !== BlockId.Air;
+const ghostAt = (x: number, y: number, z: number) => `${x},${y},${z}`;
+
+/**
+ * Cubes « fantômes » (V2 lot 1, mission 2) : les cases claires où poser les
+ * lettres. Les mêmes faces et les mêmes tuiles que le bloc (même orientation :
+ * la lettre se lit comme sur le bloc posé), en gris 255 sans ombrage ni
+ * occlusion, positions absolues dans le monde. Ce ne sont pas des blocs du
+ * monde : les blocs ne cachent rien, la visée ne les voit pas. Seule la face
+ * commune à deux cases claires voisines est cachée, comme entre deux blocs
+ * posés : sinon on la verrait à travers la face avant translucide de la
+ * voisine (lettre écrasée entre deux lettres). `around` : cases dessinées dans
+ * un autre maillage (la case suivante et les autres cases claires), qui cachent
+ * aussi ces faces sans être dessinées ici. Identifiant hors registre : cube
+ * ignoré (il ne cache rien).
+ */
+export function ghostCubes(cells: readonly GhostCubeCell[], around: readonly GhostCubeCell[] = []): GhostMeshData {
+  ghostB.reset();
+  const occupied = new Set<string>();
+  for (const c of cells) if (isGhostDrawable(c.id)) occupied.add(ghostAt(c.x, c.y, c.z));
+  for (const c of around) if (isGhostDrawable(c.id)) occupied.add(ghostAt(c.x, c.y, c.z));
+  const p = new Array<number>(12);
+  let cubes = 0;
+  for (const c of cells) {
+    if (!isGhostDrawable(c.id)) continue;
+    const uvs = UVS[c.id]!;
+    cubes++;
+    for (let f = 0; f < 6; f++) {
+      const face = FACES[f]!;
+      if (occupied.has(ghostAt(c.x + face.n[0], c.y + face.n[1], c.z + face.n[2]))) continue;
+      for (let i = 0; i < 4; i++) {
+        const v = face.v[i]!;
+        p[i * 3] = c.x + v[0];
+        p[i * 3 + 1] = c.y + v[1];
+        p[i * 3 + 2] = c.z + v[2];
+      }
+      ghostB.quad(p, uvs[f]!, 255, 255, 255, 255, false);
+    }
+  }
+  return { ...(ghostB.finish() ?? EMPTY_MESH()), cubes };
+}
 
 export function meshSection(world: World, sx: number, sy: number, sz: number): SectionMesh {
   const S = SECTION_SIZE;
@@ -229,6 +316,8 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
   opaqueB.reset();
   cutoutB.reset();
   waterB.reset();
+  glassB.reset();
+  glassWetB.reset();
   const p = new Array<number>(12);
   const ao = [0, 0, 0, 0];
 
@@ -243,14 +332,21 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
         const ly = y - y0;
         const lz = z - z0;
 
-        if (def.shape === "cube") {
+        if (def.shape === "cube" || def.shape === "glass") {
+          // Cubes opaques et verre : même règle de faces et même ombrage ; le verre va dans sa propre couche, et
+          // chaque face de verre au contact de l'eau dans la couche glassWet (choix face par face, d'après le voisin).
+          const glass = def.shape === "glass";
           for (let f = 0; f < 6; f++) {
             const face = FACES[f]!;
             const nx = x + face.n[0];
             const nz = z + face.n[2];
             // Face tournée vers l'extérieur du monde : jamais visible (on ne peut pas sortir).
             if (nx < 0 || nz < 0 || nx >= W || nz >= D) continue;
-            if (isOpaqueId(at(nx, y + face.n[1], nz))) continue;
+            const nb = at(nx, y + face.n[1], nz);
+            // Cachée contre un bloc opaque ; le verre cache aussi ses faces contre le même verre (vitre continue).
+            if (isOpaqueId(nb) || (glass && nb === id)) continue;
+            const out = !glass ? opaqueB : BLOCKS[nb]?.shape === "liquid" ? glassWetB : glassB;
+            // Occlusion ambiante : op() ne compte que les opaques (le verre ne fait pas d'ombre).
             const offs = AO_OFFSETS[f]!;
             for (let i = 0; i < 4; i++) {
               const o = offs[i]!;
@@ -267,7 +363,7 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
               p[i * 3 + 2] = lz + v[2];
             }
             const L = LIGHT[f]!;
-            opaqueB.quad(p, UVS[id]![f]!, L[ao[0]!]!, L[ao[1]!]!, L[ao[2]!]!, L[ao[3]!]!, ao[0]! + ao[2]! < ao[1]! + ao[3]!);
+            out.quad(p, UVS[id]![f]!, L[ao[0]!]!, L[ao[1]!]!, L[ao[2]!]!, L[ao[3]!]!, ao[0]! + ao[2]! < ao[1]! + ao[3]!);
           }
         } else if (def.shape === "liquid") {
           const top = at(x, y + 1, z) === id ? 1 : WATER_SURFACE;
@@ -288,7 +384,7 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
             const l = WATER_LIGHT[f]!;
             waterB.quad(p, UVS[id]![f]!, l, l, l, l, false);
           }
-        } else {
+        } else if (def.shape === "cross") {
           // Plante en croix
           const uv = UVS[id]![0]!;
           for (const q of CROSS) {
@@ -308,5 +404,14 @@ export function meshSection(world: World, sx: number, sy: number, sz: number): S
   const opaque = opaqueB.finish();
   const cutout = cutoutB.finish();
   const water = waterB.finish();
-  return { opaque, cutout, water, faces: (opaque?.faces ?? 0) + (cutout?.faces ?? 0) + (water?.faces ?? 0) };
+  const glass = glassB.finish();
+  const glassWet = glassWetB.finish();
+  return {
+    opaque,
+    cutout,
+    water,
+    glass,
+    glassWet,
+    faces: (opaque?.faces ?? 0) + (cutout?.faces ?? 0) + (water?.faces ?? 0) + (glass?.faces ?? 0) + (glassWet?.faces ?? 0),
+  };
 }

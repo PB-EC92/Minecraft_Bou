@@ -2,6 +2,8 @@ import * as THREE from "three";
 import type { SkyState } from "../engine/dayNight";
 import type { World } from "../engine/World";
 import { ChunkRenderer } from "./ChunkRenderer";
+import { verticalFovFor } from "./fov";
+import { LetterGhosts } from "./LetterGhosts";
 import { WATER_SURFACE } from "./mesher";
 import { Sky } from "./Sky";
 import { createAtlasTexture, drawAtlas } from "./textures";
@@ -51,9 +53,15 @@ function oceanGeometry(world: World): THREE.BufferGeometry | null {
 }
 
 /**
- * Scène Three.js : caméra, ciel, brouillard, monde par sections,
- * surbrillance du bloc visé. Pas de lumière : l'ombrage vient des couleurs
- * de sommets, la luminosité jour/nuit de la couleur des matériaux.
+ * Scène Three.js : caméra, ciel, brouillard, monde par sections (quatre
+ * couches : opaque, fleurs en découpe, eau, verre), surbrillance du bloc visé,
+ * fantômes des lettres de la mission 2. Pas de lumière : l'ombrage vient des
+ * couleurs de sommets, la luminosité jour/nuit de la couleur des matériaux
+ * (blocs, eau, verre, fantômes).
+ *
+ * Verre (V2 lot 1) : matériau transparent sans écriture de profondeur, face
+ * avant seulement (un mur d'un bloc ne teinte qu'une fois), sans alphaTest ;
+ * l'alpha vient de la tuile. Dessiné après l'eau (ordre 2, voir ChunkRenderer).
  */
 export class SceneView {
   readonly renderer: THREE.WebGLRenderer;
@@ -63,13 +71,20 @@ export class SceneView {
   readonly chunks: ChunkRenderer;
   readonly sky = new Sky();
   readonly highlight: THREE.LineSegments;
+  /** Cases claires de la mission 2 (jamais des blocs du monde : la visée les ignore). */
+  readonly ghosts: LetterGhosts;
   readonly gpu: GpuInfo;
   /** Contexte 3D perdu (Android en arrière-plan, pilote graphique) : on ne dessine plus jusqu'à sa restauration. */
   contextLost = false;
   contextLosses = 0;
 
   private readonly atlas: THREE.CanvasTexture;
-  private readonly materials: { opaque: THREE.MeshBasicMaterial; cutout: THREE.MeshBasicMaterial; water: THREE.MeshBasicMaterial };
+  private readonly materials: {
+    opaque: THREE.MeshBasicMaterial;
+    cutout: THREE.MeshBasicMaterial;
+    water: THREE.MeshBasicMaterial;
+    glass: THREE.MeshBasicMaterial;
+  };
   private readonly fog: THREE.Fog;
   private readonly skyColor = new THREE.Color();
   private underwater = false;
@@ -111,9 +126,14 @@ export class SceneView {
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
+      // Verre : face avant (défaut), pas d'alphaTest ni d'opacité de matériau (l'alpha vient de la tuile). Sert aussi
+      // aux faces de verre au contact de l'eau (couche glassWet de ChunkRenderer).
+      glass: new THREE.MeshBasicMaterial({ map: this.atlas, vertexColors: true, transparent: true, depthWrite: false }),
     };
     this.chunks = new ChunkRenderer(world, this.materials);
     this.scene.add(this.chunks.group);
+    this.ghosts = new LetterGhosts(this.atlas);
+    this.scene.add(this.ghosts.group);
     this.ocean = new THREE.Mesh(new THREE.BufferGeometry(), this.oceanMaterial);
     this.ocean.name = "mer";
     this.scene.add(this.ocean);
@@ -187,8 +207,9 @@ export class SceneView {
   setSky(state: SkyState): void {
     this.skyColor.setRGB(state.sky[0], state.sky[1], state.sky[2], THREE.SRGBColorSpace);
     const b = state.brightness;
-    for (const m of [this.materials.opaque, this.materials.cutout]) m.color.setRGB(b, b, b, THREE.SRGBColorSpace);
-    this.materials.water.color.setRGB(b, b, b, THREE.SRGBColorSpace);
+    const { opaque, cutout, water, glass } = this.materials;
+    for (const m of [opaque, cutout, water, glass]) m.color.setRGB(b, b, b, THREE.SRGBColorSpace);
+    this.ghosts.setBrightness(b);
     this.oceanMaterial.color.setRGB(OCEAN_RGB[0] * b, OCEAN_RGB[1] * b, OCEAN_RGB[2] * b, THREE.SRGBColorSpace);
     this.sky.update(state, this.camera);
     this.applyFog();
@@ -197,6 +218,7 @@ export class SceneView {
   /** Sous l'eau : brouillard bleu et court. */
   setUnderwater(on: boolean): void {
     this.underwater = on;
+    this.chunks.setCameraUnderwater(on); // ordre des faces de verre au contact de l'eau (ChunkRenderer)
     this.applyFog();
   }
 
@@ -219,6 +241,8 @@ export class SceneView {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // Portrait : champ vertical élargi pour garder au moins 60° en largeur (J3, voir fov.ts).
+    this.camera.fov = verticalFovFor(w / h);
     this.camera.updateProjectionMatrix();
   }
 

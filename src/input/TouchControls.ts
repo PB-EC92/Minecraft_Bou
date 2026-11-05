@@ -1,20 +1,31 @@
 import { newBreakPress, type BreakPress } from "./breakPress";
 import { CLICK_MAX_MS } from "./mouseFilter";
+import { inJoystickZone, joystickVector, type Point } from "./touchZones";
 
 export type TouchMode = "break" | "place";
 
 /**
- * Contrôles tactiles rudimentaires (J0, casse par appui maintenu au J2) :
- * - moitié gauche : joystick virtuel qui apparaît sous le doigt ;
- * - moitié droite : glisser pour regarder ; en mode Casser, garder le doigt
- *   immobile sur un bloc le casse (barre de progression) ; en mode Poser,
+ * Après la fermeture d'un écran posé sur le jeu au doigt (lettre choisie, boîte ou panneau fermés, félicitations) :
+ * un doigt qui se pose dans ce délai regarde mais ne pose ni ne casse (V2). Le second toucher d'un double toucher sur
+ * une lettre ou sur la croix tombe sinon sur le jeu, en mode Poser, et pose la lettre ou le bloc en main là où vise la
+ * croix. Même durée que l'armement de la boîte à l'ouverture (TRAY_ARM_MS).
+ */
+export const OVERLAY_CLOSE_GUARD_MS = 400;
+
+/**
+ * Contrôles tactiles (J0, casse par appui maintenu au J2, zones revues au J3) :
+ * - rond fixe en bas à gauche : joystick ; seul un toucher qui commence sur lui
+ *   (ou tout près, voir touchZones) fait marcher ;
+ * - partout ailleurs : glisser pour regarder ; en mode Casser, garder le doigt
+ *   immobile casse le bloc sous la croix (barre de progression) ; en mode Poser,
  *   tapoter pose ;
- * - boutons : Sauter, bascule Casser/Poser.
- * J3 raffinera (taille, zones, retours visuels).
+ * - boutons : Sauter, bascule Casser/Poser, plein écran.
+ * Un nouveau doigt dans une zone déjà prise la reprend (doigt d'un autre enfant,
+ * paume posée : le vrai doigt n'est plus bloqué).
  */
 export class TouchControls {
   /**
-   * Vrai si le pointeur PRINCIPAL est un doigt (tablette, téléphone).
+   * Vrai si le pointeur PRINCIPAL est un doigt (tablette, convertible replié).
    * Un PC à écran tactile répond non (pointeur principal = souris/pavé) :
    * son interface tactile n'apparaît qu'au premier toucher (voir Game).
    */
@@ -30,31 +41,40 @@ export class TouchControls {
   pitchDelta = 0;
   jumpPressed = false;
   mode: TouchMode = "break";
-  /** Appui « casser » en cours (doigt de droite, mode Casser), ou null. Lu à chaque image par le jeu. */
+  /** Appui « casser » en cours (doigt qui regarde, mode Casser), ou null. Lu à chaque image par le jeu. */
   breakPress: BreakPress | null = null;
 
   readonly root: HTMLDivElement;
   private readonly joystick: HTMLDivElement;
   private readonly knob: HTMLDivElement;
   private readonly modeButton: HTMLButtonElement;
+  private readonly fullscreenButton: HTMLButtonElement;
 
   private moveTouchId: number | null = null;
-  private moveOriginX = 0;
-  private moveOriginY = 0;
+  /** Centre et rayon du rond, relevés au début du toucher (la mise en page peut changer ensuite). */
+  private moveCenter: Point = { x: 0, y: 0 };
+  private moveRadius = 0;
 
   private lookTouchId: number | null = null;
+  /** Doigts remplacés par un nouveau doigt : s'ils sont encore posés quand le nouveau se lève, ils reprennent la main. */
+  private prevMoveId: number | null = null;
+  private prevLookId: number | null = null;
   private lookLastX = 0;
   private lookLastY = 0;
   private lookStartTime = 0;
   private lookMoved = false;
+  /** Fin du délai qui suit la fermeture d'un écran posé sur le jeu (OVERLAY_CLOSE_GUARD_MS). */
+  private guardUntil = 0;
+  /** Doigts posés pendant ce délai : ils regardent, sans poser ni casser, jusqu'à ce qu'ils se lèvent. */
+  private readonly guarded = new Set<number>();
 
   private readonly actionHandlers: ((mode: TouchMode) => void)[] = [];
   private readonly releaseHandlers: ((press: BreakPress) => void)[] = [];
   private readonly modeHandlers: ((mode: TouchMode) => void)[] = [];
-  /** Point de référence du doigt de droite : un déplacement au-delà de 12 px le déplace et reprend l'appui. */
+  private readonly fullscreenHandlers: (() => void)[] = [];
+  /** Point de référence du doigt qui regarde : un déplacement au-delà de 12 px le déplace et reprend l'appui. */
   private anchorX = 0;
   private anchorY = 0;
-  private readonly radius = 48;
   private readonly lookSensitivity = 0.005;
 
   constructor(parent: HTMLElement) {
@@ -79,9 +99,11 @@ export class TouchControls {
       e.preventDefault();
       e.stopPropagation();
       this.mode = this.mode === "break" ? "place" : "break";
-      // Doigt droit déjà posé et immobile : en passant en mode Casser, l'appui commence maintenant.
+      // Doigt qui regarde déjà posé et immobile : en passant en mode Casser, l'appui commence maintenant.
       this.breakPress =
-        this.mode === "break" && this.lookTouchId !== null ? newBreakPress(performance.now(), true, this.lookMoved) : null;
+        this.mode === "break" && this.lookTouchId !== null && !this.guarded.has(this.lookTouchId)
+          ? newBreakPress(performance.now(), true, this.lookMoved)
+          : null;
       this.updateModeButton();
       for (const h of this.modeHandlers) h(this.mode);
     });
@@ -102,8 +124,27 @@ export class TouchControls {
     jump.addEventListener("touchend", release);
     jump.addEventListener("touchcancel", release);
 
+    // Plein écran à la portée de l'enfant (J3) : hors plein écran, la barre des tâches de Windows et
+    // les onglets du navigateur sont collés aux commandes. « click » et non « touchstart » : le
+    // navigateur n'accorde le plein écran qu'à un geste terminé (doigt levé).
+    this.fullscreenButton = document.createElement("button");
+    this.fullscreenButton.className = "touch-btn fullscreen-btn";
+    this.fullscreenButton.type = "button";
+    this.fullscreenButton.setAttribute("aria-label", "Plein écran");
+    this.fullscreenButton.title = "Plein écran";
+    this.fullscreenButton.innerHTML =
+      '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">' +
+      '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+    this.fullscreenButton.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      for (const h of this.fullscreenHandlers) h();
+    });
+
     buttons.appendChild(this.modeButton);
     buttons.appendChild(jump);
+    // Dernier dans l'ordre du document (le bouton de mode reste le premier .touch-btn), affiché en haut par le CSS.
+    buttons.appendChild(this.fullscreenButton);
     this.root.appendChild(buttons);
     parent.appendChild(this.root);
 
@@ -111,6 +152,15 @@ export class TouchControls {
     parent.addEventListener("touchmove", (e) => this.onMove(e), { passive: false });
     parent.addEventListener("touchend", (e) => this.onEnd(e), { passive: false });
     parent.addEventListener("touchcancel", (e) => this.onEnd(e), { passive: false });
+
+    // Le jeu perd le focus (autre appli, geste de Windows depuis un bord) : un doigt levé pendant ce temps
+    // ne nous parviendrait jamais ; sans remise à zéro, le personnage marcherait ou casserait tout seul.
+    window.addEventListener("blur", () => this.reset());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.reset();
+    });
+    document.addEventListener("fullscreenchange", () => this.updateFullscreenButton());
+    this.updateFullscreenButton();
   }
 
   enable(on: boolean): void {
@@ -132,6 +182,11 @@ export class TouchControls {
     this.releaseHandlers.push(h);
   }
 
+  /** Bouton plein écran touché (le jeu bascule). */
+  onFullscreenRequest(h: () => void): void {
+    this.fullscreenHandlers.push(h);
+  }
+
   consumeLook(): { yaw: number; pitch: number } {
     const r = { yaw: this.yawDelta, pitch: this.pitchDelta };
     this.yawDelta = 0;
@@ -139,35 +194,77 @@ export class TouchControls {
     return r;
   }
 
+  /** Oublie les doigts suivis, sans appeler les gestionnaires de relâchement (aucun geste de l'enfant). */
+  reset(): void {
+    this.endMove();
+    this.lookTouchId = null;
+    this.prevMoveId = null;
+    this.prevLookId = null;
+    this.breakPress = null;
+    this.jumpPressed = false;
+    this.guarded.clear();
+  }
+
+  /** Un écran posé sur le jeu vient de se fermer : voir OVERLAY_CLOSE_GUARD_MS. */
+  guardAfterOverlay(now = performance.now()): void {
+    this.guardUntil = now + OVERLAY_CLOSE_GUARD_MS;
+  }
+
+  /** Change le mode Casser / Poser depuis le jeu (J6 : retour à Casser à la fin du tutoriel). */
+  setMode(mode: TouchMode): void {
+    if (this.mode === mode) return;
+    this.mode = mode;
+    this.breakPress = null;
+    this.updateModeButton();
+    for (const h of this.modeHandlers) h(this.mode);
+  }
+
   private updateModeButton(): void {
     this.modeButton.textContent = this.mode === "break" ? "Casser" : "Poser";
     this.modeButton.classList.toggle("on", this.mode === "place");
   }
 
+  private updateFullscreenButton(): void {
+    this.fullscreenButton.hidden = typeof document.fullscreenElement !== "undefined" && document.fullscreenElement !== null;
+  }
+
+  /** Bouton, panneau, barre ou écran posé sur le jeu (V2 : fabrication, boîte à lettres, par défense en profondeur). */
   private isUiTarget(t: EventTarget | null): boolean {
-    return t instanceof Element && (t.closest(".touch-btn, .btn, .panel, .hotbar") !== null);
+    return t instanceof Element && t.closest(".touch-btn, .btn, .panel, .hotbar, .companion, .craft, .letter-tray") !== null;
+  }
+
+  /** Centre et rayon du rond à l'écran (rayon nul s'il n'est pas affiché). */
+  private joystickGeometry(): { center: Point; radius: number } {
+    const r = this.joystick.getBoundingClientRect();
+    return { center: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, radius: r.width / 2 };
   }
 
   private onStart(e: TouchEvent): void {
     if (this.isUiTarget(e.target)) return;
     e.preventDefault();
     for (const t of Array.from(e.changedTouches)) {
-      const leftHalf = t.clientX < window.innerWidth / 2;
-      if (leftHalf && this.moveTouchId === null) {
+      if (this.isUiTarget(t.target)) continue;
+      const p = { x: t.clientX, y: t.clientY };
+      const { center, radius } = this.joystickGeometry();
+      if (inJoystickZone(p, center, radius)) {
+        // Un nouveau doigt sur le rond reprend le joystick.
+        if (this.moveTouchId !== null) this.prevMoveId = this.moveTouchId;
         this.moveTouchId = t.identifier;
-        this.moveOriginX = t.clientX;
-        this.moveOriginY = t.clientY;
-        this.joystick.style.left = `${t.clientX}px`;
-        this.joystick.style.top = `${t.clientY}px`;
+        this.moveCenter = center;
+        this.moveRadius = radius;
         this.joystick.classList.add("active");
-        this.setKnob(0, 0);
-      } else if (!leftHalf && this.lookTouchId === null) {
+        this.updateMove(p);
+      } else {
+        // Un nouveau doigt ailleurs reprend le regard ; l'appui du doigt précédent est oublié sans casser.
+        if (this.lookTouchId !== null) this.prevLookId = this.lookTouchId;
         this.lookTouchId = t.identifier;
         this.lookLastX = this.anchorX = t.clientX;
         this.lookLastY = this.anchorY = t.clientY;
         this.lookStartTime = performance.now();
         this.lookMoved = false;
-        if (this.mode === "break") this.breakPress = newBreakPress(this.lookStartTime, true);
+        const guarded = this.lookStartTime < this.guardUntil;
+        if (guarded) this.guarded.add(t.identifier);
+        this.breakPress = this.mode === "break" && !guarded ? newBreakPress(this.lookStartTime, true) : null;
       }
     }
   }
@@ -177,16 +274,7 @@ export class TouchControls {
     e.preventDefault();
     for (const t of Array.from(e.changedTouches)) {
       if (t.identifier === this.moveTouchId) {
-        let dx = t.clientX - this.moveOriginX;
-        let dy = t.clientY - this.moveOriginY;
-        const len = Math.hypot(dx, dy);
-        if (len > this.radius) {
-          dx = (dx / len) * this.radius;
-          dy = (dy / len) * this.radius;
-        }
-        this.setKnob(dx, dy);
-        this.moveX = dx / this.radius;
-        this.moveZ = -dy / this.radius;
+        this.updateMove({ x: t.clientX, y: t.clientY });
       } else if (t.identifier === this.lookTouchId) {
         const dx = t.clientX - this.lookLastX;
         const dy = t.clientY - this.lookLastY;
@@ -200,7 +288,7 @@ export class TouchControls {
           this.lookMoved = true;
           this.anchorX = t.clientX;
           this.anchorY = t.clientY;
-          if (this.mode === "break") this.breakPress = newBreakPress(performance.now(), true, true);
+          if (this.mode === "break" && !this.guarded.has(t.identifier)) this.breakPress = newBreakPress(performance.now(), true, true);
         }
       }
     }
@@ -208,11 +296,18 @@ export class TouchControls {
 
   private onEnd(e: TouchEvent): void {
     for (const t of Array.from(e.changedTouches)) {
+      if (t.identifier === this.prevMoveId) this.prevMoveId = null;
+      if (t.identifier === this.prevLookId) this.prevLookId = null;
       if (t.identifier === this.moveTouchId) {
-        this.moveTouchId = null;
-        this.moveX = 0;
-        this.moveZ = 0;
-        this.joystick.classList.remove("active");
+        this.endMove();
+        const back = this.stillDown(e, this.prevMoveId);
+        this.prevMoveId = null;
+        if (back) {
+          // Le pouce resté sur le rond reprend la marche.
+          this.moveTouchId = back.identifier;
+          this.joystick.classList.add("active");
+          this.updateMove({ x: back.clientX, y: back.clientY });
+        }
       } else if (t.identifier === this.lookTouchId) {
         this.lookTouchId = null;
         const press = this.breakPress;
@@ -221,11 +316,44 @@ export class TouchControls {
         // Seuil aligné sur le clic souris (450 ms) : un enfant de 6 ans tapote plus lentement
         // qu'un adulte (constat 12 de l'audit J0). Casser se fait par appui maintenu (J2).
         const quick = performance.now() - this.lookStartTime < CLICK_MAX_MS;
-        if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend") {
+        if (quick && !this.lookMoved && this.mode === "place" && e.type === "touchend" && !this.guarded.has(t.identifier)) {
           for (const h of this.actionHandlers) h(this.mode);
         }
+        const back = this.stillDown(e, this.prevLookId);
+        this.prevLookId = null;
+        if (back) {
+          // Le doigt resté posé reprend le regard ; un appui « casser » repart de sa position.
+          this.lookTouchId = back.identifier;
+          this.lookLastX = this.anchorX = back.clientX;
+          this.lookLastY = this.anchorY = back.clientY;
+          this.lookStartTime = performance.now();
+          this.lookMoved = true;
+          this.breakPress = this.mode === "break" && !this.guarded.has(back.identifier) ? newBreakPress(this.lookStartTime, true, true) : null;
+        }
       }
+      this.guarded.delete(t.identifier);
     }
+  }
+
+  /** Le doigt id est-il encore posé (liste des doigts restants de l'événement) ? */
+  private stillDown(e: TouchEvent, id: number | null): Touch | null {
+    if (id === null) return null;
+    return Array.from(e.touches).find((t) => t.identifier === id) ?? null;
+  }
+
+  private updateMove(p: Point): void {
+    const v = joystickVector(p, this.moveCenter, this.moveRadius);
+    this.moveX = v.x;
+    this.moveZ = v.z;
+    this.setKnob(v.knobX, v.knobY);
+  }
+
+  private endMove(): void {
+    this.moveTouchId = null;
+    this.moveX = 0;
+    this.moveZ = 0;
+    this.joystick.classList.remove("active");
+    this.setKnob(0, 0);
   }
 
   private setKnob(dx: number, dy: number): void {

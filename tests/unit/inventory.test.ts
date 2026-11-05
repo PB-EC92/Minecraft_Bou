@@ -4,8 +4,11 @@ import {
   INVENTORY_SLOTS,
   Inventory,
   MAX_STACK,
+  discardVerdict,
   isInventoryBlockId,
+  slotToEmpty,
   type AddResult,
+  type DiscardVerdict,
   type InventoryData,
   type Stack,
 } from "../../src/engine/inventory";
@@ -594,3 +597,125 @@ function revokedEntry(): unknown {
   r.revoke();
   return r.proxy;
 }
+
+describe("rechargement d'une sauvegarde (J4)", () => {
+  it("load remplace le contenu, garde les positions et augmente la version", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Dirt, 4);
+    const v = inv.version;
+    inv.load({ slots: [null, [BlockId.Stone, 7], [999, 1]] });
+    expect(inv.slots()[0]).toBeNull();
+    expect(inv.slot(1)).toEqual({ id: BlockId.Stone, count: 7 });
+    expect(inv.count(BlockId.Dirt)).toBe(0);
+    expect(inv.version).toBe(v + 1);
+    inv.load({ slots: [null, [BlockId.Stone, 7]] });
+    expect(inv.version).toBe(v + 1);
+    inv.load("illisible");
+    expect(inv.totalBlocks()).toBe(0);
+  });
+});
+
+describe("canAdd (J6)", () => {
+  it("vrai s'il reste une place pour ce type, faux sac plein ou case au maximum", () => {
+    const inv = new Inventory(2);
+    expect(inv.canAdd(BlockId.Stone)).toBe(true);
+    inv.add(BlockId.Stone, MAX_STACK);
+    expect(inv.canAdd(BlockId.Stone)).toBe(false);
+    expect(inv.canAdd(BlockId.Dirt)).toBe(true);
+    inv.add(BlockId.Dirt, 1);
+    expect(inv.canAdd(BlockId.Dirt)).toBe(true);
+    expect(inv.canAdd(BlockId.Lamp)).toBe(false);
+    expect(inv.canAdd(BlockId.Air)).toBe(false);
+  });
+});
+
+describe("vider une case (V2, appui long)", () => {
+  it("contrat d'interface", () => {
+    expectTypeOf<DiscardVerdict>().toEqualTypeOf<"ok" | "empty" | "keep-lamp" | "keep-gift" | "keep-goal">();
+    expectTypeOf(discardVerdict).toEqualTypeOf<(stack: Stack | null, keep: readonly BlockId[]) => DiscardVerdict>();
+    expectTypeOf(slotToEmpty).toEqualTypeOf<(slots: readonly (Stack | null)[], keep?: readonly BlockId[]) => number | null>();
+    expectTypeOf(new Inventory().discard).toEqualTypeOf<(i: number) => Stack | null>();
+  });
+
+  it("discard vide la case entière, renvoie une copie, et la version augmente de 1", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Stone, 7);
+    inv.add(BlockId.FlowerRed, 2);
+    const v = inv.version;
+    const out = inv.discard(1);
+    expect(out).toEqual({ id: BlockId.FlowerRed, count: 2 });
+    expect(inv.slot(1)).toBeNull();
+    expect(inv.count(BlockId.FlowerRed)).toBe(0);
+    expect(inv.version).toBe(v + 1);
+    // Une copie : la modifier ne touche pas au sac.
+    out!.count = 50;
+    expect(inv.totalBlocks()).toBe(7);
+    // La case libérée est reprise par le prochain type nouveau.
+    expect(inv.add(BlockId.Sand)).toEqual({ ok: true, slot: 1, count: 1, added: 1 });
+  });
+
+  it("un sac plein retrouve une case après discard", () => {
+    const inv = new Inventory();
+    for (const id of NINE_TYPES) inv.add(id, 3);
+    expect(inv.add(BlockId.Glass).ok).toBe(false);
+    expect(inv.discard(4)).toEqual({ id: BlockId.Sand, count: 3 });
+    expect(inv.add(BlockId.Glass, 2)).toEqual({ ok: true, slot: 4, count: 2, added: 2 });
+  });
+
+  it("discard d'une case vide, hors bornes ou à un indice non entier : null, version inchangée", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Dirt, 4);
+    const v = inv.version;
+    for (const i of [1, 8, -1, 9, 1.5, 0.5, Number.NaN, Infinity]) expect(inv.discard(i)).toBeNull();
+    expect(inv.version).toBe(v);
+    expect(inv.slot(0)).toEqual({ id: BlockId.Dirt, count: 4 });
+  });
+
+  it("discardVerdict : case vide, lampe, cadeau et bloc de l'étape gardés ; tout le reste ok", () => {
+    expect(discardVerdict(null, [])).toBe("empty");
+    expect(discardVerdict(null, [BlockId.Log])).toBe("empty");
+    expect(discardVerdict({ id: BlockId.Lamp, count: 1 }, [])).toBe("keep-lamp");
+    expect(discardVerdict({ id: BlockId.Rainbow, count: 5 }, [])).toBe("keep-gift");
+    expect(discardVerdict({ id: BlockId.Log, count: 6 }, [BlockId.Log])).toBe("keep-goal");
+    expect(discardVerdict({ id: BlockId.Log, count: 6 }, [BlockId.Stone, BlockId.Log])).toBe("keep-goal");
+    expect(discardVerdict({ id: BlockId.Log, count: 6 }, [BlockId.Stone])).toBe("ok");
+    // Tous les autres blocs rangeables (verre compris) peuvent être vidés.
+    for (const def of BLOCKS) {
+      if (!isInventoryBlockId(def.id) || def.id === BlockId.Lamp || def.id === BlockId.Rainbow) continue;
+      expect(discardVerdict({ id: def.id, count: 1 }, []), def.name).toBe("ok");
+    }
+  });
+
+  it("discardVerdict : ordre lampe > cadeau > étape", () => {
+    expect(discardVerdict({ id: BlockId.Lamp, count: 1 }, [BlockId.Lamp])).toBe("keep-lamp");
+    expect(discardVerdict({ id: BlockId.Rainbow, count: 1 }, [BlockId.Rainbow])).toBe("keep-gift");
+    expect(discardVerdict({ id: BlockId.Lamp, count: 1 }, [BlockId.Rainbow, BlockId.Lamp])).toBe("keep-lamp");
+  });
+
+  it("slotToEmpty : la plus petite pile, jamais la lampe, le cadeau ni un bloc gardé", () => {
+    const inv = new Inventory();
+    inv.add(BlockId.Log, 6);
+    inv.add(BlockId.Lamp, 1);
+    inv.add(BlockId.Rainbow, 2);
+    inv.add(BlockId.Stone, 9);
+    inv.add(BlockId.FlowerRed, 3);
+    inv.add(BlockId.Dirt, 4);
+    expect(slotToEmpty(inv.slots())).toBe(4); // 3 fleurs rouges (la lampe, case 1, et le cadeau, case 2, sont gardés)
+    expect(slotToEmpty(inv.slots(), [BlockId.FlowerRed])).toBe(5); // 4 terres
+    expect(slotToEmpty(inv.slots(), [BlockId.FlowerRed, BlockId.Dirt])).toBe(0); // 6 troncs
+    expect(slotToEmpty(inv.slots(), [BlockId.FlowerRed, BlockId.Dirt, BlockId.Log])).toBe(3); // 9 pierres
+  });
+
+  it("slotToEmpty : la première en cas d'égalité, les trous ignorés", () => {
+    expect(slotToEmpty([null, { id: BlockId.Sand, count: 2 }, null, { id: BlockId.Dirt, count: 2 }])).toBe(1);
+    expect(slotToEmpty([{ id: BlockId.Sand, count: 5 }, { id: BlockId.Dirt, count: 2 }, { id: BlockId.Glass, count: 2 }])).toBe(1);
+  });
+
+  it("slotToEmpty : null s'il n'y a rien à proposer", () => {
+    expect(slotToEmpty([])).toBeNull();
+    expect(slotToEmpty(new Inventory().slots())).toBeNull();
+    const only = [{ id: BlockId.Lamp, count: 1 }, { id: BlockId.Rainbow, count: 5 }, { id: BlockId.Log, count: 3 }, null];
+    expect(slotToEmpty(only, [BlockId.Log])).toBeNull();
+    expect(slotToEmpty(only)).toBe(2);
+  });
+});

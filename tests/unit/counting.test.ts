@@ -1,13 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { BLOCKS, BlockId } from "../../src/engine/blocks";
 import {
+  capitalize,
   countNoun,
+  discardedText,
   emptiedText,
+  keepSlotText,
+  MADE,
+  ordinalWord,
   maxStackText,
   numberWords,
   pickupSpeech,
   pickupText,
+  PICKUP_VOICE_STEP,
   quantity,
+  returnedText,
+  rewardText,
+  goalReachedText,
+  emptySlotText,
+  shouldSpeakPickup,
+  stolenText,
   spokenQuantity,
   withDe,
 } from "../../src/edu/counting";
@@ -81,18 +93,51 @@ describe("messages fixes (texts.ts)", () => {
     const names = CONSTANTS.map(([name]) => name).sort();
     expect(names).toEqual(
       [
+        "BACK_TO_LAMP",
         "BOTTOM_LAYER",
+        "BUBBLES_FLY",
+        "CHOOSE_AVATAR",
+        "CRAFT_FULL_MOUSE",
+        "CRAFT_FULL_TOUCH",
+        "CRAFT_GLASS_FACT",
+        "CRAFT_NOTHING",
+        "CRAFT_OPEN_MOUSE",
+        "CRAFT_OPEN_TOUCH",
+        "CHOOSE_SLOT",
+        "CHOOSE_WORLD_TYPE",
         "EMPTY_HAND",
         "FLOWER_IN_WATER",
         "FLOWER_NEEDS_GROUND",
         "FULL_BAG",
+        "FULL_BAG_KEEP",
+        "FULL_BAG_KEEP_TOUCH",
+        "FULL_BAG_TOUCH",
+        "GLASS_SEE_THROUGH",
         "HOLD_TO_BREAK",
         "IMAGE_BACK",
         "IMAGE_LOST",
+        "LAMP_SCARES",
         "MOUSE_FALLBACK",
         "MOUSE_RESUME",
+        "NIGHT_COMING",
+        "NIGHT_COMING_LAMP",
+        "NO_FULLSCREEN",
         "NO_SPACE",
+        "OPENED_ELSEWHERE",
+        "PIT_CLIMB",
+        "PIT_CLIMB_TOUCH",
+        "PLACE_LAMP_AGAIN",
+        "REWARD_WAITING",
+        "REWARD_WAITING_TOUCH",
+        "SAVED",
+        "SHELTER_NOT_OWN",
+        "SHELTER_NO_ROOF",
+        "SHELTER_NO_WALLS",
+        "VIEW_FIRST",
+        "VIEW_THIRD",
+        "WALLED_IN",
         "WELCOME",
+        "WHO_PLAYS",
         "WORLD_EDGE",
       ].sort(),
     );
@@ -136,11 +181,110 @@ describe("messages fixes (texts.ts)", () => {
     expect(texts.HINTS.touch.autonome).toContain("croix");
   });
 
+  it("suffixe de l'aide d'écran pour la fabrication (V2 lot 1) : « F : fabriquer », dans les deux niveaux", () => {
+    expect(plainText(texts.HINT_EXTRAS.craft)).toEqual({ debutant: "F : fabriquer", autonome: "F : fabriquer" });
+    expect(texts.HINT_EXTRAS.craft.debutant).toBe(`F${NBSP}: fabriquer`);
+  });
+
+  it("sac plein et cadeau qui attend (V2 lot 1) : l'appui long sur une case, au clavier ou au doigt", () => {
+    expect(plain(texts.FULL_BAG.debutant)).toBe("Ton sac est plein !");
+    expect(plain(texts.FULL_BAG.autonome)).toBe("Ton sac est plein : garde la touche d'une case (1 à 9) enfoncée pour la vider.");
+    expect(plainText(texts.FULL_BAG_TOUCH)).toEqual({
+      debutant: "Ton sac est plein !",
+      autonome: "Ton sac est plein : garde le doigt sur une case pour la vider.",
+    });
+    expect(plain(texts.FULL_BAG_KEEP.autonome)).toBe(
+      "Ton sac est plein : garde la touche d'une case (1 à 9) enfoncée pour la vider, puis recommence.",
+    );
+    expect(plainText(texts.FULL_BAG_KEEP_TOUCH)).toEqual({
+      debutant: "Sac plein : vide une case !",
+      autonome: "Ton sac est plein : garde le doigt sur une case pour la vider, puis recommence.",
+    });
+    expect(plain(texts.REWARD_WAITING.debutant)).toBe("Vide une case du sac !");
+    expect(plain(texts.REWARD_WAITING.autonome)).toBe("Ton cadeau t'attend : garde la touche d'une case (1 à 9) enfoncée pour la vider.");
+    expect(plainText(texts.REWARD_WAITING_TOUCH)).toEqual({
+      debutant: "Vide une case du sac !",
+      autonome: "Ton cadeau t'attend : garde le doigt sur une case pour la vider.",
+    });
+    // Plus aucun conseil « pose tous les blocs d'une case » : l'appui long le remplace.
+    for (const [name, t] of CONSTANTS) {
+      for (const v of [t.debutant, t.autonome]) expect(v, name).not.toContain("pose tous les blocs");
+    }
+  });
+
+  it("verre et fabrication (V2 lot 1)", () => {
+    expect(plainText(texts.GLASS_SEE_THROUGH)).toEqual({
+      debutant: "On voit à travers !",
+      autonome: "Le verre est transparent : on voit à travers, mais on ne peut pas passer.",
+    });
+    expect(plain(texts.CRAFT_OPEN_TOUCH.debutant)).toBe("Touche une carte !");
+    expect(plain(texts.CRAFT_OPEN_MOUSE.debutant)).toBe("Clique sur une carte !");
+    expect(texts.CRAFT_OPEN_MOUSE.autonome).toContain("F ou Échap");
+    expect(plain(texts.CRAFT_NOTHING.autonome)).toBe("Il te manque des blocs : casse un tronc d'arbre ou ramasse du sable, puis reviens.");
+    expect(plain(texts.CRAFT_GLASS_FACT.autonome)).toBe("Le savais-tu ? Le verre se fabrique avec du sable chauffé très fort.");
+    expect(texts.CRAFT_FULL_TOUCH.autonome).toContain("garde le doigt sur la case qui bouge");
+    expect(texts.CRAFT_FULL_MOUSE.autonome).toContain("garde le clic sur la case qui bouge");
+  });
+
+  it("décision 6 : aucun indice sur la lampe avant de l'avoir vue agir", () => {
+    for (const [name, t] of [
+      ["NIGHT_COMING", texts.NIGHT_COMING],
+      ["BACK_TO_LAMP", texts.BACK_TO_LAMP],
+      ["PLACE_LAMP_AGAIN", texts.PLACE_LAMP_AGAIN],
+    ] as const) {
+      for (const v of [t.debutant, t.autonome]) {
+        for (const hint of ["éloign", "peur", "fui", "n'aim", "lumière"]) expect(v.toLowerCase(), `${name} : ${hint}`).not.toContain(hint);
+      }
+    }
+    expect(plain(texts.NIGHT_COMING.autonome)).toBe("La nuit arrive : les Grignotes vont bientôt sortir.");
+    expect(plain(texts.NIGHT_COMING.debutant)).toBe("La nuit arrive !");
+    // L'ancien texte, dit après la découverte.
+    expect(plainText(texts.NIGHT_COMING_LAMP)).toEqual({
+      debutant: "La nuit arrive !",
+      autonome: "La nuit arrive : les Grignotes vont sortir. Une lampe les éloigne.",
+    });
+    // Rien sur la lampe dans la fabrication.
+    for (const [name, t] of CONSTANTS.filter(([n]) => n.startsWith("CRAFT_"))) {
+      for (const v of [t.debutant, t.autonome]) expect(v.toLowerCase(), name).not.toContain("lampe");
+    }
+    for (const [name, t] of Object.entries(texts.SPOKEN_TIPS).filter(([n]) => n.startsWith("craft"))) {
+      for (const v of [t.debutant, t.autonome]) expect(v.toLowerCase(), name).not.toContain("lampe");
+    }
+  });
+
+  it("formes dites des conseils (SPOKEN_TIPS) : deux variantes, aucun chiffre côté débutant, autonome = l'écran", () => {
+    const tips = texts.SPOKEN_TIPS;
+    expect(Object.keys(tips).sort()).toEqual(
+      ["craftFullMouse", "craftFullTouch", "craftNothing", "fullBagKeys", "fullBagTouch", "noRoof", "rewardKeys", "rewardTouch"].sort(),
+    );
+    for (const [name, t] of Object.entries(tips)) {
+      expect(t.debutant.trim().length, name).toBeGreaterThan(0);
+      expect(t.autonome.trim().length, name).toBeGreaterThan(0);
+      expect(t.debutant, name).not.toMatch(/\d/);
+      for (const v of [t.debutant, t.autonome]) {
+        expect(v, name).toMatch(/^\p{Lu}/u);
+        expect(v, name).toMatch(/[.!?]$/);
+        expect(v, name).not.toMatch(/ [!?:;]/);
+        expect(v, name).not.toMatch(/\S[!?:;]/);
+      }
+    }
+    expect(tips.fullBagTouch.autonome).toBe(texts.FULL_BAG_TOUCH.autonome);
+    expect(tips.fullBagKeys.autonome).toBe(texts.FULL_BAG.autonome);
+    expect(tips.rewardTouch.autonome).toBe(texts.REWARD_WAITING_TOUCH.autonome);
+    expect(tips.rewardKeys.autonome).toBe(texts.REWARD_WAITING.autonome);
+    expect(tips.craftNothing.autonome).toBe(texts.CRAFT_NOTHING.autonome);
+    expect(tips.craftFullTouch.autonome).toBe(texts.CRAFT_FULL_TOUCH.autonome);
+    expect(tips.craftFullMouse.autonome).toBe(texts.CRAFT_FULL_MOUSE.autonome);
+    expect(plain(tips.fullBagKeys.debutant)).toBe("Ton sac est plein ! Pour vider une case, garde sa touche enfoncée.");
+    expect(plain(tips.craftNothing.debutant)).toBe("Il manque des blocs ! Casse un tronc d'arbre, ou ramasse du sable.");
+  });
+
   it("contiennent les mots cherchés par les tests de fumée (tests/e2e/smoke.spec.ts), dans les deux variantes", () => {
     const expected: [ChildText, string][] = [
       [texts.HOLD_TO_BREAK, "Appuie longtemps"],
       [texts.EMPTY_HAND, "case est vide"],
       [texts.FULL_BAG, "sac est plein"],
+      [texts.FULL_BAG_TOUCH, "sac est plein"],
     ];
     // Insensible à la casse : la variante autonome peut placer le fragment en milieu de phrase.
     for (const [t, fragment] of expected) {
@@ -164,6 +308,166 @@ describe("noms comptables", () => {
     expect(countNoun(BlockId.FlowerYellow)).toEqual({ one: "fleur jaune", many: "fleurs jaunes", feminine: true });
     expect(countNoun(BlockId.Snow)).toEqual({ one: "bloc de neige", many: "blocs de neige", feminine: false });
     expect(countNoun(BlockId.Cactus)).toEqual({ one: "cactus", many: "cactus", feminine: false });
+    expect(countNoun(BlockId.Rainbow)).toEqual({ one: "bloc arc-en-ciel", many: "blocs arc-en-ciel", feminine: false });
+    // V2 lot 1 : « un verre » seul se lirait comme un verre à boire.
+    expect(countNoun(BlockId.Glass)).toEqual({ one: "bloc de verre", many: "blocs de verre", feminine: false });
+    expect(countNoun(BlockId.LetterA)).toEqual({ one: "lettre A", many: "lettres A", feminine: true });
+    expect(countNoun(BlockId.LetterM)).toEqual({ one: "lettre M", many: "lettres M", feminine: true });
+    expect(countNoun(BlockId.LetterZ)).toEqual({ one: "lettre Z", many: "lettres Z", feminine: true });
+    expect(quantity(BlockId.Glass, 1)).toBe("un bloc de verre");
+    expect(spokenQuantity(BlockId.Glass, 2)).toBe("deux blocs de verre");
+  });
+
+  it("sac plein (V2 lot 1) : au doigt, le geste qui vide la case", () => {
+    const two = emptySlotText(BlockId.FlowerRed, 2, { kind: "touch" });
+    expect(plainText(two.text)).toEqual({
+      debutant: "Pose tes 2 fleurs rouges !",
+      autonome: "Ton sac est plein : pose tes 2 fleurs rouges, ou garde le doigt sur leur case pour la vider.",
+    });
+    expect(plainText(two.spoken)).toEqual({
+      debutant: "Pose tes deux fleurs rouges, ou garde le doigt sur leur case.",
+      autonome: "Ton sac est plein : pose tes deux fleurs rouges, ou garde le doigt sur leur case pour la vider.",
+    });
+    const one = emptySlotText(BlockId.Grass, 1, { kind: "touch" });
+    expect(plainText(one.text)).toEqual({
+      debutant: "Pose ton bloc d'herbe !",
+      autonome: "Ton sac est plein : pose ton bloc d'herbe, ou garde le doigt sur sa case pour la vider.",
+    });
+    expect(plainText(one.spoken)).toEqual({
+      debutant: "Pose ton bloc d'herbe, ou garde le doigt sur sa case.",
+      autonome: "Ton sac est plein : pose ton bloc d'herbe, ou garde le doigt sur sa case pour la vider.",
+    });
+  });
+
+  it("sac plein (V2 lot 1) : au clavier, la touche de la case, en lettres à la voix", () => {
+    const two = emptySlotText(BlockId.FlowerRed, 2, { kind: "key", key: 4 });
+    expect(plainText(two.text)).toEqual({
+      debutant: "Pose tes 2 fleurs rouges !",
+      autonome: "Ton sac est plein : pose tes 2 fleurs rouges, ou garde la touche 4 enfoncée pour vider leur case.",
+    });
+    expect(plainText(two.spoken)).toEqual({
+      debutant: "Pose tes deux fleurs rouges, ou garde la touche quatre enfoncée.",
+      autonome: "Ton sac est plein : pose tes deux fleurs rouges, ou garde la touche quatre enfoncée pour vider leur case.",
+    });
+    const one = emptySlotText(BlockId.FlowerYellow, 1, { kind: "key", key: 4 });
+    expect(plainText(one.text)).toEqual({
+      debutant: "Pose ta fleur jaune !",
+      autonome: "Ton sac est plein : pose ta fleur jaune, ou garde la touche 4 enfoncée pour vider sa case.",
+    });
+    expect(plainText(one.spoken)).toEqual({
+      debutant: "Pose ta fleur jaune, ou garde la touche quatre enfoncée.",
+      autonome: "Ton sac est plein : pose ta fleur jaune, ou garde la touche quatre enfoncée pour vider sa case.",
+    });
+    // Sans geste : les textes du J7, à l'identique.
+    expect(emptySlotText(BlockId.FlowerRed, 2, undefined)).toEqual(emptySlotText(BlockId.FlowerRed, 2));
+  });
+
+  it("sac plein : écrit et dit respectent les règles des textes, rien de chiffré dans les formes dites", () => {
+    for (const d of BLOCKS) {
+      if (d.id === BlockId.Air) continue;
+      for (const n of [1, 2, 12]) {
+        for (const g of [undefined, { kind: "touch" } as const, { kind: "key", key: 9 } as const]) {
+          const t = emptySlotText(d.id, n, g);
+          // Texte calculé du J7, inchangé : « Pose tes 12 blocs de terre ! » compte six mots (nombre et nom composé).
+          expectChildText(t.text, 6);
+          for (const v of [t.spoken.debutant, t.spoken.autonome]) {
+            expect(v, d.name).not.toMatch(/\d/);
+            expect(v, d.name).not.toMatch(/ [!?:;]/);
+            expect(v, d.name).toMatch(/[.!?]$/);
+          }
+        }
+      }
+    }
+  });
+
+  it("case vidée par un appui long (V2 lot 1)", () => {
+    const dirt = discardedText(BlockId.Dirt, 12);
+    expect(plainText(dirt.text)).toEqual({ debutant: "Case vidée !", autonome: "Case vidée : tes 12 blocs de terre ont disparu." });
+    expect(plainText(dirt.spoken)).toEqual({ debutant: "Case vidée !", autonome: "Case vidée : tes douze blocs de terre ont disparu." });
+    expect(plainText(discardedText(BlockId.Stone, 1).text).autonome).toBe("Case vidée : ta pierre a disparu.");
+    expect(plainText(discardedText(BlockId.Dirt, 1).spoken).autonome).toBe("Case vidée : ton bloc de terre a disparu.");
+    expect(plain(discardedText(BlockId.Stone, 21).spoken.autonome)).toBe("Case vidée : tes vingt et une pierres ont disparu.");
+    for (const d of BLOCKS) {
+      if (d.id === BlockId.Air) continue;
+      for (const n of [1, 2, 99]) {
+        const t = discardedText(d.id, n);
+        expectChildText(t.text);
+        expect(t.spoken.autonome, d.name).not.toMatch(/\d/);
+      }
+    }
+  });
+
+  it("case gardée (V2 lot 1) : lampe, cadeau, bloc de la mission ; sans chiffre ni Grignote", () => {
+    expect(plainText(keepSlotText(BlockId.Lamp, 1, "keep-lamp"))).toEqual({
+      debutant: "Garde ta lampe !",
+      autonome: "Ta lampe est précieuse : elle reste dans ton sac.",
+    });
+    expect(plainText(keepSlotText(BlockId.Lamp, 3, "keep-lamp"))).toEqual({
+      debutant: "Garde tes lampes !",
+      autonome: "Tes lampes sont précieuses : elles restent dans ton sac.",
+    });
+    expect(plainText(keepSlotText(BlockId.Rainbow, 5, "keep-gift"))).toEqual({
+      debutant: "Garde ton cadeau !",
+      autonome: "Ton cadeau reste dans ton sac : pose ses blocs pour décorer ton abri.",
+    });
+    expect(plainText(keepSlotText(BlockId.Log, 4, "keep-goal"))).toEqual({
+      debutant: "Garde tes troncs !",
+      autonome: "Garde tes troncs : Pixel en a besoin pour la mission.",
+    });
+    expect(plainText(keepSlotText(BlockId.Log, 1, "keep-goal"))).toEqual({
+      debutant: "Garde ton tronc !",
+      autonome: "Garde ton tronc : Pixel en a besoin pour la mission.",
+    });
+    expect(plain(keepSlotText(BlockId.Stone, 1, "keep-goal").debutant)).toBe("Garde ta pierre !");
+    expect(plain(keepSlotText(BlockId.Dirt, 7, "keep-goal").debutant)).toBe("Garde tes blocs de terre !");
+    for (const d of BLOCKS) {
+      if (d.id === BlockId.Air) continue;
+      for (const n of [1, 2, 99]) {
+        for (const why of ["keep-lamp", "keep-gift", "keep-goal"] as const) {
+          const t = keepSlotText(d.id, n, why);
+          expectChildText(t);
+          for (const v of [t.debutant, t.autonome]) {
+            expect(v, `${d.name} ${why}`).not.toMatch(/\d/);
+            expect(v, `${d.name} ${why}`).not.toMatch(/grignote/i);
+          }
+        }
+      }
+    }
+  });
+
+  it("sac plein (J7) : quelle case vider, concrètement ; en lettres à la voix", () => {
+    expect(plainText(emptySlotText(BlockId.FlowerRed, 2).text)).toEqual({
+      debutant: "Pose tes 2 fleurs rouges !",
+      autonome: "Ton sac est plein : pose tes 2 fleurs rouges pour libérer une case.",
+    });
+    expect(plain(emptySlotText(BlockId.FlowerRed, 2).spoken.debutant)).toBe("Pose tes deux fleurs rouges !");
+    expect(plain(emptySlotText(BlockId.Grass, 1).text.debutant)).toBe("Pose ton bloc d'herbe !");
+    expect(plain(emptySlotText(BlockId.Sand, 1).text.debutant)).toBe("Pose ton bloc de sable !");
+    expect(plain(emptySlotText(BlockId.Leaves, 1).text.debutant)).toBe("Pose ton bloc de feuilles !");
+    expect(plain(emptySlotText(BlockId.FlowerYellow, 1).text.debutant)).toBe("Pose ta fleur jaune !");
+  });
+
+  it("objectif atteint (J7) : le compte est dit, en lettres accordées", () => {
+    const logs = goalReachedText(BlockId.Log, 6);
+    expect(plainText(logs.text)).toEqual({ debutant: "6 troncs ! Bravo !", autonome: "Tu as 6 troncs. Bravo, c'est fait !" });
+    expect(plain(logs.spoken.debutant)).toBe("Six troncs ! Bravo !");
+    expect(plain(goalReachedText(BlockId.Stone, 4).spoken.debutant)).toBe("Quatre pierres ! Bravo !");
+    expect(plain(goalReachedText(BlockId.Lamp, 1).text.debutant)).toBe("Une lampe ! Bravo !");
+  });
+
+  it("cadeau de fin de mission (J6) : chiffres à l'écran, lettres à la voix", () => {
+    const r = rewardText(BlockId.Rainbow, 5);
+    expect(plainText(r.text)).toEqual({
+      debutant: "Cadeau : 5 blocs arc-en-ciel !",
+      autonome: "Cadeau : tu as gagné 5 blocs arc-en-ciel pour décorer ton abri !",
+    });
+    expect(plain(r.spoken.debutant)).toBe("Cadeau : cinq blocs arc-en-ciel !");
+    expect(r.spoken.autonome).not.toMatch(/\d/);
+    expect(texts.bravoTitle("Léa").debutant).toBe(`Bravo Léa${NBSP}!`);
+    expect(texts.bravoTitle(null).autonome).toBe(`Bravo, mission réussie${NBSP}!`);
+    // Astuce du toit : dite au lecteur débutant (trop longue pour son écran), plus longue que l'affichage.
+    expect(texts.SPOKEN_TIPS.noRoof.debutant.startsWith(texts.SHELTER_NO_ROOF.debutant)).toBe(true);
+    expect(texts.SPOKEN_TIPS.noRoof.autonome).toBe(texts.SHELTER_NO_ROOF.autonome);
   });
 
   it("donnent « bloc » pour l'air et les identifiants inconnus", () => {
@@ -395,6 +699,27 @@ describe("texte de ramassage", () => {
   });
 });
 
+describe("lecture du compte à voix haute (paliers)", () => {
+  it("lit le premier bloc d'un type et chaque palier de 5", () => {
+    expect(PICKUP_VOICE_STEP).toBe(5);
+    const spoken = Array.from({ length: 21 }, (_, i) => i + 1).filter((n) => shouldSpeakPickup(n));
+    expect(spoken).toEqual([1, 5, 10, 15, 20]);
+    expect(shouldSpeakPickup(95)).toBe(true);
+    expect(shouldSpeakPickup(99)).toBe(false);
+  });
+
+  it("met à jour une lecture du même type encore en attente, même hors palier", () => {
+    expect(shouldSpeakPickup(7, true)).toBe(true);
+    expect(shouldSpeakPickup(7, false)).toBe(false);
+  });
+
+  it("un total absurde compte comme un premier bloc (lu)", () => {
+    for (const t of [0, -4, Number.NaN, Number.POSITIVE_INFINITY]) expect(shouldSpeakPickup(t)).toBe(true);
+    expect(shouldSpeakPickup(5.9)).toBe(true);
+    expect(shouldSpeakPickup(6.2)).toBe(false);
+  });
+});
+
 describe("texte de ramassage dit (voix)", () => {
   it("total 1 : identique à l'écrit", () => {
     expect(pickupSpeech(BlockId.Stone, 1)).toEqual(pickupText(BlockId.Stone, 1));
@@ -447,6 +772,35 @@ describe("texte de ramassage dit (voix)", () => {
   });
 });
 
+describe("nombres ordinaux (V2 lot 1)", () => {
+  it("en lettres de 1 à 10, au féminin par défaut", () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ordinalWord(n))).toEqual([
+      "première", "deuxième", "troisième", "quatrième", "cinquième", "sixième", "septième", "huitième", "neuvième", "dixième",
+    ]);
+  });
+
+  it("« premier » au masculin, le reste ne change pas", () => {
+    expect(ordinalWord(1, false)).toBe("premier");
+    expect(ordinalWord(2, false)).toBe("deuxième");
+    expect(ordinalWord(10, false)).toBe("dixième");
+  });
+
+  it("au-delà de 10 et valeurs farfelues : en chiffres suivis de « e »", () => {
+    expect(ordinalWord(11)).toBe("11e");
+    expect(ordinalWord(0)).toBe("0e");
+    expect(ordinalWord(-2)).toBe("-2e");
+    expect(ordinalWord(2.5)).toBe("2.5e");
+  });
+});
+
+describe("majuscule initiale", () => {
+  it("met la première lettre en majuscule, accent compris", () => {
+    expect(capitalize("une pierre")).toBe("Une pierre");
+    expect(capitalize("écris")).toBe("Écris");
+    expect(capitalize("")).toBe("");
+  });
+});
+
 describe("case vidée", () => {
   it("pierres", () => {
     expect(plainText(emptiedText(BlockId.Stone))).toEqual({
@@ -470,6 +824,15 @@ describe("case vidée", () => {
     );
     expect(plain(emptiedText(BlockId.Log).autonome)).toBe("Tu n'as plus de troncs. Va en casser d'autres !");
     expect(plain(emptiedText(200 as BlockId).autonome)).toBe("Tu n'as plus de blocs. Va en casser d'autres !");
+  });
+
+  it("dit « fabriquer » pour les blocs fabriqués (V2 lot 1) : planches, clôture, verre", () => {
+    expect([...MADE].sort((a, b) => a - b)).toEqual([BlockId.Planks, BlockId.Fence, BlockId.Glass]);
+    expect(plain(emptiedText(BlockId.Glass).autonome)).toBe("Tu n'as plus de blocs de verre. Va en fabriquer d'autres !");
+    expect(plain(emptiedText(BlockId.Planks).autonome)).toBe("Tu n'as plus de planches. Va en fabriquer d'autres !");
+    expect(plain(emptiedText(BlockId.Fence).autonome)).toBe("Tu n'as plus de clôtures. Va en fabriquer d'autres !");
+    expect(plain(emptiedText(BlockId.Glass).debutant)).toBe("Plus de blocs de verre !");
+    expect(plain(emptiedText(BlockId.Stone).autonome)).toBe("Tu n'as plus de pierres. Va en casser d'autres !");
   });
 
   it("respecte les règles des textes pour chaque bloc", () => {
@@ -501,5 +864,14 @@ describe("typographie", () => {
     expect(pickupText(BlockId.Stone, 3).debutant).toBe(`3 pierres${NBSP}!`);
     expect(maxStackText(BlockId.Stone, 99).autonome).toContain(`pierres${NBSP}:`);
     expect(texts.NO_SPACE.debutant).toBe(`Pas de place${NBSP}!`);
+  });
+});
+
+describe("vol et retour d'un bloc (J5)", () => {
+  it("accorde le pronom au genre du nom", () => {
+    expect(plain(stolenText(BlockId.Stone).autonome)).toContain("qu'elle te la rende");
+    expect(plain(stolenText(BlockId.Log).autonome)).toContain("qu'elle te le rende");
+    expect(plain(stolenText(BlockId.Stone).debutant)).toBe("Une Grignote a pris une pierre !");
+    expect(plain(returnedText(BlockId.Log).debutant)).toBe("Elle te rend un tronc !");
   });
 });

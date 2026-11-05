@@ -7,6 +7,9 @@ import { BlockId, BLOCKS } from "./blocks";
  * Les blocs cassés sont ramassés avec `add` ; poser un bloc en retire un
  * avec `takeFrom`. Module pur (sans DOM ni Three.js), testé en Node.
  *
+ * Vider une case (V2, appui long) : `discard`, après `discardVerdict`, la règle
+ * unique des blocs protégés (lampe, cadeau, bloc demandé par l'étape).
+ *
  * Le numéro de `version` augmente à chaque changement effectif : l'interface
  * (barre d'inventaire) ne se redessine que lorsqu'il change.
  *
@@ -48,6 +51,48 @@ export interface InventoryData {
 export function isInventoryBlockId(id: unknown): id is BlockId {
   if (typeof id !== "number" || !Number.isInteger(id) || id <= 0 || id >= BLOCKS.length) return false;
   return BLOCKS[id]?.id === id;
+}
+
+/**
+ * Ce que donnerait un appui long sur une case (V2) :
+ * - ok : la case peut être vidée ;
+ * - empty : rien à vider ;
+ * - keep-lamp : la lampe n'est jamais jetée ;
+ * - keep-gift : le cadeau (arc-en-ciel) non plus ;
+ * - keep-goal : bloc demandé par l'étape de mission en cours (« aucun échec bloquant »).
+ */
+export type DiscardVerdict = "ok" | "empty" | "keep-lamp" | "keep-gift" | "keep-goal";
+
+/**
+ * Règle unique des blocs protégés (V2), dans un ordre fixe : case vide, lampe, cadeau, puis blocs de `keep`
+ * (ceux que demande l'étape en cours). Elle sert à l'appui long, au vol des Grignotes, au conseil « sac plein »
+ * (`slotToEmpty`) et à la case que la fabrication fait remuer.
+ */
+export function discardVerdict(stack: Stack | null, keep: readonly BlockId[]): DiscardVerdict {
+  if (!stack) return "empty";
+  if (stack.id === BlockId.Lamp) return "keep-lamp";
+  if (stack.id === BlockId.Rainbow) return "keep-gift";
+  if (keep.includes(stack.id)) return "keep-goal";
+  return "ok";
+}
+
+/**
+ * Case à proposer de vider quand le sac est plein (V2, règle du conseil « sac plein » du J7) : parmi les cases
+ * que l'on peut vider (`discardVerdict` « ok »), celle qui a la plus petite pile, la première en cas d'égalité.
+ * null s'il n'y en a aucune (le jeu dit alors le message générique).
+ */
+export function slotToEmpty(slots: readonly (Stack | null)[], keep: readonly BlockId[] = []): number | null {
+  let best: number | null = null;
+  let bestCount = Infinity;
+  for (let i = 0; i < slots.length; i++) {
+    const st = slots[i] ?? null;
+    if (!st || discardVerdict(st, keep) !== "ok") continue;
+    if (st.count < bestCount) {
+      best = i;
+      bestCount = st.count;
+    }
+  }
+  return best;
 }
 
 /** Nombre demandé valide pour `add` / `takeFrom` : entier ≥ 1, ou +Infinity (« autant que possible »). */
@@ -173,6 +218,14 @@ export class Inventory {
     return { ok: true, slot: free, count: added, added };
   }
 
+  /** Un bloc de ce type entrerait-il dans le sac (case de ce type pas pleine, ou case libre) ? (J6) */
+  canAdd(id: BlockId): boolean {
+    if (!isInventoryBlockId(id)) return false;
+    const i = this.indexOf(id);
+    if (i >= 0) return (this.cells[i]?.count ?? 0) < MAX_STACK;
+    return this.cells.includes(null);
+  }
+
   /**
    * Retire min(n, nombre) blocs de la case `i` (1 par défaut) et renvoie leur
    * type ; null si la case est vide ou hors bornes. Une case tombée à 0
@@ -188,6 +241,20 @@ export class Inventory {
     if (cell.count <= 0) this.cells[i] = null;
     this.changes++;
     return cell.id;
+  }
+
+  /**
+   * Vide la case `i` entièrement (appui long, V2) et renvoie une copie de ce qu'elle contenait ; la case libérée
+   * est reprise par le prochain `add` d'un type nouveau. Case vide, hors bornes ou indice non entier : null, et
+   * la version ne bouge pas. Ne protège rien lui-même : l'appelant consulte `discardVerdict` avant.
+   */
+  discard(i: number): Stack | null {
+    if (!this.inBounds(i)) return null;
+    const cell = this.cells[i];
+    if (!cell) return null;
+    this.cells[i] = null;
+    this.changes++;
+    return { id: cell.id, count: cell.count };
   }
 
   /** Vide toutes les cases. */
@@ -265,6 +332,15 @@ export class Inventory {
     } catch {
       return new Inventory(inv.size); // `slots` ou sa longueur illisibles (accesseur, Proxy)
     }
+  }
+
+  /**
+   * Remplace le contenu par celui de données sauvegardées (J4), avec les mêmes
+   * règles de robustesse que fromJSON. La version augmente si le contenu change.
+   */
+  load(data: unknown): void {
+    const other = Inventory.fromJSON(data, this.size);
+    this.replaceAll(other.cells.map((c) => (c ? { id: c.id, count: c.count } : null)));
   }
 
   private inBounds(i: number): boolean {

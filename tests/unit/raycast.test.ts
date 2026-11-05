@@ -47,6 +47,17 @@ describe("raycast à travers l'eau, sur les fleurs (J1)", () => {
     expect(hit).toMatchObject({ x: 4, y: 3, z: 4, ny: 1 });
   });
 
+  it("s'arrête sur le verre (V2 lot 1) : on ne vise pas le bloc derrière la vitre", () => {
+    const w = World.createFlat(16, 16, 16, 4);
+    w.set(10, 5, 8, BlockId.Glass);
+    w.set(12, 5, 8, BlockId.Stone);
+    const hit = raycast(w, { x: 5.5, y: 5.5, z: 8.5 }, { x: 1, y: 0, z: 0 }, 10);
+    expect(hit).toMatchObject({ x: 10, y: 5, z: 8, nx: -1, ny: 0, nz: 0 });
+    // Vitre au sol, visée d'en haut : on la touche par le dessus (pour y poser une fleur ou un bloc).
+    w.set(4, 4, 4, BlockId.Glass);
+    expect(raycast(w, { x: 4.5, y: 7, z: 4.5 }, { x: 0, y: -1, z: 0 }, 10)).toMatchObject({ x: 4, y: 4, z: 4, ny: 1 });
+  });
+
   it("vise une fleur pour la cueillir", () => {
     const w = World.createFlat(8, 12, 8, 4);
     w.set(4, 4, 4, BlockId.FlowerRed);

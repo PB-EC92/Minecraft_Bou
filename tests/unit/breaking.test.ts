@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKS, BlockId, breakDurationMs } from "../../src/engine/blocks";
+import {
+  BLOCKS,
+  BlockId,
+  blockDef,
+  breakDurationMs,
+  dropsOf,
+  isLetterId,
+  isOpaqueId,
+  isPlantId,
+  isSolidId,
+  isTargetableId,
+  letterBlockId,
+  letterChar,
+  LETTERS,
+  Tile,
+} from "../../src/engine/blocks";
 import { BreakTracker, REPEAT_GAP_MS, samePos, type BlockPos, type BreakStep } from "../../src/engine/breaking";
 
 const P: BlockPos = { x: 3, y: 2, z: 5 };
@@ -40,7 +55,14 @@ describe("breakDurationMs", () => {
       [BlockId.FlowerYellow]: 150,
       [BlockId.Snow]: 300,
       [BlockId.Cactus]: 450,
+      [BlockId.Lamp]: 250,
+      [BlockId.Fence]: 400,
+      [BlockId.GlowStone]: 500,
+      [BlockId.Rainbow]: 300,
+      [BlockId.Glass]: 300,
     };
+    // V2 lot 1 : chaque bloc-lettre se casse en 0,2 s.
+    for (let k = 0; k < 26; k++) expected[BlockId.LetterA + k] = 200;
     for (const d of BLOCKS) {
       expect(breakDurationMs(d.id), d.name).toBe(expected[d.id]);
       expect(d.breakMs, d.name).toBe(expected[d.id]);
@@ -425,5 +447,96 @@ describe("samePos", () => {
     expect(samePos(P, Q)).toBe(false);
     expect(samePos(Q, R)).toBe(false);
     expect(samePos(P, { x: 3, y: 2, z: 6 })).toBe(false);
+  });
+});
+
+describe("ce que rapporte un bloc cassé (J5, V2 lot 1)", () => {
+  it("son propre type en général, une lampe pour la pierre brillante ; un tronc ne donne plus de clôture", () => {
+    expect(dropsOf(BlockId.Stone)).toEqual({ main: BlockId.Stone, extra: null });
+    expect(dropsOf(BlockId.GlowStone)).toEqual({ main: BlockId.Lamp, extra: null });
+    // Décision 3 de Pierre (V2 lot 1) : la clôture se fabrique avec des planches.
+    expect(dropsOf(BlockId.Log)).toEqual({ main: BlockId.Log, extra: null });
+    expect(dropsOf(BlockId.Glass)).toEqual({ main: BlockId.Glass, extra: null });
+    expect(dropsOf(BlockId.Lamp)).toEqual({ main: BlockId.Lamp, extra: null });
+    expect(dropsOf(BlockId.Rainbow)).toEqual({ main: BlockId.Rainbow, extra: null });
+    expect(dropsOf(BlockId.Air)).toEqual({ main: null, extra: null });
+    expect(dropsOf(BlockId.Water)).toEqual({ main: null, extra: null });
+    expect(dropsOf(200)).toEqual({ main: null, extra: null });
+  });
+
+  it("une lettre cassée retourne dans la boîte : rien dans le sac", () => {
+    for (let id = BlockId.LetterA; id <= BlockId.LetterZ; id++) expect(dropsOf(id), String(id)).toEqual({ main: null, extra: null });
+  });
+
+  it("plus aucun bloc ne rapporte de bloc en plus (extra toujours null)", () => {
+    for (const d of BLOCKS) expect(dropsOf(d.id).extra, d.name).toBeNull();
+  });
+});
+
+describe("verre et blocs-lettres (V2 lot 1)", () => {
+  it("verre : solide et visable, ni opaque ni plante, forme glass", () => {
+    const d = blockDef(BlockId.Glass);
+    expect(d).toMatchObject({ id: BlockId.Glass, name: "verre", shape: "glass", tiles: { top: Tile.Glass, side: Tile.Glass, bottom: Tile.Glass } });
+    expect(isSolidId(BlockId.Glass)).toBe(true);
+    expect(isTargetableId(BlockId.Glass)).toBe(true);
+    expect(isOpaqueId(BlockId.Glass)).toBe(false);
+    expect(isPlantId(BlockId.Glass)).toBe(false);
+  });
+
+  it("lettres : pleines, visables, opaques ; dessus et dessous en planches, côtés à la lettre", () => {
+    expect(LETTERS).toBe("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    for (let k = 0; k < 26; k++) {
+      const id = BlockId.LetterA + k;
+      const d = blockDef(id);
+      expect(d.id).toBe(id);
+      expect(d.name).toBe(`lettre ${LETTERS.charAt(k)}`);
+      expect(d.shape).toBe("cube");
+      expect(d.tiles).toEqual({ top: Tile.Planks, side: Tile.LetterA + k, bottom: Tile.Planks });
+      expect(isSolidId(id), d.name).toBe(true);
+      expect(isTargetableId(id), d.name).toBe(true);
+      expect(isOpaqueId(id), d.name).toBe(true);
+      expect(isPlantId(id), d.name).toBe(false);
+    }
+  });
+
+  it("isLetterId : de 18 à 43, entiers seulement", () => {
+    expect(isLetterId(BlockId.LetterA)).toBe(true);
+    expect(isLetterId(BlockId.LetterM)).toBe(true);
+    expect(isLetterId(BlockId.LetterZ)).toBe(true);
+    for (const bad of [0, BlockId.Rainbow, BlockId.Glass, 44, 18.5, -1, 255, Number.NaN]) expect(isLetterId(bad), String(bad)).toBe(false);
+  });
+
+  it("letterChar et letterBlockId : aller-retour de A à Z, refus du reste", () => {
+    for (let k = 0; k < 26; k++) {
+      const c = LETTERS.charAt(k);
+      expect(letterBlockId(c)).toBe(BlockId.LetterA + k);
+      expect(letterChar(BlockId.LetterA + k)).toBe(c);
+      expect(letterChar(letterBlockId(c)!)).toBe(c);
+    }
+    expect(letterChar(BlockId.LetterA)).toBe("A");
+    expect(letterChar(BlockId.LetterZ)).toBe("Z");
+    expect(letterBlockId("M")).toBe(BlockId.LetterM);
+    for (const bad of [BlockId.Air, BlockId.Glass, 44, 18.5, -1, 200]) expect(letterChar(bad), String(bad)).toBeNull();
+    for (const bad of ["a", "É", "1", "AB", "", " ", "Z ", "@", "["]) expect(letterBlockId(bad), JSON.stringify(bad)).toBeNull();
+  });
+});
+
+describe("identifiants de blocs figés (règle 6, recette J7)", () => {
+  it("aucun bloc n'est renuméroté : les sauvegardes en dépendent", () => {
+    expect(BlockId.Air).toBe(0);
+    expect([BlockId.Grass, BlockId.Dirt, BlockId.Stone, BlockId.Planks, BlockId.Sand, BlockId.Log]).toEqual([1, 2, 3, 4, 5, 6]);
+    expect([BlockId.Water, BlockId.Leaves, BlockId.FlowerRed, BlockId.FlowerYellow, BlockId.Snow, BlockId.Cactus]).toEqual([7, 8, 9, 10, 11, 12]);
+    expect([BlockId.Lamp, BlockId.Fence, BlockId.GlowStone, BlockId.Rainbow]).toEqual([13, 14, 15, 16]);
+    // V2 lot 1 : verre et blocs-lettres, A à Z à la suite.
+    expect([BlockId.Glass, BlockId.LetterA, BlockId.LetterM, BlockId.LetterZ]).toEqual([17, 18, 30, 43]);
+    expect(BLOCKS.length).toBe(44);
+    BLOCKS.forEach((d, i) => expect(d.id).toBe(i));
+  });
+
+  it("aucune tuile n'est renumérotée : l'atlas en dépend", () => {
+    expect([Tile.GrassTop, Tile.GrassSide, Tile.Dirt, Tile.Stone, Tile.Planks, Tile.Sand, Tile.LogSide, Tile.LogTop]).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect([Tile.Water, Tile.Leaves, Tile.FlowerRed, Tile.FlowerYellow, Tile.Snow, Tile.CactusSide, Tile.CactusTop]).toEqual([8, 9, 10, 11, 12, 13, 14]);
+    expect([Tile.Lamp, Tile.Fence, Tile.GlowStone, Tile.Rainbow]).toEqual([15, 16, 17, 18]);
+    expect([Tile.Glass, Tile.LetterA, Tile.LetterZ]).toEqual([19, 20, 45]);
   });
 });

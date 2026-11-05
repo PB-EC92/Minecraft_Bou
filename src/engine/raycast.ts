@@ -1,4 +1,10 @@
-import type { World } from "./World";
+/** Portée de la visée (blocs) : au-delà, on ne casse ni ne pose rien. */
+export const REACH = 6;
+
+/** Ce que la visée lit du monde (World convient). */
+export interface Targets {
+  isTargetable(x: number, y: number, z: number): boolean;
+}
 
 export interface Vec3 {
   x: number;
@@ -24,7 +30,7 @@ export interface RayHit {
  * (bloc plein ou plante ; l'eau est traversée) rencontré depuis `origin` dans
  * la direction `dir` (normalisée ou non), jusqu'à `maxDistance`, ou null.
  */
-export function raycast(world: World, origin: Vec3, dir: Vec3, maxDistance: number): RayHit | null {
+export function raycast(world: Targets, origin: Vec3, dir: Vec3, maxDistance: number): RayHit | null {
   const len = Math.hypot(dir.x, dir.y, dir.z);
   if (len === 0) return null;
   const dx = dir.x / len;
