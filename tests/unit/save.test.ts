@@ -185,7 +185,9 @@ describe("profils, réglages, mondes enregistrés", () => {
   });
 
   it("un réglage d'appui relu par la lecture de la 1.1-rc (champs connus seulement) est ignoré sans dégât", () => {
-    // Lecture des réglages de la 1.1-rc, recopiée telle quelle : elle ne garde que nuit, Grignotes et devTools.
+    // Documentation, pas une preuve : copie à la main de parseSettings de la 1.1-rc (commit 22b4bb4,
+    // src/save/saveFormat.ts, l. 137 à 143 ; NIGHT_LENGTHS l. 45 à 49 ; isObj l. 95), comparée à ce code lors de la
+    // relecture. Elle ne garde que nuit, Grignotes et devTools. Ce qui protège vraiment le format : le cas suivant.
     const rcParseSettings = (raw: unknown) => {
       const d = { night: "normale", creatures: true, devTools: false };
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ...d };
@@ -199,6 +201,20 @@ describe("profils, réglages, mondes enregistrés", () => {
     const saved = JSON.parse(JSON.stringify({ night: "aucune", creatures: false, devTools: true, slotHoldMs: 800 }));
     expect(rcParseSettings(saved)).toEqual({ night: "aucune", creatures: false, devTools: true });
     expect(parseSettings(saved).slotHoldMs).toBe(800);
+  });
+
+  it("format inchangé par le réglage d'appui : même clé, même version, export relu avec tous ses réglages", () => {
+    // La 1.1-rc lit la même clé et la même version : ajouter un champ ne demande ni migration ni nouvelle version.
+    expect(KEYS.settings).toBe("cubes:reglages");
+    expect(SAVE_VERSION).toBe(1);
+    // Export d'une 1.1 (réglage d'appui compris) relu par le code actuel : rien ne se perd.
+    const withHold = { night: "courte", creatures: false, devTools: true, slotHoldMs: 1200 };
+    const f = parseExport(JSON.parse(JSON.stringify({ app: "cubes", version: 1, exportedAt: 5, profiles: { profiles: defaultProfiles() }, settings: withHold, worlds: {} })), AVATARS.length)!;
+    expect(f.settings).toEqual(withHold);
+    expect(f.version).toBe(SAVE_VERSION);
+    // Export d'une 1.1-rc (sans le champ) : les trois réglages relus, appui à 1 s.
+    const rc = parseExport({ app: "cubes", version: 1, profiles: { profiles: defaultProfiles() }, settings: { night: "aucune", creatures: false, devTools: true }, worlds: {} }, AVATARS.length)!;
+    expect(rc.settings).toEqual({ night: "aucune", creatures: false, devTools: true, slotHoldMs: 1000 });
   });
 
   const world = {

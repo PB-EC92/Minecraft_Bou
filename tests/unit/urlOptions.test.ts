@@ -51,6 +51,16 @@ describe("options de l'adresse", () => {
     for (const bad of ["expert", "", "1"]) expect(parseUrlOptions(`#monde=plat&lecture=${bad}`)).toEqual({ type: "plat" });
   });
 
+  it("garde la durée de l'appui long dans l'adresse réécrite (&appui=…) : un rechargement la retrouve", () => {
+    expect(formatUrlOptions("plat", 1, 96, 96, 800)).toBe("#monde=plat&graine=1&appui=800");
+    expect(formatUrlOptions("plat", 1, 48, 96, 1200)).toBe("#monde=plat&graine=1&distance=48&appui=1200");
+    expect(formatUrlOptions("plat", 1, 96, 96, undefined)).toBe("#monde=plat&graine=1");
+    // Aller-retour : l'adresse réécrite au chargement redonne la même durée.
+    expect(parseUrlOptions(formatUrlOptions("plat", 1, 96, 96, 800))).toEqual({ type: "plat", seed: 1, slotHoldMs: 800 });
+    expect(parseUrlOptions(formatUrlOptions("ile", 5, 128, 96, 500))).toEqual({ type: "ile", seed: 5, distance: 128, slotHoldMs: 500 });
+    expect(parseUrlOptions(formatUrlOptions("ile", 5, 128, 96, 2000)).slotHoldMs).toBe(2000);
+  });
+
   it("n'écrit la distance que si elle diffère de la valeur par défaut", () => {
     expect(formatUrlOptions("prairie", 12, 96, 96)).toBe("#monde=prairie&graine=12");
     expect(formatUrlOptions("prairie", 12, 48, 96)).toBe("#monde=prairie&graine=12&distance=48");

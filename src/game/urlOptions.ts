@@ -65,8 +65,13 @@ export function parseDistance(v: string | number | null | undefined): number | u
   return Number.isFinite(d) && d >= 16 && d <= 256 ? Math.round(d) : undefined;
 }
 
-/** Adresse du monde affiché ; la distance n'y figure que si elle diffère de la valeur par défaut (J3 : elle n'est plus effacée au rechargement). */
-export function formatUrlOptions(type: WorldTypeId, seed: number, distance?: number, defaultDistance?: number): string {
+/**
+ * Adresse du monde affiché ; la distance n'y figure que si elle diffère de la valeur par défaut (J3 : elle n'est plus
+ * effacée au rechargement). La durée de l'appui long (&appui=…) y reste quand l'adresse l'a donnée : l'adulte qui
+ * l'essaie peut recharger (F5) sans revenir à 1 s.
+ */
+export function formatUrlOptions(type: WorldTypeId, seed: number, distance?: number, defaultDistance?: number, slotHoldMs?: number): string {
   const d = distance !== undefined && distance !== defaultDistance ? `&distance=${distance}` : "";
-  return `#monde=${type}&graine=${seed}${d}`;
+  const a = slotHoldMs !== undefined ? `&appui=${slotHoldMs}` : "";
+  return `#monde=${type}&graine=${seed}${d}${a}`;
 }

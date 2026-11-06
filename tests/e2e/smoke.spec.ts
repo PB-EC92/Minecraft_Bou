@@ -2357,6 +2357,37 @@ test("appui long réglé par l'adresse (&appui=800) : 0,85 s vide la case, 0,6 s
   expect(errors).toEqual([]);
 });
 
+test("&appui=800 reste dans l'adresse réécrite : un rechargement le garde, un nouveau monde aussi ; l'adresse changée sans rechargement le relit (absente : 1 s)", async ({ page }) => {
+  const errors = await openGame(page, `${FLAT}&appui=800`);
+  expect(await page.evaluate(() => location.hash)).toBe(`${FLAT}&appui=800`);
+  // Rechargement (F5, onglet restauré) : toujours 0,8 s.
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).slotHoldMs).toBe(800);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("appui 0,8 s");
+  // Nouveau monde du panneau Tests : l'adresse réécrite garde la durée.
+  await page.getByRole("button", { name: "Tests" }).click();
+  await page.getByLabel("Graine").fill("321");
+  await page.getByRole("button", { name: "Nouveau monde" }).click();
+  await page.waitForFunction(() => window.cubesDebug.state().seed === 321 && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect(await page.evaluate(() => location.hash)).toBe("#monde=plat&graine=321&appui=800");
+  // Adresse changée à la main sans rechargement (hashchange) : la nouvelle durée s'applique tout de suite.
+  await page.evaluate(() => {
+    location.hash = "#monde=plat&graine=2&appui=1200";
+  });
+  await page.waitForFunction(() => window.cubesDebug.state().seed === 2 && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).slotHoldMs).toBe(1200);
+  expect(await page.evaluate(() => location.hash)).toBe("#monde=plat&graine=2&appui=1200");
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("appui 1,2 s");
+  // Option retirée de l'adresse : une seconde, plus rien dans la ligne d'infos.
+  await page.evaluate(() => {
+    location.hash = "#monde=plat&graine=2";
+  });
+  await expect.poll(async () => (await state(page)).slotHoldMs).toBe(1000);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").not.toContain("appui");
+  expect(errors).toEqual([]);
+});
+
 test("mode parent : appui long pour vider une case (0,8 s, 1 s, 1,2 s), 1 s par défaut ; enregistré, appliqué à la partie suivante et affiché dans la ligne d'infos", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   const errors = await openGame(page, "");

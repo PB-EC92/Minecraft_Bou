@@ -432,8 +432,11 @@ export class Game {
   // ---------- J5 : compagnon, mission, Grignotes, bulles, lampes ----------
   private readonly urlCreatures: boolean;
   private readonly urlMission: boolean;
-  /** Mode adresse : durée de l'appui long choisie par l'adresse (&appui=800), sinon undefined (1 s). */
-  private readonly urlSlotHoldMs: number | undefined;
+  /**
+   * Mode adresse : durée de l'appui long donnée par l'adresse (&appui=800), sinon undefined (1 s). Gardée dans
+   * l'adresse réécrite (un rechargement la retrouve) et relue quand l'adresse change sans rechargement.
+   */
+  private urlSlotHoldMs: number | undefined;
   private readonly sim: CreatureSim;
   private readonly critters = new Critters();
   private readonly fox = new Fox();
@@ -713,9 +716,9 @@ export class Game {
     this.loading = true;
   }
 
-  /** Adresse du monde affiché (type, graine, distance si elle diffère de la valeur par défaut). */
+  /** Adresse du monde affiché (type, graine, distance si elle diffère de la valeur par défaut, appui long s'il a été donné). */
   private urlOptions(): string {
-    return formatUrlOptions(this.gen.type, this.gen.seed, this.view.renderDistance, DEFAULT_RENDER_DISTANCE);
+    return formatUrlOptions(this.gen.type, this.gen.seed, this.view.renderDistance, DEFAULT_RENDER_DISTANCE, this.urlSlotHoldMs);
   }
 
   newWorld(type: WorldTypeId, seed: number): void {
@@ -2903,6 +2906,11 @@ export class Game {
         this.view.setRenderDistance(o.distance);
         this.hud.setDistance(o.distance);
         writeStorage(DISTANCE_STORAGE_KEY, String(o.distance));
+      }
+      // Mode adresse : la durée de l'appui long suit l'adresse tapée (&appui=… ; absente ou hors bornes : 1 s).
+      if (this.urlMode && o.slotHoldMs !== this.urlSlotHoldMs) {
+        this.urlSlotHoldMs = o.slotHoldMs;
+        this.applySlotHoldMs();
       }
       if (this.session) return; // jamais de régénération pendant la partie d'un enfant (monde enregistré)
       const type = o.type ?? this.gen.type;
