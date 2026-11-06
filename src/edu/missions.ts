@@ -6,6 +6,7 @@ import { fillWord, nameWord, pickWord, wordList, type WordVars } from "./wordLis
 import {
   MAX_WORD_STATS,
   newWordStat,
+  unrecordedWordLine,
   readWordStats,
   wordStatLine,
   wordStatsJSON,
@@ -461,19 +462,30 @@ export function progressLabel(saved: unknown): string {
  * Temps par mot d'un monde, pour l'adulte (mode parent) : une ligne par étape d'écriture finie (« AMI (copie) :
  * 1 min 20 s, 2 essais non réussis, aides : case, ligne »), l'étape en cours (« …, en cours »), puis la durée de jeu
  * actif de la mission. Rien (tableau vide) sans relevé : mission 2 pas encore à l'écriture, monde de la 1.1-rc.
+ *
+ * Relevé incomplet : la 1.1-rc relit la progression sans le relevé et l'efface à sa sauvegarde suivante du monde ; les
+ * mots écrits avant ne sont plus relevés (toujours les premiers : l'effacement emporte tout ce qui précède). Chacun a
+ * alors sa ligne « non relevé », en tête, et la durée est dite partielle, jamais présentée comme celle de la mission.
  */
 export function wordStatsLines(saved: unknown): string[] {
   const def = missionById(isObj(saved) ? saved.id : null);
   if (!def) return [];
   const m = new MissionRunner(def, saved);
   const s = m.wordStats;
-  const lines = s.words.map((w) => wordStatLine(w));
+  if (s.words.length === 0 && s.current === null && s.totalMs === null) return [];
+  const recorded = new Set(s.words.filter((w) => w.replaced !== true).map((w) => w.word));
+  const missing = m.words.filter((w) => !recorded.has(w));
+  const lines = [...missing.map(unrecordedWordLine), ...s.words.map((w) => wordStatLine(w))];
   if (s.current && !m.done) lines.push(wordStatLine(s.current, true));
   if (s.totalMs !== null) {
+    const total = formatDuration(s.totalMs);
+    const head = `Durée de la ${def.name}${m.done ? "" : " jusqu'ici"} :`;
     lines.push(
-      m.done
-        ? `Durée de la ${def.name} : ${formatDuration(s.totalMs)} de jeu actif (de la première consigne d'écriture aux félicitations)`
-        : `Durée de la ${def.name} jusqu'ici : ${formatDuration(s.totalMs)} de jeu actif (depuis la première consigne d'écriture)`,
+      missing.length > 0
+        ? `${head} partielle, ${total} de jeu actif relevé (sans le temps de ${missing.join(", ")})`
+        : m.done
+          ? `${head} ${total} de jeu actif (de la première consigne d'écriture aux félicitations)`
+          : `${head} ${total} de jeu actif (depuis la première consigne d'écriture)`,
     );
   }
   return lines;
@@ -613,11 +625,19 @@ export class MissionRunner {
 
   /**
    * Début (ou reprise) du relevé de l'étape d'écriture en cours, une fois son mot et son mode connus : le relevé
-   * enregistré pour ce même mot est gardé (temps déjà passé), sinon un relevé neuf. Rien hors d'une étape d'écriture.
+   * enregistré pour ce même mot est gardé (temps déjà passé), sinon un relevé neuf. Un relevé commencé pour un autre
+   * mot (mot remplacé par prepare : niveau de lecture ou prénom changé entre deux parties) rejoint les étapes finies,
+   * marqué « remplacé », s'il a relevé quelque chose et s'il reste de la place sans en prendre aux étapes d'écriture
+   * qui restent (MAX_WORD_STATS) : la somme des lignes reste la durée de la mission. Rien hors d'une étape d'écriture.
    */
   beginWordStats(word: string, mode: WriteMode): void {
     if (this.current()?.goal.kind !== "write" || !/^[A-Z]{2,10}$/.test(word)) return;
-    if (this.stats.current?.word === word) return;
+    const prev = this.stats.current;
+    if (prev?.word === word) return;
+    if (prev && (prev.ms > 0 || prev.fails > 0 || Object.keys(prev.helps).length > 0)) {
+      const writeStepsLeft = this.def.steps.slice(this.step).filter((st) => st.goal.kind === "write").length;
+      if (this.stats.words.length + writeStepsLeft < MAX_WORD_STATS) this.stats.words.push({ ...prev, replaced: true });
+    }
     this.stats.current = newWordStat(word, mode);
   }
 

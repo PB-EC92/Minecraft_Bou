@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { wordHelp, type WriteMode } from "../../src/edu/wordHelp";
 import { MISSION_1, MISSION_2, MissionRunner, progressLabel, resumeMission, starsEarned, wordStatsLines, type MissionView } from "../../src/edu/missions";
 import {
   WORD_HELP_KINDS,
   WORD_HELP_LABELS,
   failsLabel,
   formatDuration,
+  helpsFromOutput,
   helpsLabel,
   readWordStats,
   wordStatLine,
@@ -171,7 +173,7 @@ describe("temps par mot de la mission 2 : relevé (MissionRunner)", () => {
     ]);
   });
 
-  it("un autre mot à la reprise (niveau de lecture changé) : relevé neuf ; relevé d'une étape qui n'écrit pas : oublié", () => {
+  it("un autre mot à la reprise (niveau de lecture changé) : le relevé du mot remplacé est gardé à part ; relevé d'une étape qui n'écrit pas : oublié", () => {
     const { m, word } = atFirstWord();
     m.noteActiveTime(5000, true);
     const saved = JSON.parse(JSON.stringify(m.toJSON()));
@@ -179,11 +181,79 @@ describe("temps par mot de la mission 2 : relevé (MissionRunner)", () => {
     const other = word === "AMI" ? "LUNE" : "AMI";
     again.beginWordStats(other, "dictation");
     expect(again.wordStats.current).toEqual({ word: other, mode: "dictation", ms: 0, fails: 0, helps: {} });
+    expect(again.wordStats.words).toEqual([{ word, mode: "copy", ms: 5000, fails: 0, helps: {}, replaced: true }]);
     expect(again.wordStats.totalMs).toBe(5000);
     // Mot enregistré différent du relevé : relevé oublié à la lecture.
     expect(new MissionRunner(MISSION_2, { ...saved, word: other }).wordStats.current).toBeNull();
     // Étape 0 (pas d'écriture) avec un relevé en cours : oublié.
     expect(new MissionRunner(MISSION_2, { ...saved, step: 0 }).wordStats.current).toBeNull();
+  });
+
+  it("niveau de lecture changé en cours de mot (débutant, reprise en autonome) : le temps, les essais et les aides du mot abandonné restent dans le relevé", () => {
+    // Débutant : 1 min 30 s sur le mot 1, un essai non réussi, une aide.
+    const m = new MissionRunner(MISSION_2, { id: "mots", step: 1, counts: {} });
+    const first = m.prepare(ctx)!;
+    m.beginWordStats(first, "copy");
+    m.noteActiveTime(90_000, true);
+    m.noteWordFail();
+    m.noteWordHelp("nextLetter");
+    const saved = JSON.parse(JSON.stringify(m.toJSON()));
+    // Reprise en autonome : le mot enregistré n'est pas dans la liste de ce niveau, un autre est tiré.
+    const again = new MissionRunner(MISSION_2, saved);
+    const second = again.prepare({ ...ctx, level: "autonome" })!;
+    expect(second).not.toBe(first);
+    again.beginWordStats(second, "dictation");
+    // Une reprise de plus (même mot) ne le recompte pas.
+    again.beginWordStats(second, "dictation");
+    again.noteActiveTime(20_000, true);
+    again.noteWord(second);
+    again.update(none);
+    const s = again.wordStats;
+    expect(s.words).toEqual([
+      { word: first, mode: "copy", ms: 90_000, fails: 1, helps: { nextLetter: 1 }, replaced: true },
+      { word: second, mode: "dictation", ms: 20_000, fails: 0, helps: {} },
+    ]);
+    expect(s.totalMs).toBe(110_000);
+    // Les mots écrits ne comptent que le mot écrit.
+    expect(again.words).toEqual([second]);
+    // Relu après enregistrement (JSON), puis lu par l'adulte : la somme des lignes est le total.
+    const back = JSON.parse(JSON.stringify(again.toJSON()));
+    expect(back.wordStats.words[0].replaced).toBe(true);
+    expect(back.wordStats.words[1]).not.toHaveProperty("replaced");
+    expect(wordStatsLines(back)).toEqual([
+      `${first} (copie, remplacé par un autre mot avant d'être écrit) : 1 min 30 s, 1 essai non réussi, aide : lettre dite`,
+      `${second} (dictée) : 20 s, aucun essai non réussi, sans aide`,
+      "Durée de la mission 2 (les mots) jusqu'ici : 1 min 50 s de jeu actif (depuis la première consigne d'écriture)",
+    ]);
+  });
+
+  it("mot remplacé sans rien de relevé (pas encore de consigne) : rien n'est gardé", () => {
+    const { m, word } = atFirstWord();
+    const other = word === "AMI" ? "LUNE" : "AMI";
+    m.beginWordStats(other, "copy");
+    expect(m.wordStats.words).toEqual([]);
+    expect(m.wordStats.current).toMatchObject({ word: other, ms: 0 });
+  });
+
+  it("mots remplacés : jamais au détriment des étapes d'écriture qui restent (dix relevés au plus)", () => {
+    const m = new MissionRunner(MISSION_2, { id: "mots", step: 1, counts: {} });
+    // Quatre étapes d'écriture restent : six relevés de mots remplacés au plus.
+    for (let i = 0; i < 12; i++) {
+      m.beginWordStats(i % 2 === 0 ? "AMI" : "LUNE", "copy");
+      m.noteActiveTime(1000, true);
+    }
+    expect(m.wordStats.words).toHaveLength(6);
+    expect(m.wordStats.words.every((w) => w.replaced === true)).toBe(true);
+    // Les quatre mots se finissent : chacun a son relevé.
+    for (let i = 0; i < 4; i++) {
+      const word = m.prepare(ctx)!;
+      m.beginWordStats(word, "copy");
+      m.noteActiveTime(1000, true);
+      m.noteWord(word);
+      m.update(none);
+    }
+    expect(m.done).toBe(true);
+    expect(m.wordStats.words.filter((w) => w.replaced !== true).map((w) => w.word)).toEqual([...m.words]);
   });
 });
 
@@ -237,8 +307,7 @@ describe("temps par mot de la mission 2 : lecture robuste et compatibilité", ()
     }
   });
 
-  it("le champ wordStats ne change ni la reprise, ni les étoiles, ni la progression pour l'adulte (lecture d'avant ce champ)", () => {
-    // La 1.1-rc ne relit que id, step, counts, words et word : sans le champ, tout est identique.
+  it("le champ wordStats ne change ni la reprise, ni les étoiles, ni la progression pour l'adulte (lecture actuelle, avec ou sans le champ)", () => {
     const { m, word } = atFirstWord();
     m.noteActiveTime(12_000, true);
     m.noteWordHelp("nextGhost");
@@ -255,6 +324,60 @@ describe("temps par mot de la mission 2 : lecture robuste et compatibilité", ()
     const a = new MissionRunner(MISSION_2, withStats);
     const b = new MissionRunner(MISSION_2, without);
     expect([a.stepIndex, a.target, a.words, a.help()]).toEqual([b.stepIndex, b.target, b.words, b.help()]);
+  });
+
+  it("une progression qui porte wordStats, relue par la lecture de la 1.1-rc (champs connus seulement), garde étape, compteurs, mots et mot en cours", () => {
+    // Documentation, pas une preuve : copie à la main de readProgress et readWords de la 1.1-rc (commit 70b73ec,
+    // inchangés jusqu'à 90ac306 ; src/edu/missions.ts, l. 659 à 682 ; WORD_RE l. 132, MAX_WORDS l. 129), comparée
+    // à ce code lors de la relecture. Elle ne lit que id, step, counts (ou placed), words et word ; son toJSON
+    // (l. 707 à 717) ne réécrit que ces champs : le relevé disparaît à la sauvegarde suivante du monde par la 1.1-rc.
+    const WORD_RE = /^[A-Z]{2,10}$/;
+    const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+    const rcReadWords = (raw: unknown): string[] => {
+      if (!Array.isArray(raw)) return [];
+      const words: string[] = [];
+      for (const w of raw as unknown[]) {
+        if (words.length >= 10) break;
+        if (typeof w === "string" && WORD_RE.test(w) && !words.includes(w)) words.push(w);
+      }
+      return words;
+    };
+    const rcReadProgress = (raw: unknown, def: { id: string; steps: readonly unknown[] }) => {
+      if (!isObj(raw) || raw.id !== def.id) return { step: 0, counts: {}, words: [], word: undefined };
+      const step = Number.isInteger(raw.step) ? Math.max(0, Math.min(def.steps.length, raw.step as number)) : 0;
+      const counts: Record<string, number> = {};
+      const ok = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+      if (isObj(raw.counts)) {
+        for (const [k, v] of Object.entries(raw.counts)) if (ok(v)) counts[k] = v;
+      } else if (isObj(raw.placed)) {
+        for (const [k, v] of Object.entries(raw.placed)) if (ok(v) && Number.isInteger(v)) counts[`place:${k}`] = v;
+      }
+      const word = typeof raw.word === "string" && WORD_RE.test(raw.word) ? raw.word : undefined;
+      return { step, counts, words: rcReadWords(raw.words), word };
+    };
+    // Mot 2 en cours après un mot 1 écrit, aides enregistrées, relevé complet (mot fini, mot en cours, total).
+    const m = new MissionRunner(MISSION_2, { id: "mots", step: 1, counts: {} });
+    const first = m.prepare(ctx)!;
+    m.beginWordStats(first, "copy");
+    m.noteActiveTime(30_000, true);
+    m.noteWord(first);
+    m.update(none);
+    const second = m.prepare(ctx)!;
+    m.beginWordStats(second, "copy");
+    m.noteActiveTime(16_000, true);
+    m.noteWordHelp("nextGhost");
+    m.noteHelp({ stage: 1, revealed: 0, copy: false });
+    m.noteTry();
+    const saved = JSON.parse(JSON.stringify(m.toJSON()));
+    expect(saved.wordStats).toBeDefined();
+    const rc = rcReadProgress(saved, MISSION_2);
+    expect(rc).toEqual({ step: 2, counts: { help: 1, revealed: 0, copy: 0, tries: 1 }, words: [first], word: second });
+    // Mêmes valeurs que la lecture actuelle.
+    const now = new MissionRunner(MISSION_2, saved);
+    expect([now.stepIndex, now.words, now.target, now.help()]).toEqual([rc.step, rc.words, rc.word, { stage: 1, revealed: 0, copy: false }]);
+    // Sans le champ : même lecture par la 1.1-rc (le champ n'y change rien).
+    const { wordStats: _ignored, ...without } = saved;
+    expect(rcReadProgress(without, MISSION_2)).toEqual(rc);
   });
 
   it("forme enregistrée : durées arrondies à la milliseconde, rien quand le relevé est vide", () => {
@@ -284,5 +407,115 @@ describe("temps par mot de la mission 2 : lecture robuste et compatibilité", ()
       "AMI (dictée) : 1 min 1 s, 3 essais non réussis, aides : cases du mot, 1re lettre, passé en copie",
       "Durée de la mission 2 (les mots) : 1 min 15 s de jeu actif (de la première consigne d'écriture aux félicitations)",
     ]);
+  });
+});
+
+describe("temps par mot de la mission 2 : relevé incomplet (mots écrits avec une version sans relevé)", () => {
+  // La 1.1-rc relit la progression mais ne réécrit pas wordStats : après un passage par elle, les mots déjà écrits
+  // n'ont plus de relevé, et la durée de la mission ne commence qu'au mot suivant.
+  const rcSaved = { id: "mots", step: 3, counts: {}, words: ["AMI", "LUNE"], word: "TOIT" };
+
+  it("mot en cours : les mots écrits sans relevé sont signalés, la durée est dite partielle", () => {
+    const m = new MissionRunner(MISSION_2, rcSaved);
+    expect(m.prepare(ctx)).toBe("TOIT");
+    m.beginWordStats("TOIT", "copy");
+    m.noteActiveTime(60_000, true);
+    expect(wordStatsLines(JSON.parse(JSON.stringify(m.toJSON())))).toEqual([
+      "AMI : non relevé (écrit avec une version du jeu sans ce relevé)",
+      "LUNE : non relevé (écrit avec une version du jeu sans ce relevé)",
+      "TOIT (copie, en cours) : 1 min, aucun essai non réussi, sans aide",
+      "Durée de la mission 2 (les mots) jusqu'ici : partielle, 1 min de jeu actif relevé (sans le temps de AMI, LUNE)",
+    ]);
+  });
+
+  it("mot écrit puis mission finie : toujours partielle, jamais présentée comme la durée de toute la mission", () => {
+    const m = new MissionRunner(MISSION_2, rcSaved);
+    m.prepare(ctx);
+    m.beginWordStats("TOIT", "copy");
+    m.noteActiveTime(60_000, true);
+    m.noteWord("TOIT");
+    m.update(none);
+    const last = m.prepare(ctx)!;
+    m.beginWordStats(last, "copy");
+    m.noteActiveTime(10_000, true);
+    m.noteWord(last);
+    m.update(none);
+    expect(m.done).toBe(true);
+    expect(wordStatsLines(JSON.parse(JSON.stringify(m.toJSON())))).toEqual([
+      "AMI : non relevé (écrit avec une version du jeu sans ce relevé)",
+      "LUNE : non relevé (écrit avec une version du jeu sans ce relevé)",
+      "TOIT (copie) : 1 min, aucun essai non réussi, sans aide",
+      `${last} (copie) : 10 s, aucun essai non réussi, sans aide`,
+      "Durée de la mission 2 (les mots) : partielle, 1 min 10 s de jeu actif relevé (sans le temps de AMI, LUNE)",
+    ]);
+  });
+
+  it("un seul mot sans relevé : au singulier ; relevé complet : aucune mention", () => {
+    const m = new MissionRunner(MISSION_2, { id: "mots", step: 2, counts: {}, words: ["AMI"] });
+    const w = m.prepare(ctx)!;
+    m.beginWordStats(w, "copy");
+    m.noteActiveTime(5000, true);
+    const lines = wordStatsLines(m.toJSON());
+    expect(lines[0]).toBe("AMI : non relevé (écrit avec une version du jeu sans ce relevé)");
+    expect(lines.at(-1)).toBe("Durée de la mission 2 (les mots) jusqu'ici : partielle, 5 s de jeu actif relevé (sans le temps de AMI)");
+    const { m: full } = atFirstWord();
+    full.noteActiveTime(5000, true);
+    expect(wordStatsLines(full.toJSON()).join("\n")).not.toMatch(/non relevé|partielle/);
+  });
+});
+
+describe("temps par mot de la mission 2 : aides relevées d'après l'aide progressive (wordHelp)", () => {
+  /**
+   * Fait vivre l'aide d'un mot comme Game.applyHelp : à chaque pas, le temps sans progrès avance (ou un essai reçoit
+   * un retour), wordHelp répond, et les aides relevées sont celles de helpsFromOutput.
+   */
+  function run(mode: WriteMode, firstWord: boolean, length: number, steps: readonly (number | "try")[], have = 0): string[][] {
+    let st = { mode, stage: 0, revealed: 0, ms: 0 };
+    // Palier de départ (prepareWriting) : jamais relevé.
+    const start = wordHelp({ mode, firstWord, length, have, stage: 0, revealed: 0, prevMs: 0, ms: 0, newTry: false });
+    st = { mode: start.mode, stage: start.stage, revealed: start.revealed, ms: 0 };
+    const seen: string[][] = [];
+    for (const step of steps) {
+      const prevMs = st.ms;
+      const newTry = step === "try";
+      const ms = newTry ? st.ms : st.ms + step;
+      const out = wordHelp({ mode: st.mode, firstWord, length, have, stage: st.stage, revealed: st.revealed, prevMs, ms, newTry });
+      seen.push(helpsFromOutput({ mode: st.mode, stage: st.stage }, out));
+      st = { mode: out.mode, stage: out.stage, revealed: out.revealed, ms: out.resetClock ? 0 : ms };
+    }
+    return seen;
+  }
+
+  it("copie, mot 2 et suivants : case à 15 s, ligne à 30 s (rien posé) ; lettre dite, sol plat et lettre donnée sont relevés à part", () => {
+    expect(run("copy", false, 4, [10_000, 6_000, 10_000, 5_000, 20_000, 30_000])).toEqual([[], ["nextGhost"], [], ["ghostLine"], [], []]);
+    // Deux seuils dans une même image : les deux aides.
+    expect(run("copy", false, 4, [31_000])).toEqual([["nextGhost", "ghostLine"]]);
+    // Une lettre juste déjà posée : pas de ligne à 30 s.
+    expect(run("copy", false, 4, [16_000, 15_000], 1)).toEqual([["nextGhost"], []]);
+  });
+
+  it("copie, mot 1 : la ligne est là dès la consigne (palier de départ), rien n'est relevé ensuite", () => {
+    expect(run("copy", true, 3, [16_000, 15_000, 20_000])).toEqual([[], [], []]);
+  });
+
+  it("dictée : cases du mot, première lettre, une lettre de plus à chaque palier ; mot entier dévoilé : passé en copie (une seule fois)", () => {
+    expect(run("dictation", false, 4, [29_000, 1000, 30_000, 30_000, 30_000, 30_000, 31_000])).toEqual([
+      [],
+      ["wordBoxes"],
+      ["firstLetter"],
+      ["moreLetter"],
+      ["moreLetter"],
+      ["toCopy"],
+      // Passé en copie au palier 1 : la ligne arrive à 30 s sans progrès.
+      ["ghostLine"],
+    ]);
+    // Chaque essai qui reçoit un retour fait aussi monter d'un palier.
+    expect(run("dictation", false, 3, ["try", "try", 5000, "try", "try"])).toEqual([["wordBoxes"], ["firstLetter"], [], ["moreLetter"], ["toCopy"]]);
+    // Mot de deux lettres : la première lettre dévoile… la moitié, la suivante fait passer en copie.
+    expect(run("dictation", false, 2, [30_000, 30_000, 30_000])).toEqual([["wordBoxes"], ["firstLetter"], ["toCopy"]]);
+  });
+
+  it("dictée, mot 1 passé en copie : palier 2 d'emblée, donc ni case ni ligne relevées ensuite", () => {
+    expect(run("dictation", true, 2, [30_000, 30_000, 30_000, 31_000])).toEqual([["wordBoxes"], ["firstLetter"], ["toCopy"], []]);
   });
 });

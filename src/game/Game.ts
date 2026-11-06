@@ -86,6 +86,7 @@ import {
 } from "../edu/wordTexts";
 import { findEntry, fillWord, letterName, nameWord, wordVars, type WordVars } from "../edu/wordLists";
 import { BREAK_TIP_MS, LETTER_IN_HAND_EVERY_MS, LETTER_IN_HAND_MS, wordHelp, type HelpOutput, type HelpSay, type HelpShow, type WriteMode } from "../edu/wordHelp";
+import { helpsFromOutput } from "../edu/wordStats";
 import {
   DICT_FEEDBACK_FULL_MS,
   DICT_FEEDBACK_IDLE_MS,
@@ -2453,24 +2454,13 @@ export class Game {
   }
 
   /**
-   * Aides montrées par wordHelp, pour le temps par mot : en copie, la case suivante (palier 1) et la ligne de cases
-   * claires (palier 2) quand le palier monte (pas le palier de départ du mot 1) ; en dictée, chaque indice (cases,
-   * première lettre, une lettre de plus) et le passage en copie. Les aides dites en copie (lettre suivante, sol plat,
-   * lettre donnée) sont relevées par sayHelp et giveLetter.
+   * Aides montrées par wordHelp, pour le temps par mot (correspondance pure et testée : helpsFromOutput, wordStats.ts).
+   * Les aides dites en copie (lettre suivante, sol plat, lettre donnée) sont relevées par sayHelp et giveLetter.
    */
   private recordHelp(before: { mode: WriteMode; stage: number }, out: HelpOutput): void {
     const m = this.mission;
     if (!m) return;
-    if (before.mode === "copy") {
-      if (out.mode !== "copy") return;
-      if (before.stage < 1 && out.stage >= 1) m.noteWordHelp("nextGhost");
-      if (before.stage < 2 && out.stage >= 2) m.noteWordHelp("ghostLine");
-      return;
-    }
-    if (out.say === "count") m.noteWordHelp("wordBoxes");
-    else if (out.say === "first") m.noteWordHelp("firstLetter");
-    else if (out.say === "more") m.noteWordHelp("moreLetter");
-    if (out.mode === "copy") m.noteWordHelp("toCopy");
+    for (const kind of helpsFromOutput(before, out)) m.noteWordHelp(kind);
   }
 
   /** Ce que dit l'aide : lettre suivante, cases claires, lettre donnée (copie) ; indices de la dictée. */

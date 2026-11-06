@@ -1,4 +1,4 @@
-import type { WriteMode } from "./wordHelp";
+import type { HelpOutput, WriteMode } from "./wordHelp";
 
 /**
  * Temps passé sur chaque mot de la mission 2 (pur) : relevé par le jeu pour l'adulte (protocole de RETOURS.md,
@@ -63,6 +63,12 @@ export interface WordStat {
   fails: number;
   /** Aides données pendant l'étape, et combien de fois. */
   helps: Partial<Record<WordHelpKind, number>>;
+  /**
+   * Mot remplacé par un autre avant d'être écrit (niveau de lecture ou prénom changé entre deux parties : prepare tire
+   * un autre mot). Son relevé est gardé parmi les étapes finies, pour que le temps passé ne disparaisse pas ; il ne
+   * compte pas parmi les mots écrits. Absent pour un mot écrit.
+   */
+  replaced?: true;
 }
 
 /** Relevé de la mission : étapes finies, étape en cours, durée totale (null : pas encore de consigne d'écriture). */
@@ -106,7 +112,7 @@ export function readWordStat(raw: unknown): WordStat | null {
       if (okCount(n) && n > 0) helps[k] = n;
     }
   }
-  return { word, mode, ms, fails, helps };
+  return { word, mode, ms, fails, helps, ...(raw.replaced === true ? { replaced: true as const } : {}) };
 }
 
 /** Relevé de la mission relu (champ `wordStats` de la progression) ; n'importe quoi d'autre : relevé vide. */
@@ -125,7 +131,14 @@ export function readWordStats(raw: unknown): WordStats {
 
 /** Copie d'un relevé d'étape, durée arrondie à la milliseconde (enregistrement, accès de test). */
 function statJSON(s: WordStat): WordStat {
-  return { word: s.word, mode: s.mode, ms: Math.round(s.ms), fails: s.fails, helps: { ...s.helps } };
+  return {
+    word: s.word,
+    mode: s.mode,
+    ms: Math.round(s.ms),
+    fails: s.fails,
+    helps: { ...s.helps },
+    ...(s.replaced === true ? { replaced: true as const } : {}),
+  };
 }
 
 /** Forme enregistrée du relevé, ou undefined s'il est vide (rien n'est ajouté à la sauvegarde). */
@@ -167,8 +180,41 @@ export function failsLabel(n: number): string {
   return n === 1 ? "1 essai non réussi" : `${n} essais non réussis`;
 }
 
-/** Ligne d'une étape : « AMI (copie) : 1 min 20 s, 2 essais non réussis, aides : case, ligne ». */
+/**
+ * Ligne d'une étape : « AMI (copie) : 1 min 20 s, 2 essais non réussis, aides : case, ligne » ; « …, en cours » ;
+ * « SOL (copie, remplacé par un autre mot avant d'être écrit) : … ».
+ */
 export function wordStatLine(s: WordStat, inProgress = false): string {
   const mode = s.mode === "copy" ? "copie" : "dictée";
-  return `${s.word} (${mode}${inProgress ? ", en cours" : ""}) : ${formatDuration(s.ms)}, ${failsLabel(s.fails)}, ${helpsLabel(s.helps)}`;
+  const tag = s.replaced === true ? ", remplacé par un autre mot avant d'être écrit" : inProgress ? ", en cours" : "";
+  return `${s.word} (${mode}${tag}) : ${formatDuration(s.ms)}, ${failsLabel(s.fails)}, ${helpsLabel(s.helps)}`;
+}
+
+/** Ligne d'un mot écrit dont le relevé manque (écrit avec la 1.1-rc, ou relevé effacé par elle à la sauvegarde). */
+export function unrecordedWordLine(word: string): string {
+  return `${word} : non relevé (écrit avec une version du jeu sans ce relevé)`;
+}
+
+/**
+ * Aides montrées par l'aide progressive (wordHelp) entre deux états, pour le relevé : en copie, la case suivante
+ * (palier 1) et la ligne de cases claires (palier 2) quand le palier monte (le palier de départ du mot 1, fixé avant
+ * la consigne, n'est pas une aide relevée : le jeu n'appelle pas cette fonction pour lui) ; en dictée, chaque indice
+ * (cases du mot, première lettre, une lettre de plus) et le passage en copie (mot entier dévoilé, qui remplace la
+ * dernière lettre dévoilée). Les aides dites en copie (lettre suivante, sol plat, lettre donnée) dépendent de l'état
+ * du jeu et sont relevées par lui (Game.sayHelp, Game.giveLetter) ; le passage en copie faute de voix aussi
+ * (Game.dictationLost).
+ */
+export function helpsFromOutput(before: { mode: WriteMode; stage: number }, out: Pick<HelpOutput, "mode" | "stage" | "say">): WordHelpKind[] {
+  const kinds: WordHelpKind[] = [];
+  if (before.mode === "copy") {
+    if (out.mode !== "copy") return kinds;
+    if (before.stage < 1 && out.stage >= 1) kinds.push("nextGhost");
+    if (before.stage < 2 && out.stage >= 2) kinds.push("ghostLine");
+    return kinds;
+  }
+  if (out.say === "count") kinds.push("wordBoxes");
+  else if (out.say === "first") kinds.push("firstLetter");
+  else if (out.say === "more") kinds.push("moreLetter");
+  if (out.mode === "copy") kinds.push("toCopy");
+  return kinds;
 }

@@ -29,6 +29,8 @@ interface WordStatJSON {
   ms: number;
   fails: number;
   helps: Record<string, number>;
+  /** Mot remplacé par un autre avant d'être écrit (niveau de lecture ou prénom changé). */
+  replaced?: true;
 }
 
 interface DebugState {
@@ -3806,20 +3808,18 @@ test("mission 2 en partie d'enfant : temps de jeu actif par mot (boîte à lettr
   await writeWord(page, `${target[0]}${wrong}`, 15, 16);
   expect(await checkWriting(page)).toMatchObject({ found: false, key: "WRONG_LETTER" });
   expect((await state(page)).wordStats?.current?.fails).toBe(1);
-  // Boîte à lettres ouverte : le temps compte (choisir une lettre fait partie de l'écriture).
+  // Boîte à lettres ouverte : le temps compte (choisir une lettre fait partie de l'écriture). Pas de durée réelle
+  // fixe : une image compte 250 ms au plus, et une image lente (SwiftShader, portrait, plusieurs workers) en dure
+  // davantage ; on attend, boîte ouverte, que plus d'une seconde soit comptée.
   const ms = () => page.evaluate(() => window.cubesDebug.state().wordStats?.current?.ms ?? -1);
   const trayBefore = await page.evaluate(() => {
     const before = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
     return window.cubesDebug.openLetters() ? before : -1;
   });
   expect(trayBefore).toBeGreaterThan(0);
-  await page.waitForTimeout(1500);
-  const trayAfter = await page.evaluate(() => {
-    const after = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
-    window.cubesDebug.chooseLetter("A");
-    return after;
-  });
-  expect(trayAfter - trayBefore).toBeGreaterThan(1000);
+  await expect.poll(async () => (await ms()) - trayBefore, { timeout: 20_000 }).toBeGreaterThan(1000);
+  expect((await state(page)).letters).toMatchObject({ open: true });
+  await page.evaluate(() => window.cubesDebug.chooseLetter("A"));
   // Panneau de fabrication ouvert : le temps ne compte pas.
   const craftBefore = await page.evaluate(() => {
     const before = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
