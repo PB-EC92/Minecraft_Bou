@@ -194,7 +194,7 @@ import { showFatalError } from "../ui/fatal";
 import { HOUR_PRESETS, Hud, LETTERS_CELL } from "../ui/Hud";
 import { Player } from "./Player";
 import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "./renderDistance";
-import { formatUrlOptions, parseSeed, parseUrlOptions } from "./urlOptions";
+import { formatUrlOptions, parseSeed, parseUrlOptions, startOptionsChanged, type UrlStartOptions } from "./urlOptions";
 import { GAME_NAME, VERSION } from "./identity";
 
 export { VERSION } from "./identity";
@@ -414,6 +414,11 @@ export class Game {
 
   /** Démarré par l'adresse (#monde=…) : pas d'accueil ni de sauvegarde (tests de fumée, adulte). */
   private readonly urlMode: boolean;
+  /**
+   * Options de l'adresse lues seulement au démarrage (Grignotes, mission, niveau de lecture) : gardées dans l'adresse
+   * réécrite, et une adresse qui les change, ou qui entre dans le mode adresse ou en sort, recharge la page.
+   */
+  private readonly urlStart: UrlStartOptions;
   private readonly store = new SaveStore();
   private settings: Settings;
   private readonly home: HomeScreen | null = null;
@@ -571,6 +576,7 @@ export class Game {
 
     const opts = parseUrlOptions(location.hash);
     this.urlMode = opts.type !== undefined || opts.seed !== undefined;
+    this.urlStart = this.urlMode ? { creatures: opts.creatures, mission: opts.mission, lecture: opts.lecture } : {};
     this.urlCreatures = opts.creatures === true;
     this.urlMission = opts.mission !== undefined;
     this.urlSlotHoldMs = opts.slotHoldMs;
@@ -719,9 +725,12 @@ export class Game {
     this.loading = true;
   }
 
-  /** Adresse du monde affiché (type, graine, distance si elle diffère de la valeur par défaut, appui long s'il a été donné). */
+  /**
+   * Adresse du monde affiché (type, graine, distance si elle diffère de la valeur par défaut, appui long s'il a été
+   * donné, Grignotes, mission et niveau de lecture du démarrage).
+   */
   private urlOptions(): string {
-    return formatUrlOptions(this.gen.type, this.gen.seed, this.view.renderDistance, DEFAULT_RENDER_DISTANCE, this.urlSlotHoldMs);
+    return formatUrlOptions(this.gen.type, this.gen.seed, this.view.renderDistance, DEFAULT_RENDER_DISTANCE, this.urlSlotHoldMs, this.urlStart);
   }
 
   newWorld(type: WorldTypeId, seed: number): void {
@@ -2943,6 +2952,12 @@ export class Game {
     // Adresse modifiée à la main (#monde=…&graine=…) : on régénère.
     window.addEventListener("hashchange", () => {
       const o = parseUrlOptions(location.hash);
+      // Entrée dans le mode adresse ou sortie (accueil ↔ #monde=…), ou Grignotes, mission, niveau de lecture changés :
+      // lus seulement au démarrage, d'où un rechargement (la partie d'un enfant est enregistrée par pagehide).
+      if (startOptionsChanged(this.urlMode ? { ...this.urlStart, type: this.gen.type } : {}, o)) {
+        location.reload();
+        return;
+      }
       // Distance tapée dans l'adresse : appliquée et retenue comme un choix du panneau.
       if (o.distance !== undefined && o.distance !== this.view.renderDistance) {
         this.view.setRenderDistance(o.distance);

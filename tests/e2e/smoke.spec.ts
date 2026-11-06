@@ -2508,6 +2508,61 @@ test("&appui=800 reste dans l'adresse réécrite : un rechargement le garde, un 
   expect(errors).toEqual([]);
 });
 
+test("adresse tapée dans la page ouverte : depuis l'accueil, mission ou lecture changées, « # » laissé seul → la page se recharge et relit tout", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  expect((await state(page)).home).toBe(true);
+  // Entrée dans la barre d'adresse : seule la partie après « # » change (hashchange, pas de rechargement du navigateur).
+  const typeHash = async (hash: string): Promise<void> => {
+    await page.evaluate(() => {
+      (window as unknown as { avantAdresse?: boolean }).avantAdresse = true;
+    });
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.evaluate((h) => {
+        location.hash = h;
+      }, hash),
+    ]);
+    await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+    // Nouvelle page : la marque posée avant n'existe plus.
+    expect(await page.evaluate(() => (window as unknown as { avantAdresse?: boolean }).avantAdresse)).toBeUndefined();
+  };
+  // Depuis « Qui joue ? » : mode adresse, mission 2 en autonome ; ligne d'infos visible ; l'adresse réécrite garde tout.
+  await typeHash(`${FLAT}&mission=2&lecture=autonome`);
+  let s = await state(page);
+  expect(s.home).toBe(false);
+  expect(s.session).toBeNull();
+  expect(s.missionId).toBe("mots");
+  expect(s.level).toBe("autonome");
+  await expect(page.locator(INFO)).toBeVisible();
+  expect(await page.evaluate(() => location.hash)).toBe(`${FLAT}&mission=2&lecture=autonome`);
+  // Même monde, autre niveau de lecture : relu.
+  await typeHash(`${FLAT}&mission=2&lecture=debutant`);
+  s = await state(page);
+  expect(s.missionId).toBe("mots");
+  expect(s.level).toBe("debutant");
+  // Autre monde, autre mission : la mission demandée démarre et reste dans l'adresse réécrite.
+  await typeHash("#monde=prairie&graine=1&mission=1&lecture=debutant");
+  s = await state(page);
+  expect(s.type).toBe("prairie");
+  expect(s.missionId).toBe("abri");
+  expect(await page.evaluate(() => location.hash)).toBe("#monde=prairie&graine=1&mission=1&lecture=debutant");
+  // Seule la graine change : pas de rechargement, la mission continue.
+  await page.evaluate(() => {
+    (window as unknown as { avantAdresse?: boolean }).avantAdresse = true;
+    location.hash = "#monde=prairie&graine=2&mission=1&lecture=debutant";
+  });
+  await page.waitForFunction(() => window.cubesDebug.state().seed === 2 && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect(await page.evaluate(() => (window as unknown as { avantAdresse?: boolean }).avantAdresse)).toBe(true);
+  expect((await state(page)).missionId).toBe("abri");
+  // « # » laissé seul en fin d'adresse : retour à « Qui joue ? ».
+  await typeHash("#");
+  s = await state(page);
+  expect(s.home).toBe(true);
+  await expect(page.locator(INFO)).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test("mode parent : appui long pour vider une case (0,8 s, 1 s, 1,2 s), 1 s par défaut ; enregistré, appliqué à la partie suivante et affiché dans la ligne d'infos", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
   const errors = await openGame(page, "");

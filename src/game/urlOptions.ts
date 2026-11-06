@@ -65,13 +65,46 @@ export function parseDistance(v: string | number | null | undefined): number | u
   return Number.isFinite(d) && d >= 16 && d <= 256 ? Math.round(d) : undefined;
 }
 
+/** Options qui ne sont lues qu'au démarrage du mode adresse : une adresse qui les change recharge la page. */
+export type UrlStartOptions = Pick<UrlOptions, "creatures" | "mission" | "lecture">;
+
+/** Mode adresse : un monde ou une graine dans l'adresse (sinon, accueil et parties d'enfants). */
+export function isUrlMode(o: UrlOptions): boolean {
+  return o.type !== undefined || o.seed !== undefined;
+}
+
+/**
+ * Adresse changée sans rechargement (hashchange : seule la partie après « # » a changé, Entrée dans la barre) :
+ * faut-il recharger la page ? Oui quand on entre dans le mode adresse ou qu'on en sort (accueil ↔ #monde=…), ou
+ * quand, en mode adresse, Grignotes, mission ou niveau de lecture changent : le jeu ne les lit qu'au démarrage.
+ * Le monde, la graine, la distance et l'appui long se relisent sans rechargement ; l'heure n'est lue qu'au démarrage
+ * et ne recharge pas (l'adresse réécrite ne la garde pas).
+ */
+export function startOptionsChanged(start: UrlOptions, next: UrlOptions): boolean {
+  const was = isUrlMode(start);
+  if (was !== isUrlMode(next)) return true;
+  if (!was) return false;
+  return (start.creatures === true) !== (next.creatures === true) || start.mission !== next.mission || start.lecture !== next.lecture;
+}
+
 /**
  * Adresse du monde affiché ; la distance n'y figure que si elle diffère de la valeur par défaut (J3 : elle n'est plus
  * effacée au rechargement). La durée de l'appui long (&appui=…) y reste quand l'adresse l'a donnée : l'adulte qui
- * l'essaie peut recharger (F5) sans revenir à 1 s.
+ * l'essaie peut recharger (F5) sans revenir à 1 s. De même pour les Grignotes, la mission et le niveau de lecture
+ * donnés au démarrage (`start`) : F5 les retrouve, et une adresse retouchée à la main ne les perd pas.
  */
-export function formatUrlOptions(type: WorldTypeId, seed: number, distance?: number, defaultDistance?: number, slotHoldMs?: number): string {
+export function formatUrlOptions(
+  type: WorldTypeId,
+  seed: number,
+  distance?: number,
+  defaultDistance?: number,
+  slotHoldMs?: number,
+  start: UrlStartOptions = {},
+): string {
   const d = distance !== undefined && distance !== defaultDistance ? `&distance=${distance}` : "";
   const a = slotHoldMs !== undefined ? `&appui=${slotHoldMs}` : "";
-  return `#monde=${type}&graine=${seed}${d}${a}`;
+  const c = start.creatures === true ? "&creatures=1" : "";
+  const m = start.mission !== undefined ? `&mission=${start.mission}` : "";
+  const l = start.lecture !== undefined ? `&lecture=${start.lecture}` : "";
+  return `#monde=${type}&graine=${seed}${d}${a}${c}${m}${l}`;
 }

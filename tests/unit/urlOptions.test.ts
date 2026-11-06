@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RENDER_DISTANCE, DISTANCE_STORAGE_KEY, initialRenderDistance } from "../../src/game/renderDistance";
-import { formatUrlOptions, parseDistance, parseSeed, parseUrlOptions } from "../../src/game/urlOptions";
+import { formatUrlOptions, isUrlMode, parseDistance, parseSeed, parseUrlOptions, startOptionsChanged } from "../../src/game/urlOptions";
 
 describe("options de l'adresse", () => {
   it("lit monde, graine, heure et distance", () => {
@@ -92,5 +92,35 @@ describe("distance de rendu au démarrage", () => {
   });
   it("clé de stockage préfixée cubes:", () => {
     expect(DISTANCE_STORAGE_KEY.startsWith("cubes:")).toBe(true);
+  });
+
+  it("adresse réécrite : Grignotes, mission et niveau de lecture du démarrage y restent (F5 les retrouve)", () => {
+    expect(formatUrlOptions("plat", 1, 96, 96, undefined, { mission: 2, lecture: "autonome" })).toBe("#monde=plat&graine=1&mission=2&lecture=autonome");
+    expect(formatUrlOptions("prairie", 3, 48, 96, 800, { creatures: true, mission: 0 })).toBe("#monde=prairie&graine=3&distance=48&appui=800&creatures=1&mission=0");
+    expect(formatUrlOptions("plat", 1, 96, 96, undefined, { creatures: false })).toBe("#monde=plat&graine=1");
+    const back = parseUrlOptions(formatUrlOptions("ile", 9, 96, 96, 1200, { creatures: true, mission: 1, lecture: "debutant" }));
+    expect(back).toEqual({ type: "ile", seed: 9, slotHoldMs: 1200, creatures: true, mission: 1, lecture: "debutant" });
+  });
+
+  it("adresse changée sans rechargement : recharger seulement si le mode adresse, les Grignotes, la mission ou la lecture changent", () => {
+    const p = (h: string) => parseUrlOptions(h);
+    expect(isUrlMode(p("#graine=4"))).toBe(true);
+    expect(isUrlMode(p("#distance=48"))).toBe(false);
+    // Accueil → mode adresse, et retour (« # » laissé seul, ou monde effacé).
+    expect(startOptionsChanged(p(""), p("#monde=plat&graine=1"))).toBe(true);
+    expect(startOptionsChanged(p("#monde=plat&graine=1"), p("#"))).toBe(true);
+    expect(startOptionsChanged(p("#monde=plat&graine=1"), p("#appui=800"))).toBe(true);
+    // Hors mode adresse, rien d'autre ne compte (distance, options ignorées).
+    expect(startOptionsChanged(p(""), p("#distance=48&mission=2"))).toBe(false);
+    // Mode adresse : monde, graine, distance, appui, heure se relisent sans rechargement.
+    const start = p("#monde=plat&graine=1&mission=2&lecture=debutant");
+    expect(startOptionsChanged(start, p("#monde=ile&graine=7&mission=2&lecture=debutant&distance=48&appui=1200&heure=20"))).toBe(false);
+    expect(startOptionsChanged(start, p("#monde=plat&graine=1&mission=2&lecture=d%C3%A9butant"))).toBe(false);
+    // … mais pas la mission, la lecture ni les Grignotes.
+    expect(startOptionsChanged(start, p("#monde=plat&graine=1&mission=2&lecture=autonome"))).toBe(true);
+    expect(startOptionsChanged(start, p("#monde=plat&graine=1&lecture=debutant"))).toBe(true);
+    expect(startOptionsChanged(start, p("#monde=plat&graine=1&mission=1&lecture=debutant"))).toBe(true);
+    expect(startOptionsChanged(start, p("#monde=plat&graine=1&mission=2&lecture=debutant&creatures=1"))).toBe(true);
+    expect(startOptionsChanged(p("#monde=plat&graine=1"), p("#monde=plat&graine=1&mission=2"))).toBe(true);
   });
 });
