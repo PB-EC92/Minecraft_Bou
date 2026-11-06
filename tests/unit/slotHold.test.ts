@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   SLOT_HOLD_CANCEL_OK_MS,
+  SLOT_HOLD_CHOICES,
+  SLOT_HOLD_MAX_MS,
+  SLOT_HOLD_MIN_MS,
   SLOT_HOLD_MOVE_PX,
   SLOT_HOLD_MS,
   SLOT_HOLD_SHOW_MS,
@@ -8,7 +11,11 @@ import {
   slotHoldAfterCancel,
   slotHoldMoved,
   slotHoldProgress,
+  parseSlotHoldMs,
+  slotHoldCancelOkMs,
+  slotHoldInfoLabel,
   startSlotHold,
+  validSlotHoldMs,
 } from "../../src/input/slotHold";
 
 describe("appui long sur une case (V2)", () => {
@@ -19,8 +26,8 @@ describe("appui long sur une case (V2)", () => {
   });
 
   it("garde la case, l'instant, l'origine, la position et le doigt ; valeurs par défaut pour une touche", () => {
-    expect(startSlotHold(3, 1000, "touch", 120, 900, 7)).toEqual({ slot: 3, since: 1000, source: "touch", x: 120, y: 900, pointer: 7 });
-    expect(startSlotHold(0, 50, "key")).toEqual({ slot: 0, since: 50, source: "key", x: 0, y: 0, pointer: null });
+    expect(startSlotHold(3, 1000, "touch", 120, 900, 7)).toEqual({ slot: 3, since: 1000, source: "touch", x: 120, y: 900, pointer: 7, durationMs: 1000 });
+    expect(startSlotHold(0, 50, "key")).toEqual({ slot: 0, since: 50, source: "key", x: 0, y: 0, pointer: null, durationMs: 1000 });
     expect(startSlotHold(8, 50, "key", 0, 0, "Digit9").pointer).toBe("Digit9");
   });
 
@@ -105,5 +112,94 @@ describe("appui long sur une case (V2)", () => {
     const h = startSlotHold(0, 0, "key", 0, 0, "Digit1");
     expect(slotHoldMoved(h, 500, 500)).toBe(false);
     expect(slotHoldMoved(h, -1000, 0)).toBe(false);
+  });
+});
+
+describe("appui long à durée réglée (préparation du test de Pierre)", () => {
+  it("durées proposées, bornes, seuil du touchcancel à durée − 100 ms", () => {
+    expect(SLOT_HOLD_CHOICES).toEqual([800, 1000, 1200]);
+    expect(SLOT_HOLD_MIN_MS).toBe(500);
+    expect(SLOT_HOLD_MAX_MS).toBe(2000);
+    expect(slotHoldCancelOkMs(800)).toBe(700);
+    expect(slotHoldCancelOkMs(1000)).toBe(900);
+    expect(slotHoldCancelOkMs(1200)).toBe(1100);
+    expect(slotHoldCancelOkMs(SLOT_HOLD_MS)).toBe(SLOT_HOLD_CANCEL_OK_MS);
+  });
+
+  it("chaque appui garde sa durée ; une durée invalide ou hors bornes redevient une seconde", () => {
+    expect(startSlotHold(1, 0, "touch", 0, 0, 2, 800).durationMs).toBe(800);
+    expect(startSlotHold(1, 0, "key", 0, 0, "Digit2", 1200).durationMs).toBe(1200);
+    expect(startSlotHold(1, 0, "mouse", 0, 0, null, 650.4).durationMs).toBe(650);
+    for (const bad of [Number.NaN, Infinity, 0, 499, 2001, -800]) expect(startSlotHold(1, 0, "mouse", 0, 0, null, bad).durationMs).toBe(1000);
+    expect(validSlotHoldMs(500)).toBe(500);
+    expect(validSlotHoldMs(2000)).toBe(2000);
+    expect(validSlotHoldMs("800")).toBe(1000);
+  });
+
+  for (const d of [800, 1000, 1200]) {
+    it(`${d} ms : anneau caché jusqu'à 200 ms, à moitié au milieu, plein à ${d} ms`, () => {
+      const h = startSlotHold(2, 1000, "touch", 10, 10, 1, d);
+      expect(slotHoldProgress(h, 1000 + SLOT_HOLD_SHOW_MS)).toBe(0);
+      expect(slotHoldProgress(h, 1000 + SLOT_HOLD_SHOW_MS + 1)).toBeGreaterThan(0);
+      expect(slotHoldProgress(h, 1000 + (SLOT_HOLD_SHOW_MS + d) / 2)).toBeCloseTo(0.5, 10);
+      expect(slotHoldProgress(h, 1000 + d - 1)).toBeLessThan(1);
+      expect(slotHoldProgress(h, 1000 + d)).toBe(1);
+      expect(slotHoldProgress(h, 1000 + d + 5000)).toBe(1);
+    });
+
+    it(`${d} ms : touchcancel abandonné avant ${d - 100} ms, mené au bout ensuite`, () => {
+      const h = startSlotHold(5, 1000, "touch", 120, 900, 7, d);
+      expect(slotHoldAfterCancel(h, 1000 + d - 101)).toBeNull();
+      for (const at of [1000 + d - 100, 1000 + d - 50, 1000 + d, 1000 + d + 3000]) {
+        const done = slotHoldAfterCancel(h, at);
+        expect(done).toMatchObject({ slot: 5, source: "touch", pointer: 7, durationMs: d });
+        expect(slotHoldProgress(done!, at)).toBe(1);
+      }
+      expect(slotHoldAfterCancel(h, 1000 + d - 50)!.since).toBe(1000 + d - 50 - d);
+      expect(slotHoldAfterCancel(startSlotHold(5, 1000, "mouse", 0, 0, null, d), 1000 + d - 50)).toBeNull();
+      expect(slotHoldAfterCancel(startSlotHold(5, 1000, "key", 0, 0, "Digit6", d), 1000 + d - 50)).toBeNull();
+    });
+
+    it(`${d} ms : perte de focus, doigt tenu ${d - 100} ms mené au bout, appui plein gardé, sinon abandonné`, () => {
+      const finger = startSlotHold(5, 1000, "touch", 120, 900, 7, d);
+      expect(slotHoldAfterBlur(finger, 1000 + d - 101)).toBeNull();
+      const kept = slotHoldAfterBlur(finger, 1000 + d - 100);
+      expect(kept).toMatchObject({ slot: 5, durationMs: d });
+      expect(slotHoldProgress(kept!, 1000 + d - 100)).toBe(1);
+      for (const source of ["mouse", "touch", "key"] as const) {
+        const h = startSlotHold(1, 0, source, 0, 0, null, d);
+        expect(slotHoldAfterBlur(h, d)).toBe(h);
+      }
+      expect(slotHoldAfterBlur(startSlotHold(2, 0, "mouse", 10, 10, null, d), d - 50)).toBeNull();
+      expect(slotHoldAfterBlur(startSlotHold(2, 0, "key", 0, 0, "Digit3", d), d - 50)).toBeNull();
+    });
+  }
+
+  it("une durée plus courte ne déborde pas sur la seconde : 800 ms vide à 800, 1 200 ms pas encore à 1 000", () => {
+    expect(slotHoldProgress(startSlotHold(0, 0, "key", 0, 0, "Digit1", 800), 800)).toBe(1);
+    expect(slotHoldProgress(startSlotHold(0, 0, "key", 0, 0, "Digit1", 1200), 1000)).toBeLessThan(1);
+    // Touchcancel à 750 ms : mené au bout à 800 ms (seuil 700), abandonné à 1 000 et 1 200 ms (seuils 900 et 1 100).
+    expect(slotHoldAfterCancel(startSlotHold(0, 0, "touch", 0, 0, 1, 800), 750)).not.toBeNull();
+    expect(slotHoldAfterCancel(startSlotHold(0, 0, "touch", 0, 0, 1, 1000), 750)).toBeNull();
+    expect(slotHoldAfterCancel(startSlotHold(0, 0, "touch", 0, 0, 1, 1200), 1050)).toBeNull();
+  });
+
+  it("option d'adresse &appui= : 500 à 2 000 ms, arrondie ; hors bornes ou non numérique, ignorée", () => {
+    expect(parseSlotHoldMs("800")).toBe(800);
+    expect(parseSlotHoldMs(" 1200 ")).toBe(1200);
+    expect(parseSlotHoldMs("500")).toBe(500);
+    expect(parseSlotHoldMs("2000")).toBe(2000);
+    expect(parseSlotHoldMs("850.6")).toBe(851);
+    for (const bad of [null, undefined, "", " ", "499", "2001", "0", "-800", "abc", "0,8", "800ms", "Infinity", "NaN"]) {
+      expect(parseSlotHoldMs(bad)).toBeUndefined();
+    }
+  });
+
+  it("ligne d'infos : la durée seulement quand elle n'est pas d'une seconde", () => {
+    expect(slotHoldInfoLabel(1000)).toBe("");
+    expect(slotHoldInfoLabel(800)).toBe("appui 0,8 s");
+    expect(slotHoldInfoLabel(1200)).toBe("appui 1,2 s");
+    expect(slotHoldInfoLabel(650)).toBe("appui 0,65 s");
+    expect(slotHoldInfoLabel(2000)).toBe("appui 2 s");
   });
 });

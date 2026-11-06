@@ -2,6 +2,7 @@ import { wrapPhase, type NightLength } from "../engine/dayNight";
 import { isInventoryBlockId, type InventoryData } from "../engine/inventory";
 import { parseWorldType, type WorldTypeId } from "../engine/terrain";
 import { NBSP, parseReadingLevel, type ReadingLevel } from "../edu/texts";
+import { SLOT_HOLD_CHOICES, SLOT_HOLD_MS, type SlotHoldChoice } from "../input/slotHold";
 
 /**
  * Formats de sauvegarde (J4, fonctions pures). Tout ce qui est lu (stockage
@@ -54,9 +55,21 @@ export interface Settings {
   creatures: boolean;
   /** Panneau « Tests » et ligne d'infos techniques affichés pendant les parties des enfants (J7 ; masqués par défaut). */
   devTools: boolean;
+  /**
+   * Durée de l'appui long qui vide une case du sac (ms : 800, 1 000 ou 1 200 ; 1 000 par défaut). Ajouté après la
+   * 1.1-rc pour le test de Pierre : la 1.1-rc l'ignore à la lecture (champ inconnu) et l'efface en réenregistrant.
+   */
+  slotHoldMs: SlotHoldChoice;
 }
 
-export const DEFAULT_SETTINGS: Settings = { night: "normale", creatures: true, devTools: false };
+export type { SlotHoldChoice };
+export const SLOT_HOLD_SETTINGS: readonly { id: SlotHoldChoice; name: string }[] = [
+  { id: 800, name: "0,8 s" },
+  { id: 1000, name: "1 s (par défaut)" },
+  { id: 1200, name: "1,2 s" },
+];
+
+export const DEFAULT_SETTINGS: Settings = { night: "normale", creatures: true, devTools: false, slotHoldMs: SLOT_HOLD_MS };
 
 export interface WorldSave {
   version: number;
@@ -139,7 +152,8 @@ export function parseSettings(raw: unknown): Settings {
   const night = NIGHT_LENGTHS.some((n) => n.id === raw.night) ? (raw.night as NightLength) : DEFAULT_SETTINGS.night;
   const creatures = typeof raw.creatures === "boolean" ? raw.creatures : DEFAULT_SETTINGS.creatures;
   const devTools = typeof raw.devTools === "boolean" ? raw.devTools : DEFAULT_SETTINGS.devTools;
-  return { night, creatures, devTools };
+  const slotHoldMs = SLOT_HOLD_CHOICES.find((d) => d === raw.slotHoldMs) ?? DEFAULT_SETTINGS.slotHoldMs;
+  return { night, creatures, devTools, slotHoldMs };
 }
 
 /** Monde lu, ou null si la donnée est inutilisable. */

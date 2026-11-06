@@ -8,6 +8,7 @@ import { AVATARS, avatarDef } from "../../src/game/avatars";
 import { THIRD_PERSON_DISTANCE, thirdPersonCamera } from "../../src/game/thirdPerson";
 import {
   cleanName,
+  DEFAULT_SETTINGS,
   defaultProfiles,
   EXPORT_FUTURE_TOLERANCE_MS,
   EXPORT_REMINDER_DAYS,
@@ -22,6 +23,7 @@ import {
   parseWorldSave,
   SAVE_VERSION,
   savedLabel,
+  SLOT_HOLD_SETTINGS,
   WORLD_SLOTS,
   type WorldSave,
 } from "../../src/save/saveFormat";
@@ -161,12 +163,42 @@ describe("profils, réglages, mondes enregistrés", () => {
   });
 
   it("réglages : nuit normale par défaut", () => {
-    expect(parseSettings(null)).toEqual({ night: "normale", creatures: true, devTools: false });
-    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte", creatures: true, devTools: false });
-    expect(parseSettings({ night: "jamais", creatures: false })).toEqual({ night: "normale", creatures: false, devTools: false });
+    expect(parseSettings(null)).toEqual({ night: "normale", creatures: true, devTools: false, slotHoldMs: 1000 });
+    expect(parseSettings({ night: "courte" })).toEqual({ night: "courte", creatures: true, devTools: false, slotHoldMs: 1000 });
+    expect(parseSettings({ night: "jamais", creatures: false })).toEqual({ night: "normale", creatures: false, devTools: false, slotHoldMs: 1000 });
     // J7 : panneau Tests masqué pendant les parties des enfants, sauf choix de l'adulte.
     expect(parseSettings({ devTools: true }).devTools).toBe(true);
     expect(parseSettings({ devTools: "oui" }).devTools).toBe(false);
+  });
+
+  it("réglage de l'appui long qui vide une case : 0,8 s, 1 s ou 1,2 s ; absent ou invalide → 1 s", () => {
+    expect(DEFAULT_SETTINGS.slotHoldMs).toBe(1000);
+    expect(SLOT_HOLD_SETTINGS.map((d) => d.id)).toEqual([800, 1000, 1200]);
+    for (const ms of [800, 1000, 1200] as const) expect(parseSettings({ slotHoldMs: ms }).slotHoldMs).toBe(ms);
+    for (const bad of [undefined, null, 0, 900, 1100, 2000, -800, "800", "0,8", true, NaN, Infinity, [800], { ms: 800 }]) {
+      expect(parseSettings({ night: "courte", slotHoldMs: bad })).toEqual({ night: "courte", creatures: true, devTools: false, slotHoldMs: 1000 });
+    }
+    // Réglages enregistrés par la 1.1-rc (sans ce champ) : 1 s.
+    expect(parseSettings({ night: "courte", creatures: false, devTools: true })).toEqual({ night: "courte", creatures: false, devTools: true, slotHoldMs: 1000 });
+    // Aller-retour par le stockage (JSON).
+    expect(parseSettings(JSON.parse(JSON.stringify({ ...DEFAULT_SETTINGS, slotHoldMs: 800 }))).slotHoldMs).toBe(800);
+  });
+
+  it("un réglage d'appui relu par la lecture de la 1.1-rc (champs connus seulement) est ignoré sans dégât", () => {
+    // Lecture des réglages de la 1.1-rc, recopiée telle quelle : elle ne garde que nuit, Grignotes et devTools.
+    const rcParseSettings = (raw: unknown) => {
+      const d = { night: "normale", creatures: true, devTools: false };
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ...d };
+      const r = raw as Record<string, unknown>;
+      return {
+        night: ["normale", "courte", "aucune"].includes(r.night as string) ? r.night : d.night,
+        creatures: typeof r.creatures === "boolean" ? r.creatures : d.creatures,
+        devTools: typeof r.devTools === "boolean" ? r.devTools : d.devTools,
+      };
+    };
+    const saved = JSON.parse(JSON.stringify({ night: "aucune", creatures: false, devTools: true, slotHoldMs: 800 }));
+    expect(rcParseSettings(saved)).toEqual({ night: "aucune", creatures: false, devTools: true });
+    expect(parseSettings(saved).slotHoldMs).toBe(800);
   });
 
   const world = {
@@ -340,7 +372,7 @@ describe("import tout ou rien (J7)", () => {
     const { storage, m } = memoryStorage((k) => failing && k === "cubes:monde:p2:0");
     const store = new SaveStore(storage);
     store.saveProfiles(defaultProfiles());
-    store.saveSettings({ night: "courte", creatures: false, devTools: false });
+    store.saveSettings({ night: "courte", creatures: false, devTools: false, slotHoldMs: 1000 });
     store.saveWorld("p1", 0, parseWorldSave(world(11))!);
     store.saveWorld("p1", 2, parseWorldSave(world(12))!);
     const before = new Map(m);

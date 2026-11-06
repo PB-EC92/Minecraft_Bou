@@ -33,6 +33,16 @@ describe("options de l'adresse", () => {
     expect(parseUrlOptions("#monde=plat&creatures=0")).toEqual({ type: "plat" });
   });
 
+  it("durée de l'appui long (&appui=…, ms de 500 à 2 000) ; le reste ignoré", () => {
+    expect(parseUrlOptions("#monde=plat&graine=1&appui=800")).toEqual({ type: "plat", seed: 1, slotHoldMs: 800 });
+    expect(parseUrlOptions("#monde=plat&appui=1200")).toEqual({ type: "plat", slotHoldMs: 1200 });
+    expect(parseUrlOptions("#appui=500").slotHoldMs).toBe(500);
+    expect(parseUrlOptions("#appui=2000").slotHoldMs).toBe(2000);
+    for (const bad of ["", "499", "2001", "0", "-800", "huit", "0,8", "800ms"]) {
+      expect(parseUrlOptions(`#monde=plat&appui=${bad}`)).toEqual({ type: "plat" });
+    }
+  });
+
   it("niveau de lecture (V2 lot 1) : &lecture=debutant ou autonome, accents et casse tolérés, le reste ignoré", () => {
     expect(parseUrlOptions("#monde=plat&graine=1&mission=2&lecture=autonome")).toEqual({ type: "plat", seed: 1, mission: 2, lecture: "autonome" });
     expect(parseUrlOptions("#lecture=debutant")).toEqual({ lecture: "debutant" });

@@ -1,5 +1,6 @@
 import { parseReadingLevel, type ReadingLevel } from "../edu/texts";
 import { parseWorldType, type WorldTypeId } from "../engine/terrain";
+import { parseSlotHoldMs } from "../input/slotHold";
 
 /**
  * Options de démarrage lues dans l'adresse, après le « # » (fonctionne en
@@ -7,7 +8,8 @@ import { parseWorldType, type WorldTypeId } from "../engine/terrain";
  * Sert aux tests et à retrouver un monde précis (même type + même graine =
  * même monde). Les valeurs invalides sont ignorées. Mode adresse (V2 lot 1) :
  * `#mission=2` lance la mission 2 « Les mots », `&lecture=autonome` choisit le
- * niveau de lecture (débutant par défaut).
+ * niveau de lecture (débutant par défaut), `&appui=800` la durée de l'appui long
+ * qui vide une case (ms, de 500 à 2 000).
  */
 export interface UrlOptions {
   type?: WorldTypeId;
@@ -20,6 +22,11 @@ export interface UrlOptions {
   mission?: 0 | 1 | 2;
   /** Mode adresse : niveau de lecture (&lecture=debutant ou autonome, accents et casse tolérés) (V2 lot 1). */
   lecture?: ReadingLevel;
+  /**
+   * Mode adresse : durée de l'appui long qui vide une case (&appui=800, ms de 500 à 2 000, arrondie ; sinon ignorée).
+   * Le mode adresse ne lit pas les réglages du mode parent : sans cette option, 1 s.
+   */
+  slotHoldMs?: number;
 }
 
 export const MAX_SEED = 999_999;
@@ -46,6 +53,8 @@ export function parseUrlOptions(hash: string): UrlOptions {
   if (mission === "0" || mission === "1" || mission === "2") out.mission = mission === "0" ? 0 : mission === "1" ? 1 : 2;
   const lecture = parseReadingLevel(params.get("lecture"));
   if (lecture) out.lecture = lecture;
+  const appui = parseSlotHoldMs(params.get("appui"));
+  if (appui !== undefined) out.slotHoldMs = appui;
   return out;
 }
 

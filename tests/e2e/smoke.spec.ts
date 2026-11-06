@@ -69,6 +69,8 @@ interface DebugState {
   bubbles: number;
   /** Appui long en cours sur une case (V2). */
   slotHold: { slot: number; progress: number; source: "mouse" | "touch" | "key" } | null;
+  /** Durée effective de l'appui long qui vide une case (ms ; mode parent ou &appui=…). */
+  slotHoldMs: number;
   /** Soir retenu à 17 h par l'étape en cours (V2). */
   eveningHeld: boolean;
   /** La lampe peut être citée (décision 6 de Pierre). */
@@ -2225,6 +2227,187 @@ test("clavier : garder la touche 3 une seconde vide la case 3 ; la relâcher ava
   const s = await state(page);
   expect(invCount(s, B.dirt)).toBe(5);
   expect(invCount(s, B.stone)).toBe(5);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Touche 1 à 9 gardée ms millisecondes, dans une seule tâche de la page : aucune image ne passe pendant l'appui, donc
+ * l'avancement relu à la fin ne dépend pas de la charge de la machine. release : la touche est relâchée dans la même
+ * tâche (le jeu ne voit jamais l'appui plein) ; sinon elle reste enfoncée et l'image suivante vide la case si l'anneau
+ * est plein.
+ */
+const keyHoldInPage = (page: Page, code: string, ms: number, release: boolean) =>
+  page.evaluate(
+    ([c, wait, up]) => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: c, bubbles: true }));
+      const t0 = performance.now();
+      while (performance.now() - t0 < wait) {
+        // touche tenue
+      }
+      const hold = window.cubesDebug.state().slotHold;
+      if (up) window.dispatchEvent(new KeyboardEvent("keyup", { code: c, bubbles: true }));
+      return hold;
+    },
+    [code, ms, release] as const,
+  );
+
+test("appui long réglé par l'adresse (&appui=800) : 0,85 s vide la case, 0,6 s la garde (touche, souris ; au doigt, touchcancel dès 700 ms) ; la ligne d'infos le dit ; hors bornes, 1 s", async ({ page }, testInfo) => {
+  const touch = isTouch(testInfo);
+  const errors = await openGame(page, `${FLAT}&appui=800`);
+  expect((await state(page)).slotHoldMs).toBe(800);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("appui 0,8 s");
+  await page.evaluate(() => {
+    window.cubesDebug.give(2, 4); // terre, case 1
+    window.cubesDebug.give(3, 4); // pierre, case 2
+    window.cubesDebug.give(5, 4); // sable, case 3
+    window.cubesDebug.give(4, 4); // planches, case 4
+    window.cubesDebug.give(6, 4); // troncs, case 5
+  });
+  if (!touch) {
+    // Relâchée à 0,6 s : l'anneau est aux deux tiers (il serait à moitié avec une seconde), la case reste pleine.
+    const early = await keyHoldInPage(page, "Digit3", 600, true);
+    expect(early?.source).toBe("key");
+    expect(early!.progress).toBeGreaterThanOrEqual((600 - 200) / (800 - 200) - 0.005);
+    expect(early!.progress).toBeLessThan(1);
+    await page.waitForTimeout(1300);
+    expect(invCount(await state(page), B.sand)).toBe(4);
+    // Gardée 0,85 s : l'anneau est plein (il serait à 81 % avec une seconde), la case est vidée à l'image suivante.
+    expect(await keyHoldInPage(page, "Digit3", 850, false)).toEqual({ slot: 2, progress: 1, source: "key" });
+    await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keyup", { code: "Digit3", bubbles: true })));
+    await expect(page.locator(".message")).toContainText("Case vidée");
+    // Souris gardée 0,85 s sur la case 2 (la barre suit l'appui) : vidée de même ; 0,6 s sur la case 1 : gardée.
+    const mouseHold = (i: number, ms: number, release: boolean) =>
+      page.evaluate(
+        ([slot, wait, up]) => {
+          const target = document.querySelectorAll(".hotbar .slot")[slot]!;
+          const r = target.getBoundingClientRect();
+          const at = { clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
+          target.dispatchEvent(new MouseEvent("mousedown", { button: 0, buttons: 1, bubbles: true, cancelable: true, ...at }));
+          const t0 = performance.now();
+          while (performance.now() - t0 < wait) {
+            // souris immobile
+          }
+          const hold = window.cubesDebug.state().slotHold;
+          if (up) window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true, ...at }));
+          return hold;
+        },
+        [i, ms, release] as const,
+      );
+    const m = await mouseHold(0, 600, true);
+    expect(m?.source).toBe("mouse");
+    expect(m!.progress).toBeLessThan(1);
+    await page.waitForTimeout(1300);
+    expect(invCount(await state(page), B.dirt)).toBe(4);
+    expect(await mouseHold(1, 850, false)).toEqual({ slot: 1, progress: 1, source: "mouse" });
+    await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+    await page.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true })));
+  } else {
+    // Au doigt : posé sur la case i, gardé ms millisecondes, puis levé, annulé par le système ou laissé posé.
+    const fingerHold = (i: number, ms: number, end: "touchend" | "touchcancel" | null) =>
+      page.evaluate(
+        ([slot, wait, how]) => {
+          const target = document.querySelectorAll(".hotbar .slot")[slot]!;
+          const r = target.getBoundingClientRect();
+          const t = new Touch({ identifier: 44, target, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+          target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [t], changedTouches: [t] }));
+          const t0 = performance.now();
+          while (performance.now() - t0 < wait) {
+            // doigt immobile
+          }
+          if (how) target.dispatchEvent(new TouchEvent(how, { bubbles: true, cancelable: how === "touchend", touches: [], changedTouches: [t] }));
+          return window.cubesDebug.state().slotHold;
+        },
+        [i, ms, end] as const,
+      );
+    const liftFinger = () =>
+      page.evaluate(() => {
+        const target = document.querySelectorAll(".hotbar .slot")[0]!;
+        const t = new Touch({ identifier: 44, target, clientX: 0, clientY: 0 });
+        target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [t] }));
+      });
+    // Levé à 0,6 s : gardée.
+    expect(await fingerHold(0, 600, "touchend")).toBeNull();
+    await page.waitForTimeout(1300);
+    expect(invCount(await state(page), B.dirt)).toBe(4);
+    // Gardé 0,85 s : anneau plein, case vidée à l'image suivante, puis le doigt se lève.
+    expect(await fingerHold(1, 850, null)).toEqual({ slot: 1, progress: 1, source: "touch" });
+    await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+    await liftFinger();
+    // Annulé par le système à 650 ms (avant le seuil de 700 ms) : gardée ; à 750 ms (le seuil d'une seconde serait
+    // 900 ms) : mené au bout, case vidée.
+    expect(await fingerHold(2, 650, "touchcancel")).toBeNull();
+    await page.waitForTimeout(1300);
+    expect(invCount(await state(page), B.sand)).toBe(4);
+    expect(await fingerHold(2, 750, "touchcancel")).toEqual({ slot: 2, progress: 1, source: "touch" });
+    await expect.poll(async () => invCount(await state(page), B.sand), { timeout: 10_000 }).toBe(0);
+    // Fenêtre qui perd le focus à 750 ms, doigt toujours posé : mené au bout de même.
+    await page.evaluate(() => window.cubesDebug.give(3, 4)); // pierre, de nouveau en case 2
+    expect(await fingerHold(1, 750, null)).not.toBeNull();
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
+    await liftFinger();
+  }
+  // Hors bornes : ignorée, une seconde, rien dans la ligne d'infos.
+  await page.goto("about:blank");
+  await openGame(page, `${FLAT}&appui=5000`);
+  expect((await state(page)).slotHoldMs).toBe(1000);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("graine");
+  expect(await page.locator(INFO).textContent()).not.toContain("appui");
+  expect(errors).toEqual([]);
+});
+
+test("mode parent : appui long pour vider une case (0,8 s, 1 s, 1,2 s), 1 s par défaut ; enregistré, appliqué à la partie suivante et affiché dans la ligne d'infos", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "tablette", "un seul profil suffit");
+  const errors = await openGame(page, "");
+  const choice = page.getByLabel("Appui long pour vider une case");
+  await expect(choice).toHaveValue("1000");
+  expect(await choice.locator("option").allTextContents()).toEqual(["0,8 s", "1 s (par défaut)", "1,2 s"]);
+  await firstLaunch(page, testInfo, true);
+  expect((await state(page)).slotHoldMs).toBe(1000);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("graine");
+  expect(await page.locator(INFO).textContent()).not.toContain("appui");
+  // Mode parent (engrenage gardé 3 s) : 0,8 s.
+  const openParent = async () => {
+    await page.locator(".home-btn").click();
+    const box = (await page.locator(".parent-gear").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+    await page.mouse.up();
+  };
+  await openParent();
+  await expect(choice).toHaveValue("1000");
+  await choice.selectOption("800");
+  await page.getByRole("button", { name: "Enregistrer et fermer" }).click();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:reglages") ?? "null")?.slotHoldMs)).toBe(800);
+  // Partie suivante : 0,8 s, dit dans la ligne d'infos ; la touche 3 gardée 0,85 s remplit l'anneau.
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).slotHoldMs).toBe(800);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("appui 0,8 s");
+  expect(await keyHoldInPage(page, "Digit3", 850, true)).toEqual({ slot: 2, progress: 1, source: "key" });
+  // Relu au retour dans le mode parent, puis 1,2 s.
+  await openParent();
+  await expect(choice).toHaveValue("800");
+  await choice.selectOption("1200");
+  await page.getByRole("button", { name: "Enregistrer et fermer" }).click();
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).slotHoldMs).toBe(1200);
+  await expect.poll(async () => (await page.locator(INFO).textContent()) ?? "").toContain("appui 1,2 s");
+  const late = await keyHoldInPage(page, "Digit3", 1050, true);
+  expect(late!.progress).toBeLessThan(1);
+  // Réglages enregistrés par la 1.1-rc (sans ce champ) : 1 s.
+  await page.evaluate(() => localStorage.setItem("cubes:reglages", JSON.stringify({ night: "normale", creatures: true, devTools: true })));
+  await page.goto("about:blank");
+  await openGame(page, "");
+  await page.locator('.profile-card[data-profile="p1"]').click();
+  await page.locator('.slot-card[data-slot="0"]').click();
+  await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  expect((await state(page)).slotHoldMs).toBe(1000);
   expect(errors).toEqual([]);
 });
 

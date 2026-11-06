@@ -165,7 +165,7 @@ import { isHolding, shouldHintHold, type BreakPress } from "../input/breakPress"
 import { Keyboard } from "../input/Keyboard";
 import { MAX_DELTA_PX } from "../input/mouseFilter";
 import { MouseLook } from "../input/MouseLook";
-import { slotHoldProgress, startSlotHold, type SlotHold } from "../input/slotHold";
+import { SLOT_HOLD_MS, slotHoldInfoLabel, slotHoldProgress, startSlotHold, type SlotHold } from "../input/slotHold";
 import { TouchControls } from "../input/TouchControls";
 import { Avatar } from "../render/Avatar";
 import { Bubbles } from "../render/Bubbles";
@@ -432,6 +432,8 @@ export class Game {
   // ---------- J5 : compagnon, mission, Grignotes, bulles, lampes ----------
   private readonly urlCreatures: boolean;
   private readonly urlMission: boolean;
+  /** Mode adresse : durée de l'appui long choisie par l'adresse (&appui=800), sinon undefined (1 s). */
+  private readonly urlSlotHoldMs: number | undefined;
   private readonly sim: CreatureSim;
   private readonly critters = new Critters();
   private readonly fox = new Fox();
@@ -565,6 +567,7 @@ export class Game {
     this.urlMode = opts.type !== undefined || opts.seed !== undefined;
     this.urlCreatures = opts.creatures === true;
     this.urlMission = opts.mission !== undefined;
+    this.urlSlotHoldMs = opts.slotHoldMs;
     // Mode adresse (tests, vérifications de l'adulte) : réglages par défaut, pas ceux du mode parent.
     this.settings = this.urlMode ? { ...DEFAULT_SETTINGS } : this.store.loadSettings();
     document.title = GAME_NAME;
@@ -580,6 +583,7 @@ export class Game {
     this.view = new SceneView(canvas, this.world, this.coarsePointer);
     this.view.setRenderDistance(initialRenderDistance(opts.distance, readStorage(DISTANCE_STORAGE_KEY)));
     this.hud = new Hud(root, this.view.atlasCanvas, VERSION);
+    this.applySlotHoldMs();
     this.narrator = new Narrator({
       show: (text, ms) => this.hud.showMessage(text, ms),
       speak: (text) => {
@@ -670,8 +674,10 @@ export class Game {
           if (profile.voice) this.speakWhenAllowed(pick(text, profile.level));
         },
         settingsChanged: (s) => {
+          // Le mode parent ne s'ouvre que depuis l'accueil : les réglages valent pour la partie suivante.
           this.settings = s;
           this.applyDevTools();
+          this.applySlotHoldMs();
         },
       });
       this.home.show();
@@ -1041,6 +1047,19 @@ export class Game {
       this.timeScale = 1;
       this.hud.setFastTime(false);
     }
+  }
+
+  /**
+   * Durée de l'appui long qui vide une case (ms) : en mode adresse, celle de l'adresse (&appui=…) ou 1 s (le mode
+   * adresse ne lit pas le mode parent) ; sinon, le réglage du mode parent.
+   */
+  private slotHoldMs(): number {
+    return this.urlMode ? (this.urlSlotHoldMs ?? SLOT_HOLD_MS) : this.settings.slotHoldMs;
+  }
+
+  /** Transmet la durée de l'appui long à la barre (doigt, souris) ; la touche 1 à 9 la lit à chaque appui. */
+  private applySlotHoldMs(): void {
+    this.hud.slotHoldMs = this.slotHoldMs();
   }
 
   private companionOn(): boolean {
@@ -3037,7 +3056,7 @@ export class Game {
     if (!m) return;
     const i = Number(m[1]) - 1;
     this.setSlot(i, true);
-    this.keyHold = startSlotHold(i, performance.now(), "key", 0, 0, code);
+    this.keyHold = startSlotHold(i, performance.now(), "key", 0, 0, code, this.slotHoldMs());
   }
 
   /**
@@ -3433,6 +3452,8 @@ export class Game {
           const h = this.hud.slotHold ?? this.keyHold;
           return h ? { slot: h.slot, progress: slotHoldProgress(h, performance.now()), source: h.source } : null;
         })(),
+        /** Durée effective de l'appui long qui vide une case (ms ; mode parent ou &appui=…). */
+        slotHoldMs: this.slotHoldMs(),
         eveningHeld: this.eveningHeld(),
         lampRevealed: this.lampIsRevealed(),
         pendingMission: this.pendingMission?.def.id ?? null,
@@ -3684,11 +3705,13 @@ export class Game {
     const cs = this.view.chunks.stats;
     const w = this.world;
     const where = p.headInWater ? "sous l'eau" : p.inWater ? "dans l'eau" : p.onGround ? "sol" : "air";
+    // Durée de l'appui long quand elle n'est pas d'une seconde (test de Pierre : voir ce qui est actif).
+    const hold = slotHoldInfoLabel(this.slotHoldMs());
     this.hud.setInfo(
       `${Math.round(1000 / frameAvg)} i/s  (moy. ${frameAvg.toFixed(1)} ms, pire ${worst.toFixed(0)} ms, calcul ${cpuAvg.toFixed(1)} ms)\n` +
         `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}  ${where}  regard ${cap}° ${deg(p.pitch)}°\n` +
         `faces ${cs.faces}  sections ${cs.visibleSections}/${cs.sections}  bloc : ${this.heldLabel()}\n` +
-        `${worldTypeName(this.gen.type)} · graine ${this.gen.seed} · ${formatHour(this.sky.hour)}  ${VERSION}`,
+        `${worldTypeName(this.gen.type)} · graine ${this.gen.seed} · ${formatHour(this.sky.hour)}  ${VERSION}${hold ? `  ${hold}` : ""}`,
     );
     const g = this.view.gpu;
     const ml = this.mouse;

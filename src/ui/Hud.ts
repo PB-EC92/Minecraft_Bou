@@ -5,6 +5,7 @@ import { WORLD_TYPES, type WorldTypeId } from "../engine/terrain";
 import { READING_LEVELS } from "../edu/texts";
 import { blockIcon, tileIcon } from "../render/textures";
 import {
+  SLOT_HOLD_MS,
   slotHoldAfterBlur,
   slotHoldAfterCancel,
   slotHoldMoved,
@@ -98,6 +99,8 @@ export class Hud {
   private readonly selectHandlers: ((index: number) => void)[] = [];
   /** Appui long en cours sur une case (souris ou doigt), ou null (V2). */
   private hold: SlotHold | null = null;
+  /** Durée des appuis longs qui commencent (ms) : réglage du mode parent ou option d'adresse, fixée par le jeu. */
+  slotHoldMs = SLOT_HOLD_MS;
   /** Anneau de l'appui long, au-dessus de la case tenue, et l'icône de son bloc (sœur de l'anneau, hors du masque). */
   private readonly holdEl: HTMLDivElement;
   private readonly holdIcon: HTMLCanvasElement;
@@ -209,7 +212,7 @@ export class Hud {
     // Fin de l'appui long : doigt levé ou annulé par le système, doigt ou souris qui glisse (l'enfant regardait
     // ou visait), bouton relâché, fenêtre qui perd le focus. Les touchers visent la case de départ et remontent
     // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture. Un doigt annulé par le système
-    // (touchcancel) après SLOT_HOLD_CANCEL_OK_MS compte comme un appui allé au bout : Windows peut prendre un doigt
+    // (touchcancel) après SLOT_HOLD_CANCEL_OK_MS (durée de l'appui − 100 ms) compte comme un appui allé au bout : Windows peut prendre un doigt
     // gardé vers 1 s pour un clic droit ; l'appui reste alors, plein, et le jeu vide la case à l'image suivante
     // (Game.updateSlotHold, mêmes règles que pour un appui d'une seconde).
     const fingerUp = (e: TouchEvent) => {
@@ -254,8 +257,9 @@ export class Hud {
       true,
     );
     // Fenêtre qui perd le focus : un appui en cours est abandonné ; un appui déjà allé au bout (seconde écoulée, ou
-    // doigt annulé par le système après 900 ms) attend l'image suivante. Un doigt tenu depuis 900 ms est mené au bout
-    // (slotHoldAfterBlur) : le même geste du système peut faire perdre le focus avant d'annuler le doigt.
+    // doigt annulé par le système après 900 ms ; durée de l'appui − 100 ms si elle est réglée autrement) attend
+    // l'image suivante. Un doigt tenu depuis ce seuil est mené au bout (slotHoldAfterBlur) : le même geste du
+    // système peut faire perdre le focus avant d'annuler le doigt.
     window.addEventListener("blur", () => {
       const h = this.hold;
       const kept = h ? slotHoldAfterBlur(h, performance.now()) : null;
@@ -610,7 +614,7 @@ export class Hud {
   /** Commence un appui long sur la case i si elle n'est pas vide (pas la case ABC de la mission 2). */
   private beginHold(i: number, source: SlotHoldSource, x: number, y: number, pointer: number | null): void {
     if (i >= INVENTORY_SLOTS || !this.shown[i]) return;
-    this.hold = startSlotHold(i, performance.now(), source, x, y, pointer);
+    this.hold = startSlotHold(i, performance.now(), source, x, y, pointer, this.slotHoldMs);
   }
 
   /** Icône 16 × 16 d'un bloc, dessinée une fois. */

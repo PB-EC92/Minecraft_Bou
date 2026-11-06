@@ -1,4 +1,4 @@
-import { NIGHT_LENGTHS, exportFileName, exportStatus, savedLabel, type NightLength, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
+import { NIGHT_LENGTHS, SLOT_HOLD_SETTINGS, exportFileName, exportStatus, savedLabel, type NightLength, type Profile, type Settings, type WorldSave } from "../save/saveFormat";
 import type { SaveStore } from "../save/SaveStore";
 import { WORLD_TYPES, worldTypeName, type WorldTypeId } from "../engine/terrain";
 import { AVATARS, avatarDef } from "../game/avatars";
@@ -317,6 +317,19 @@ export class HomeScreen {
     creaturesLabel.append(creatures, " Grignotes actives (la nuit, elles chipent un bloc ; une lampe les éloigne)");
     form.appendChild(creaturesLabel);
 
+    // Durée de l'appui long qui vide une case (préparation du test sur le convertible) : vaut pour la partie suivante.
+    section("Appui long pour vider une case");
+    const slotHold = document.createElement("select");
+    slotHold.setAttribute("aria-label", "Appui long pour vider une case");
+    for (const d of SLOT_HOLD_SETTINGS) {
+      const o = document.createElement("option");
+      o.value = String(d.id);
+      o.textContent = d.name;
+      slotHold.appendChild(o);
+    }
+    slotHold.value = String(settings.slotHoldMs);
+    form.appendChild(slotHold);
+
     section("Tests");
     const devLabel = document.createElement("label");
     devLabel.className = "check";
@@ -409,7 +422,12 @@ export class HomeScreen {
         craftSeen: p.craftSeen === true,
       }));
       const r = this.store.saveProfiles(next);
-      const s: Settings = { night: night.value as NightLength, creatures: creatures.checked, devTools: devTools.checked };
+      const s: Settings = {
+        night: night.value as NightLength,
+        creatures: creatures.checked,
+        devTools: devTools.checked,
+        slotHoldMs: SLOT_HOLD_SETTINGS.find((d) => String(d.id) === slotHold.value)?.id ?? settings.slotHoldMs,
+      };
       this.store.saveSettings(s);
       this.cb.settingsChanged(s);
       this.profiles = next;
