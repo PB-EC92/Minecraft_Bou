@@ -85,7 +85,7 @@ import {
   type SaidTemplate,
 } from "../edu/wordTexts";
 import { findEntry, fillWord, letterName, nameWord, wordVars, type WordVars } from "../edu/wordLists";
-import { BREAK_TIP_MS, LETTER_IN_HAND_EVERY_MS, LETTER_IN_HAND_MS, wordHelp, type HelpSay, type HelpShow, type WriteMode } from "../edu/wordHelp";
+import { BREAK_TIP_MS, LETTER_IN_HAND_EVERY_MS, LETTER_IN_HAND_MS, wordHelp, type HelpOutput, type HelpSay, type HelpShow, type WriteMode } from "../edu/wordHelp";
 import {
   DICT_FEEDBACK_FULL_MS,
   DICT_FEEDBACK_IDLE_MS,
@@ -267,6 +267,8 @@ const WORD_FOLLOW_UP_READ_MS = 3000;
 const HELP_AFTER_FEEDBACK_MS = 4000;
 /** Pas de ligne de cases claires possible là où regarde l'enfant : nouvel essai à cet intervalle (ms). */
 const PLAN_RETRY_MS = 500;
+/** Temps par mot (mission 2) : une image ne compte jamais plus que cela (retour d'un onglet masqué, appareil figé). */
+const WORD_CLOCK_FRAME_MAX_MS = 250;
 
 /** Messages de la réaction à l'écriture d'un mot (writingFeedback), par clé. */
 const FEEDBACK_TEXTS: Readonly<Record<FeedbackKey, SaidTemplate | ChildText>> = {
@@ -2313,6 +2315,8 @@ export class Game {
     w.stage = out.stage;
     w.revealed = out.revealed;
     w.show = out.show;
+    // Temps par mot (pour l'adulte) : relevé de ce mot, repris s'il était déjà commencé.
+    m.beginWordStats(target, w.mode);
     return w;
   }
 
@@ -2360,7 +2364,10 @@ export class Game {
     }
     w.best = st.best?.reading ?? null;
     w.wrongCells = f.wrongCells;
-    if (f.key) this.sayFeedback(w, f, now);
+    if (f.key) {
+      m.noteWordFail(); // un essai qui ne valide pas (temps par mot, pour l'adulte)
+      this.sayFeedback(w, f, now);
+    }
     if (f.have > w.have) w.ms = 0; // un progrès : l'aide repart de zéro
     w.have = f.have;
     if (f.newTry) {
@@ -2416,7 +2423,8 @@ export class Game {
    * Aide progressive (wordHelp) pour le temps passé sans progrès : palier, lettres dévoilées, passage en copie,
    * retenus par la mission ; ce que Pixel dit (tout de suite, ou à sayAt après un retour de la dictée).
    */
-  private applyHelp(w: WritingRun, prevMs: number, newTry: boolean, sayAt: number | null = null): void {
+  private applyHelp(w: WritingRun, prevMs: number, newTry: boolean, sayAt: number | null = null, record = true): void {
+    const before = { mode: w.mode, stage: w.stage };
     const out = wordHelp({
       mode: w.mode,
       firstWord: w.firstWord,
@@ -2434,6 +2442,7 @@ export class Game {
     w.revealed = out.revealed;
     w.show = out.show;
     if (out.resetClock) w.ms = 0;
+    if (record) this.recordHelp(before, out);
     if (changed) {
       this.mission?.noteHelp({ stage: w.stage, revealed: w.revealed, copy: w.mode === "copy" });
       this.refreshWritingView();
@@ -2443,6 +2452,27 @@ export class Game {
     else this.sayHelp(w, out.say);
   }
 
+  /**
+   * Aides montrées par wordHelp, pour le temps par mot : en copie, la case suivante (palier 1) et la ligne de cases
+   * claires (palier 2) quand le palier monte (pas le palier de départ du mot 1) ; en dictée, chaque indice (cases,
+   * première lettre, une lettre de plus) et le passage en copie. Les aides dites en copie (lettre suivante, sol plat,
+   * lettre donnée) sont relevées par sayHelp et giveLetter.
+   */
+  private recordHelp(before: { mode: WriteMode; stage: number }, out: HelpOutput): void {
+    const m = this.mission;
+    if (!m) return;
+    if (before.mode === "copy") {
+      if (out.mode !== "copy") return;
+      if (before.stage < 1 && out.stage >= 1) m.noteWordHelp("nextGhost");
+      if (before.stage < 2 && out.stage >= 2) m.noteWordHelp("ghostLine");
+      return;
+    }
+    if (out.say === "count") m.noteWordHelp("wordBoxes");
+    else if (out.say === "first") m.noteWordHelp("firstLetter");
+    else if (out.say === "more") m.noteWordHelp("moreLetter");
+    if (out.mode === "copy") m.noteWordHelp("toCopy");
+  }
+
   /** Ce que dit l'aide : lettre suivante, cases claires, lettre donnée (copie) ; indices de la dictée. */
   private sayHelp(w: WritingRun, say: HelpSay): void {
     const base = this.wordVarsFor(w);
@@ -2450,6 +2480,7 @@ export class Game {
     const letter = (ch: string) => ({ L: ch, nom: letterName(ch) });
     switch (say) {
       case "next": {
+        if (w.mode === "copy") this.mission?.noteWordHelp("nextLetter");
         const t = fillSaid(NEXT_LETTER, { ...base, ...letter(next) });
         this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
         return;
@@ -2457,6 +2488,7 @@ export class Game {
       case "ghosts": {
         // Aucune case claire montrée (pas de place à portée là où il regarde) : le geste qui en fait tracer une (la
         // lettre suivante vient d'être dite, à 25 s).
+        if (this.ghostCount === 0) this.mission?.noteWordHelp("flatGround");
         const t = fillSaid(this.ghostCount === 0 ? GHOST_NO_PLACE : GHOST_LINE, base);
         this.tell(t.text, { spoken: t.spoken, ms: 3500, important: true });
         return;
@@ -2484,6 +2516,7 @@ export class Game {
   private giveLetter(w: WritingRun, ch: string): void {
     const id = letterBlockId(ch);
     if (id === null || !this.lettersOn()) return;
+    this.mission?.noteWordHelp("giveLetter");
     this.handLetter = id;
     this.letterIdleSince = performance.now();
     this.setSlot(LETTER_SLOT);
@@ -2504,7 +2537,8 @@ export class Game {
     w.stage = 0;
     w.noVoice = true;
     w.noVoiceTold = true;
-    this.applyHelp(w, w.ms, false);
+    this.mission?.noteWordHelp("toCopy");
+    this.applyHelp(w, w.ms, false, null, false);
     this.mission?.noteHelp({ stage: w.stage, revealed: w.revealed, copy: true });
     this.tell(NO_VOICE_COPY, { voice: false, ms: 5000 });
     this.refreshWritingView();
@@ -2535,6 +2569,7 @@ export class Game {
       // Au doigt, seulement en mode Poser : en mode Casser, garder le doigt dessus suffit.
       const still = this.world.get(tip.cell[0], tip.cell[1], tip.cell[2]) === tip.id;
       if (still && (!this.touchUi || this.touch.mode === "place")) {
+        this.mission?.noteWordHelp("breakTip");
         this.tell(this.touchUi ? BREAK_TIP_TOUCH : BREAK_TIP_MOUSE, { ms: 4000, dedupe: true, important: true });
       }
     }
@@ -2547,6 +2582,23 @@ export class Game {
     const prev = w.ms;
     w.ms += dtMs;
     this.applyHelp(w, prev, false);
+  }
+
+  /**
+   * Temps par mot de la mission 2 (pour l'adulte, voir wordStats.ts) : le temps de cette image compte s'il s'agit de
+   * jeu actif, c'est-à-dire partie affichée (onglet visible) et jeu non figé, boîte à lettres ouverte comprise (choisir
+   * une lettre fait partie de l'écriture) ; le panneau de fabrication, l'écran de félicitations, l'accueil et l'écran
+   * de chargement d'un monde ne comptent pas. Pour le mot : de la consigne dite au mot trouvé ; pour la mission : de la première consigne
+   * d'écriture aux félicitations. Une image plus longue que WORD_CLOCK_FRAME_MAX_MS (retour d'un onglet masqué, où
+   * les images s'arrêtent) ne compte que pour cette durée.
+   */
+  private updateWordClock(frameMs: number): void {
+    const m = this.mission;
+    if (!m || !this.companionOn() || this.loading || document.visibilityState !== "visible") return;
+    if (this.paused && !this.letterTray.visible) return;
+    const w = m.current()?.goal.kind === "write" ? this.writingRun() : null;
+    const writing = w !== null && w.announced && w.found === null;
+    m.noteActiveTime(Math.min(frameMs, WORD_CLOCK_FRAME_MAX_MS), writing, this.celebrationAt !== null);
   }
 
   /** Lettre choisie et pas posée depuis 6 s pendant la mission 2 : rappel du geste (au plus toutes les 20 s). */
@@ -3449,6 +3501,8 @@ export class Game {
         creatures: this.sim.creatures.map((c) => ({ id: c.id, x: c.x, y: c.y, z: c.z, mode: c.mode, carried: c.carried })),
         companion: this.fox.group.visible && this.companion ? { x: this.companion.x, y: this.companion.y, z: this.companion.z } : null,
         mission: this.mission ? { step: this.mission.stepIndex, done: this.mission.done } : null,
+        /** Temps par mot de la mission 2 (forme enregistrée : words, current, totalMs ; ms de jeu actif), ou null. */
+        wordStats: this.mission ? (this.mission.toJSON().wordStats ?? null) : null,
         missionId: this.mission?.def.id ?? null,
         shelter: this.shelterNow ? { ...this.shelterNow } : null,
         celebration: this.celebration.visible,
@@ -3544,12 +3598,16 @@ export class Game {
         const f = this.checkWriting("debug");
         return f ? { found: f.found, key: f.key, have: f.have, wrongCells: f.wrongCells.length, newTry: f.newTry } : null;
       },
-      /** Avance l'horloge d'aide de l'étape d'écriture (ms) ; faux hors d'une étape d'écriture. */
+      /**
+       * Avance l'horloge d'aide de l'étape d'écriture (ms) ; faux hors d'une étape d'écriture. Consigne dite, ce temps
+       * compte aussi comme du jeu actif pour le temps par mot (comme s'il avait passé).
+       */
       advanceWritingClock: (ms: number) => {
         const w = this.writingRun();
         if (!w || w.found || !Number.isFinite(ms)) return false;
         const prev = w.ms;
         w.ms += Math.max(0, ms);
+        if (w.announced) this.mission?.noteActiveTime(Math.max(0, ms), true);
         this.applyHelp(w, prev, false);
         return true;
       },
@@ -3659,6 +3717,7 @@ export class Game {
     this.syncLetters();
     if (this.session && performance.now() - this.lastAutosaveAt > AUTOSAVE_MS) this.saveNow();
     this.updateLiving(performance.now(), dt);
+    this.updateWordClock(frameMs);
     // Cases claires de la mission 2 : la case suivante « respire », le contour vert d'un mot réussi s'efface.
     this.view.ghosts.update(dt, this.reducedMotion.matches);
 

@@ -23,6 +23,14 @@ interface Stack {
   count: number;
 }
 
+interface WordStatJSON {
+  word: string;
+  mode: "copy" | "dictation";
+  ms: number;
+  fails: number;
+  helps: Record<string, number>;
+}
+
 interface DebugState {
   type: string;
   seed: number;
@@ -57,6 +65,12 @@ interface DebugState {
   creatures: { id: number; x: number; y: number; z: number; mode: string; carried: number | null }[];
   companion: { x: number; y: number; z: number } | null;
   mission: { step: number; done: boolean } | null;
+  /** Temps par mot de la mission 2 (forme enregistrée), ou null. */
+  wordStats: {
+    words: WordStatJSON[];
+    current?: WordStatJSON;
+    totalMs?: number;
+  } | null;
   missionId: string | null;
   shelter: { roof: boolean; walls: number; own: boolean; ok: boolean } | null;
   celebration: boolean;
@@ -3755,6 +3769,150 @@ test("accueil : un monde dont la mission 2 est réussie porte deux étoiles ; un
   ]);
   s = await state(page);
   expect(s.home).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("mission 2 en partie d'enfant : temps de jeu actif par mot (boîte à lettres comprise, panneau de fabrication exclu), essais et aides ; gardé à la reprise ; lu dans le mode parent (portrait et PC) et dans l'export, jamais montré à l'enfant", async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  await page.goto("about:blank");
+  const errors = await openGame(page, "");
+  await page.evaluate(() => {
+    localStorage.setItem("cubes:profils", JSON.stringify({ version: 1, profiles: [
+      { name: "Léa", level: "debutant", voice: true, avatar: 1, tutorialDone: true, craftSeen: true },
+      { name: "Tom", level: "autonome", voice: false, avatar: 2, tutorialDone: true },
+    ] }));
+    const world = (mission: object) => JSON.stringify({
+      version: 1, gen: 2, type: "plat", seed: 1, edits: "",
+      player: { x: 16.5, y: 4, z: 20.5, yaw: 0, pitch: 0 }, inventory: { slots: [] }, phase: 0.3, savedAt: Date.now(), mission,
+    });
+    // Monde 1 : mission 2 au premier mot (de jour) ; monde 2 : mission 2 finie avec la 1.1-rc (pas de relevé).
+    localStorage.setItem("cubes:monde:p1:0", world({ id: "mots", step: 1, counts: {} }));
+    localStorage.setItem("cubes:monde:p1:1", world({ id: "mots", step: 5, counts: {}, words: ["AMI", "LUNE", "TOIT", "LEA"] }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.cubesDebug && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  const play = async () => {
+    await press(page, page.locator('.profile-card[data-profile="p1"]'), testInfo);
+    await press(page, page.locator('.slot-card[data-slot="0"]'), testInfo);
+    await page.waitForFunction(() => !window.cubesDebug.state().home && !window.cubesDebug.state().loading, null, { timeout: 45_000 });
+  };
+  await play();
+  const target = await writingTarget(page);
+  let s = await state(page);
+  expect(s.writing).toMatchObject({ mode: "copy", have: 0 });
+  expect(s.wordStats).toMatchObject({ words: [], current: { word: target, mode: "copy", fails: 0, helps: {} } });
+  // Une lettre fausse : un essai non réussi.
+  const wrong = target[1] === "X" ? "Y" : "X";
+  await writeWord(page, `${target[0]}${wrong}`, 15, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: false, key: "WRONG_LETTER" });
+  expect((await state(page)).wordStats?.current?.fails).toBe(1);
+  // Boîte à lettres ouverte : le temps compte (choisir une lettre fait partie de l'écriture).
+  const ms = () => page.evaluate(() => window.cubesDebug.state().wordStats?.current?.ms ?? -1);
+  const trayBefore = await page.evaluate(() => {
+    const before = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
+    return window.cubesDebug.openLetters() ? before : -1;
+  });
+  expect(trayBefore).toBeGreaterThan(0);
+  await page.waitForTimeout(1500);
+  const trayAfter = await page.evaluate(() => {
+    const after = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
+    window.cubesDebug.chooseLetter("A");
+    return after;
+  });
+  expect(trayAfter - trayBefore).toBeGreaterThan(1000);
+  // Panneau de fabrication ouvert : le temps ne compte pas.
+  const craftBefore = await page.evaluate(() => {
+    const before = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
+    return window.cubesDebug.openCraft() ? before : -1;
+  });
+  expect(craftBefore).toBeGreaterThan(0);
+  await page.waitForTimeout(1500);
+  const craftAfter = await page.evaluate(() => {
+    const after = window.cubesDebug.state().wordStats?.current?.ms ?? -1;
+    window.cubesDebug.closeCraft();
+    return after;
+  });
+  expect(craftAfter - craftBefore).toBeLessThan(300);
+  // 31 s sans progrès (horloge d'aide avancée, comptée comme du jeu actif) : la lettre suivante est dite.
+  const beforeClock = await ms();
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(31_000))).toBe(true);
+  expect(await ms()).toBeGreaterThanOrEqual(beforeClock + 31_000);
+  // (Le conseil « comment casser » peut s'y ajouter si la lettre fausse est restée 10 s : machine lente.)
+  expect((await state(page)).wordStats?.current?.helps).toMatchObject({ nextLetter: 1 });
+  // Corrigé et fini : le relevé du mot 1 rejoint les mots finis.
+  await page.evaluate(() => window.cubesDebug.breakBlock(16, 4, 16));
+  await writeWord(page, target.slice(1), 16, 16);
+  expect(await checkWriting(page)).toMatchObject({ found: true });
+  await expect.poll(async () => (await state(page)).mission?.step, { timeout: 20_000 }).toBe(2);
+  s = await state(page);
+  const w1 = s.wordStats!.words[0]!;
+  expect(w1).toMatchObject({ word: target, mode: "copy", fails: 1, helps: { nextLetter: 1 } });
+  expect(w1.ms).toBeGreaterThanOrEqual(31_000 + 1000);
+  expect(w1.ms).toBeLessThan(31_000 + 60_000);
+  expect(s.wordStats!.totalMs).toBeGreaterThanOrEqual(w1.ms);
+  // Mot 2 : 16 s sans progrès (la case suivante est montrée), puis retour à l'accueil en cours de mot.
+  await page.evaluate(() => window.cubesDebug.look(180, 0));
+  const target2 = await writingTarget(page);
+  expect(await page.evaluate(() => window.cubesDebug.advanceWritingClock(16_000))).toBe(true);
+  expect((await state(page)).wordStats?.current).toMatchObject({ word: target2, helps: { nextGhost: 1 } });
+  await press(page, page.locator(".home-btn"), testInfo);
+  await expect(page.locator(".home h1")).toHaveText("Qui joue ?");
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("cubes:monde:p1:0") ?? "null")?.mission?.wordStats);
+  expect(stored.words).toEqual([w1]);
+  expect(stored.current).toMatchObject({ word: target2, mode: "copy", fails: 0, helps: { nextGhost: 1 } });
+  expect(stored.current.ms).toBeGreaterThanOrEqual(16_000);
+  // L'enfant ne voit jamais le relevé (accueil, emplacements).
+  await press(page, page.locator('.profile-card[data-profile="p1"]'), testInfo);
+  await expect(page.locator(".slot-card")).toHaveCount(3);
+  expect(await page.locator("body").innerText()).not.toContain("essai");
+  await press(page, page.locator(".home-back"), testInfo);
+  // Mode parent : une ligne par mot, la durée de la mission ; rien pour le monde de la 1.1-rc.
+  const gear = (await page.locator(".parent-gear").boundingBox())!;
+  await page.mouse.move(gear.x + gear.width / 2, gear.y + gear.height / 2);
+  await page.mouse.down();
+  await expect(page.locator(".home h1")).toHaveText("Mode parent", { timeout: 5_000 });
+  await page.mouse.up();
+  await expect(page.locator(".parent-progress li")).toHaveText([
+    `Monde 1 (plat (test)) : mission 2 (les mots) : étape 3 sur 5 (écrire un deuxième mot) — mots écrits : ${target}`,
+    "Monde 2 (plat (test)) : mission 2 (les mots) réussie — mots écrits : AMI, LUNE, TOIT, LEA",
+  ]);
+  await expect(page.locator(".parent-word-stats")).toHaveCount(1);
+  const stats = page.locator('.parent-word-stats[data-profile="p1"][data-slot="0"]');
+  await expect(stats.locator(".parent-word-stats-title")).toHaveText("Monde 1, temps par mot (jeu actif) :");
+  const lines = await stats.locator("li").allTextContents();
+  expect(lines).toHaveLength(3);
+  expect(lines[0]).toMatch(new RegExp(`^${target} \\(copie\\) : (\\d+ s|1 min( \\d+ s)?), 1 essai non réussi, aides? : lettre dite(, comment casser)?$`));
+  expect(lines[1]).toMatch(new RegExp(`^${target2} \\(copie, en cours\\) : \\d+ s, aucun essai non réussi, aide : case$`));
+  expect(lines[2]).toMatch(/^Durée de la mission 2 \(les mots\) jusqu'ici : (\d+ s|\d+ min( \d+ s)?) de jeu actif \(depuis la première consigne d'écriture\)$/);
+  // Mise en page (portrait 1080 × 1802 et PC) : rien ne déborde de l'écran ni du formulaire.
+  const vp = page.viewportSize()!;
+  const form = (await page.locator(".parent-form").boundingBox())!;
+  for (const li of await stats.locator("li, .parent-word-stats-title").all()) {
+    const b = (await li.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(form.x);
+    expect(b.x + b.width).toBeLessThanOrEqual(Math.min(vp.width, form.x + form.width) + 0.5);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await stats.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("mode-parent-temps-par-mot.png") });
+  // Export : le relevé est dans le fichier.
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exporter (fichier)" }).click()]);
+  const file = testInfo.outputPath("export.json");
+  await download.saveAs(file);
+  const exported = JSON.parse(readFileSync(file, "utf8"));
+  expect(exported.worlds["cubes:monde:p1:0"].mission.wordStats).toEqual(stored);
+  // Reprise : le mot 2 garde son temps, ses aides ; fini, il rejoint les mots finis.
+  await page.getByRole("button", { name: "Fermer sans enregistrer" }).click();
+  await play();
+  expect(await writingTarget(page)).toBe(target2);
+  s = await state(page);
+  expect(s.wordStats!.current!.ms).toBeGreaterThanOrEqual(stored.current.ms);
+  expect(s.wordStats!.current!.helps).toMatchObject({ nextGhost: 1 });
+  await skipStep(page);
+  s = await state(page);
+  expect(s.wordStats!.words).toHaveLength(2);
+  expect(s.wordStats!.words[1]).toMatchObject({ word: target2, mode: "copy", fails: 0, helps: { nextGhost: 1 } });
+  expect(s.wordStats!.words[1]!.ms).toBeGreaterThanOrEqual(stored.current.ms);
   expect(errors).toEqual([]);
 });
 

@@ -4,7 +4,7 @@ import { WORLD_TYPES, worldTypeName, type WorldTypeId } from "../engine/terrain"
 import { AVATARS, avatarDef } from "../game/avatars";
 import { CHOOSE_AVATAR, CHOOSE_SLOT, CHOOSE_WORLD_TYPE, READING_LEVELS, WHO_PLAYS, pick, type ChildText, type ReadingLevel } from "../edu/texts";
 import { avatarIcon } from "./avatarIcon";
-import { progressLabel, starsEarned } from "../edu/missions";
+import { progressLabel, starsEarned, wordStatsLines } from "../edu/missions";
 
 /** Durée de l'appui long qui ouvre le mode parent (plan : trois secondes). */
 export const PARENT_HOLD_MS = 3000;
@@ -356,6 +356,24 @@ export class HomeScreen {
           list.appendChild(li);
         });
         if (list.childElementCount > 0) form.appendChild(list);
+        // Temps par mot de la mission 2 (pour l'adulte seulement : l'enfant ne voit jamais le mode parent).
+        this.store.worlds(p.id).forEach((w, slot) => {
+          const lines = w ? wordStatsLines(w.mission) : [];
+          if (lines.length === 0) return;
+          const box = this.div("parent-word-stats");
+          box.dataset.profile = p.id;
+          box.dataset.slot = String(slot);
+          const title = this.div("parent-word-stats-title");
+          title.textContent = `Monde ${slot + 1}, temps par mot (jeu actif) :`;
+          const ul = document.createElement("ul");
+          for (const line of lines) {
+            const li = document.createElement("li");
+            li.textContent = line;
+            ul.appendChild(li);
+          }
+          box.append(title, ul);
+          form.appendChild(box);
+        });
       }
 
       section("Mondes enregistrés");

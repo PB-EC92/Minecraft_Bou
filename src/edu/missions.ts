@@ -4,6 +4,16 @@ import { NBSP, type ChildText, type ReadingLevel } from "./texts";
 import type { WriteMode } from "./wordHelp";
 import { fillWord, nameWord, pickWord, wordList, type WordVars } from "./wordLists";
 import {
+  MAX_WORD_STATS,
+  newWordStat,
+  readWordStats,
+  wordStatLine,
+  wordStatsJSON,
+  formatDuration,
+  type WordHelpKind,
+  type WordStats,
+} from "./wordStats";
+import {
   M2_INTRO,
   M2_OUTRO,
   M2_STEP0_HINT,
@@ -112,6 +122,11 @@ export interface MissionProgress {
   words?: string[];
   /** Mot de l'étape « write » en cours, fixé par prepare (gardé à la reprise) (V2 lot 1). */
   word?: string;
+  /**
+   * Temps par mot de la mission 2, pour l'adulte (voir wordStats.ts) : étapes d'écriture finies, étape en cours,
+   * durée totale. Absent tant qu'aucun mot n'a été préparé ; ignoré par la 1.1-rc.
+   */
+  wordStats?: ReturnType<typeof wordStatsJSON>;
 }
 
 /** Contexte du tirage d'un mot (V2 lot 1). */
@@ -442,6 +457,28 @@ export function progressLabel(saved: unknown): string {
   return `${def.name} : étape ${step + 1} sur ${def.steps.length} (${def.steps[step]?.label ?? ""})${written}`;
 }
 
+/**
+ * Temps par mot d'un monde, pour l'adulte (mode parent) : une ligne par étape d'écriture finie (« AMI (copie) :
+ * 1 min 20 s, 2 essais non réussis, aides : case, ligne »), l'étape en cours (« …, en cours »), puis la durée de jeu
+ * actif de la mission. Rien (tableau vide) sans relevé : mission 2 pas encore à l'écriture, monde de la 1.1-rc.
+ */
+export function wordStatsLines(saved: unknown): string[] {
+  const def = missionById(isObj(saved) ? saved.id : null);
+  if (!def) return [];
+  const m = new MissionRunner(def, saved);
+  const s = m.wordStats;
+  const lines = s.words.map((w) => wordStatLine(w));
+  if (s.current && !m.done) lines.push(wordStatLine(s.current, true));
+  if (s.totalMs !== null) {
+    lines.push(
+      m.done
+        ? `Durée de la ${def.name} : ${formatDuration(s.totalMs)} de jeu actif (de la première consigne d'écriture aux félicitations)`
+        : `Durée de la ${def.name} jusqu'ici : ${formatDuration(s.totalMs)} de jeu actif (depuis la première consigne d'écriture)`,
+    );
+  }
+  return lines;
+}
+
 /** Contexte d'une consigne d'écriture (V2 lot 1) : mode de l'étape, variables du mot, prénom inutilisable. */
 export interface StepTextContext {
   mode: WriteMode;
@@ -478,6 +515,8 @@ export class MissionRunner {
   private written: string[];
   /** Mot de l'étape « write » en cours (V2 lot 1). */
   private word: string | undefined;
+  /** Temps par mot (mission 2, pour l'adulte). */
+  private stats: WordStats;
 
   constructor(
     readonly def: MissionDef,
@@ -488,6 +527,10 @@ export class MissionRunner {
     this.counts = p.counts;
     this.written = p.words;
     this.word = this.current()?.goal.kind === "write" ? p.word : undefined;
+    this.stats = p.stats;
+    // Relevé d'une étape en cours : seulement pendant une étape d'écriture, pour son mot (s'il est connu).
+    const cur = this.stats.current;
+    if (cur && (this.current()?.goal.kind !== "write" || (this.word !== undefined && cur.word !== this.word))) this.stats.current = null;
   }
 
   get stepIndex(): number {
@@ -562,6 +605,55 @@ export class MissionRunner {
     return { stage: this.counts.help ?? 0, revealed: this.counts.revealed ?? 0, copy: this.counts.copy === 1 };
   }
 
+  /** Relevé du temps par mot (copie : à lire, pas à modifier). */
+  get wordStats(): WordStats {
+    const copy = (w: WordStats["words"][number]) => ({ ...w, helps: { ...w.helps } });
+    return { words: this.stats.words.map(copy), current: this.stats.current ? copy(this.stats.current) : null, totalMs: this.stats.totalMs };
+  }
+
+  /**
+   * Début (ou reprise) du relevé de l'étape d'écriture en cours, une fois son mot et son mode connus : le relevé
+   * enregistré pour ce même mot est gardé (temps déjà passé), sinon un relevé neuf. Rien hors d'une étape d'écriture.
+   */
+  beginWordStats(word: string, mode: WriteMode): void {
+    if (this.current()?.goal.kind !== "write" || !/^[A-Z]{2,10}$/.test(word)) return;
+    if (this.stats.current?.word === word) return;
+    this.stats.current = newWordStat(word, mode);
+  }
+
+  /**
+   * Temps de jeu actif (ms) : writing, l'enfant écrit le mot de l'étape (consigne dite, mot pas encore trouvé) ; il
+   * compte alors pour le mot et pour la mission, dont la durée commence là. Sinon, une fois la durée commencée, il
+   * compte pour la mission jusqu'à sa fin, et après sa fin tant que celebrating (félicitations pas encore montrées).
+   */
+  noteActiveTime(ms: number, writing: boolean, celebrating = false): void {
+    if (!(ms > 0) || !Number.isFinite(ms)) return;
+    const cur = this.stats.current;
+    if (writing && cur && this.current()?.goal.kind === "write" && !this.counts.written) {
+      cur.ms += ms;
+      this.stats.totalMs = (this.stats.totalMs ?? 0) + ms;
+      return;
+    }
+    if (this.stats.totalMs !== null && (!this.done || celebrating)) this.stats.totalMs += ms;
+  }
+
+  /** Un essai du mot a reçu une réaction qui ne le valide pas (writingFeedback). */
+  noteWordFail(): void {
+    const cur = this.writingStat();
+    if (cur) cur.fails++;
+  }
+
+  /** Une aide a été donnée pendant l'étape d'écriture. */
+  noteWordHelp(kind: WordHelpKind): void {
+    const cur = this.writingStat();
+    if (cur) cur.helps[kind] = (cur.helps[kind] ?? 0) + 1;
+  }
+
+  /** Relevé de l'étape d'écriture en cours, tant que son mot n'est pas écrit. */
+  private writingStat(): WordStats["current"] {
+    return this.current()?.goal.kind === "write" && !this.counts.written ? this.stats.current : null;
+  }
+
   /** Avancement de l'étape en cours (have ≤ need), ou null si la mission est finie. */
   progress(view: MissionView): { have: number; need: number } | null {
     const s = this.current();
@@ -619,6 +711,10 @@ export class MissionRunner {
     // Étape d'écriture validée : son mot rejoint les mots écrits (V2 lot 1).
     const target = this.target;
     if (target !== null && !this.written.includes(target) && this.written.length < MAX_WORDS) this.written.push(target);
+    // Son relevé rejoint ceux des étapes finies.
+    const stat = this.stats.current;
+    if (stat && this.current()?.goal.kind === "write" && this.stats.words.length < MAX_WORD_STATS) this.stats.words.push(stat);
+    this.stats.current = null;
     this.word = undefined;
     this.step++;
     this.counts = {};
@@ -628,12 +724,14 @@ export class MissionRunner {
   toJSON(): MissionProgress {
     const counts: Record<string, number> = {};
     for (const [k, v] of Object.entries(this.counts)) counts[k] = k === "walk" ? Math.round(v * 100) / 100 : v;
+    const stats = wordStatsJSON(this.stats);
     return {
       id: this.def.id,
       step: this.step,
       counts,
       ...(this.written.length > 0 ? { words: [...this.written] } : {}),
       ...(this.word !== undefined ? { word: this.word } : {}),
+      ...(stats ? { wordStats: stats } : {}),
     };
   }
 
@@ -666,8 +764,11 @@ function readWords(raw: unknown): string[] {
   return words;
 }
 
-function readProgress(raw: unknown, def: MissionDef): { step: number; counts: Record<string, number>; words: string[]; word: string | undefined } {
-  if (!isObj(raw) || raw.id !== def.id) return { step: 0, counts: {}, words: [], word: undefined };
+function readProgress(
+  raw: unknown,
+  def: MissionDef,
+): { step: number; counts: Record<string, number>; words: string[]; word: string | undefined; stats: WordStats } {
+  if (!isObj(raw) || raw.id !== def.id) return { step: 0, counts: {}, words: [], word: undefined, stats: readWordStats(null) };
   const step = Number.isInteger(raw.step) ? Math.max(0, Math.min(def.steps.length, raw.step as number)) : 0;
   const counts: Record<string, number> = {};
   const ok = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
@@ -678,5 +779,5 @@ function readProgress(raw: unknown, def: MissionDef): { step: number; counts: Re
     for (const [k, v] of Object.entries(raw.placed)) if (ok(v) && Number.isInteger(v)) counts[`place:${k}`] = v;
   }
   const word = typeof raw.word === "string" && WORD_RE.test(raw.word) ? raw.word : undefined;
-  return { step, counts, words: readWords(raw.words), word };
+  return { step, counts, words: readWords(raw.words), word, stats: readWordStats(raw.wordStats) };
 }

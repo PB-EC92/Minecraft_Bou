@@ -1599,6 +1599,20 @@ canvas.game {
   font-size: 15px;
   line-height: 1.5;
 }
+/* Temps par mot de la mission 2 (mode parent) : sous la progression, en retrait, coupé au besoin (portrait). */
+.parent-word-stats {
+  margin: 2px 0 4px 18px;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.parent-word-stats-title {
+  opacity: 0.85;
+}
+.parent-word-stats ul {
+  margin: 0;
+  padding-left: 18px;
+}
 
 .celebration {
   position: absolute;
