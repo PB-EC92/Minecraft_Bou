@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiche de séance Cubes</title>
+<!--
+  Fiche imprimable (A4, deux pages) tirée des protocoles « J8 / V2 lot 1 » et « Recette V1 » de docs/RETOURS.md.
+  Page autonome : aucune ressource externe. Les libellés entre guillemets sont ceux du jeu (src/ui/HomeScreen.ts,
+  src/ui/Hud.ts, src/save/saveFormat.ts, src/edu/*.ts) : les reprendre tels quels si le jeu change.
+-->
+<style>
+  @page { size: A4; margin: 10mm 11mm 10mm 11mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    background: #e9e9e9;
+    color: #000;
+    font-family: "Segoe UI", Calibri, Arial, Helvetica, sans-serif;
+    font-size: 8.6pt;
+    line-height: 1.28;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 8mm auto;
+    padding: 10mm 11mm;
+    background: #fff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  }
+  @media print {
+    body { background: #fff; }
+    .page { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+    .page + .page { break-before: page; }
+  }
+  header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1.2pt solid #000;
+    padding-bottom: 1.2mm;
+    margin-bottom: 2mm;
+  }
+  header.top h1 { font-size: 13pt; margin: 0; }
+  header.top .meta { font-size: 8.4pt; white-space: nowrap; }
+  h2 {
+    font-size: 9.6pt;
+    margin: 2.6mm 0 1.2mm;
+    padding: 0.6mm 1.6mm;
+    border-left: 2.2pt solid #000;
+    background: #eee;
+  }
+  h3 { font-size: 9pt; margin: 1.8mm 0 0.8mm; }
+  p { margin: 0 0 1mm; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 8.2pt;
+    border: 0.4pt solid #888;
+    padding: 0 0.6mm;
+    white-space: nowrap;
+  }
+  ul.check { list-style: none; margin: 0; padding: 0; }
+  ul.check > li { position: relative; padding-left: 5mm; margin: 0 0 0.9mm; }
+  ul.check > li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.5mm;
+    width: 3mm;
+    height: 3mm;
+    border: 0.8pt solid #000;
+  }
+  .box {
+    display: inline-block;
+    width: 3mm;
+    height: 3mm;
+    border: 0.8pt solid #000;
+    vertical-align: -0.4mm;
+    margin: 0 0.8mm 0 2mm;
+  }
+  .fill {
+    display: inline-block;
+    min-width: 28mm;
+    border-bottom: 0.5pt solid #000;
+    height: 3.2mm;
+    vertical-align: -0.6mm;
+  }
+  .fill.long { min-width: 60mm; }
+  .lines .l { border-bottom: 0.5pt solid #000; height: 5.2mm; }
+  .note { font-size: 8pt; }
+  .warn {
+    border: 1pt solid #000;
+    padding: 1.2mm 1.8mm;
+    margin: 1.4mm 0;
+  }
+  .warn > strong:first-child { text-transform: uppercase; letter-spacing: 0.2pt; }
+  ol.steps { margin: 0.4mm 0 0.4mm 4.6mm; padding: 0; }
+  ol.steps li { margin-bottom: 0.6mm; }
+  table { width: 100%; border-collapse: collapse; margin: 0.6mm 0 1mm; }
+  th, td { border: 0.5pt solid #000; padding: 0.7mm 1.2mm; vertical-align: top; text-align: left; }
+  th { background: #eee; font-size: 8.2pt; }
+  td.w { width: 42mm; }
+  td.yn { width: 15mm; white-space: nowrap; font-size: 8pt; }
+  td.write { height: 8.4mm; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; }
+  .small { font-size: 7.8pt; }
+  .prio {
+    display: inline-block;
+    min-width: 4.2mm;
+    border: 0.8pt solid #000;
+    border-radius: 50%;
+    text-align: center;
+    font-weight: bold;
+    font-size: 7.6pt;
+    line-height: 3.8mm;
+    margin-right: 1mm;
+  }
+</style>
+</head>
+<body>
+
+<!-- ======================= PAGE 1 ======================= -->
+<section class="page">
+  <header class="top">
+    <h1>Cubes 1.1-rc2 — avant la séance (Pierre seul)</h1>
+    <div class="meta">Date : <span class="fill"></span> &nbsp; Convertible replié, Firefox</div>
+  </header>
+
+  <h2>A. Préparatifs, dans l'ordre</h2>
+  <ul class="check">
+    <li><strong>Exporter avec l'ancien fichier</strong> (1.0-rc ou 1.1-rc) : écran « Qui joue ? », garder le doigt
+      <strong>3 s sur l'engrenage</strong> (en bas à gauche) → mode parent → section « Sauvegarde » →
+      « Exporter (fichier) ». Vérifier que <code>cubes-sauvegarde-….json</code> est dans Téléchargements, et le garder.</li>
+    <li><strong>Remplacer <code>cubes.html</code> au même endroit, sous le même nom</strong> (sous Firefox, une copie
+      ailleurs ou renommée ne retrouve pas les mondes). Ne plus rouvrir l'ancien fichier : la 1.0-rc ne connaît ni le
+      verre ni les lettres ; la 1.1-rc oublierait le temps par mot et le réglage d'appui.</li>
+    <li><strong>Version</strong> : ajouter <code>#monde=plat&amp;graine=1</code> à l'adresse du fichier (mode adresse :
+      rien n'est enregistré). La ligne d'infos, en haut à gauche, se termine par <strong>« 1.1-rc2 »</strong>.</li>
+    <li>Mode parent : si l'ancien fichier était la 1.0-rc, « Dernier export : jamais. » est normal.
+      « Appui long pour vider une case » est sur « 1 s (par défaut) ».</li>
+  </ul>
+
+  <div class="warn"><strong>Marteau : une découverte par profil.</strong> Ouvrir le marteau dans une partie d'enfant le
+    retient pour ce profil, dans tous ses mondes (il ne brille plus, Pixel ne le présente plus). Tous les essais du
+    panneau se font donc <strong>en mode adresse</strong>, où le marteau est toujours là :
+    <code>#monde=prairie&amp;graine=1&amp;mission=1&amp;lecture=debutant</code> (puis <code>&amp;lecture=autonome</code>).
+    Si le marteau a déjà été ouvert dans le profil d'un enfant : réimporter un export fait avant cette ouverture
+    (mode parent → « Importer un fichier… » : tout est remplacé).</div>
+
+  <h2>B. Vérifications sur le convertible, par ordre de priorité</h2>
+
+  <h3><span class="prio">1</span>Appui long au doigt sur une case du sac (le plus important)</h3>
+  <p>Mode adresse <code>#monde=plat&amp;graine=1</code>, bouton « Tests » → « Compléter le sac (20 de chaque) ».</p>
+  <table>
+    <tr><th>Essai</th><th style="width:24mm">Résultat</th></tr>
+    <tr><td>Garder le doigt 1 s sur une case : un anneau se remplit <strong>au-dessus</strong> de la case, puis la case
+      est vidée. Menu contextuel de Firefox ? Carré du clic droit de Windows ? Case vidée avant la fin de l'anneau ?</td>
+      <td></td></tr>
+    <tr><td>Toucher bref : la case est choisie, sans anneau. Doigt qui glisse le long de la barre : rien n'est vidé.</td>
+      <td></td></tr>
+    <tr><td>Lampe : pas d'anneau, le jeu dit « Garde ta lampe ! ». Sac plein : le jeu conseille une case, qui palpite.</td>
+      <td></td></tr>
+  </table>
+  <div class="warn"><strong>Si la case ne se vide pas, ou mal :</strong>
+    <ol class="steps">
+      <li>Essayer d'abord en mode adresse : <code>#monde=plat&amp;graine=1&amp;appui=800</code>. La ligne d'infos finit
+        par « appui 0,8 s » (l'option n'agit qu'avec <code>monde=</code> ou <code>graine=</code> dans l'adresse ;
+        elle reste après F5). Refaire l'essai.</li>
+      <li>Si c'est mieux : mode parent → « Appui long pour vider une case » → <strong>« 0,8 s »</strong> →
+        « Enregistrer et fermer ». Le réglage vaut à partir de la partie suivante ; le relire en rouvrant le mode parent
+        (dans une partie d'enfant, la ligne d'infos est masquée).</li>
+    </ol>
+    Durée retenue pour la séance : <span class="box"></span>0,8 s <span class="box"></span>1 s
+    <span class="box"></span>1,2 s &nbsp; Remarque : <span class="fill long"></span>
+  </div>
+  <p class="small">Déplié, clavier : garder la touche <strong>3</strong> une seconde vide la case 3 ; la relâcher avant ne
+    vide rien. <span class="box"></span>fait</p>
+
+  <h3><span class="prio">2</span>Barre, case ABC, boîte à lettres
+    <span class="small" style="font-weight:normal">— <code>#monde=plat&amp;graine=1&amp;mission=2&amp;lecture=debutant</code></span></h3>
+  <ul class="check">
+    <li>Portrait puis paysage : les 10 cases, le rond et les boutons ne se chevauchent pas ; la case ABC ouvre la boîte ;
+      les 26 lettres tiennent sans défilement, assez grosses pour le doigt.</li>
+    <li>Lettre choisie : si la voix est active, elle dit son nom (« emme ») ; elle se pose sous la croix.
+      Pouce posé sur le voile + doigt sur une lettre : la boîte ne se ferme pas au lever du pouce. Double toucher rapide
+      sur une lettre : rien n'est posé derrière.</li>
+    <li>Autonome (<code>&amp;lecture=autonome</code>) : le mot est dicté ; est-il compris avec la voix du convertible ?</li>
+  </ul>
+
+  <h3><span class="prio">3</span>Marteau et panneau de fabrication (mode adresse seulement, voir l'encadré)</h3>
+  <ul class="check">
+    <li>Trois cartes ; « Planches » : 1 tronc → 2 planches ; au deuxième tronc, le débutant voit et entend
+      « 2 + 2 = 4 planches ! ». Doigt gardé sur une carte : <strong>une seule</strong> fabrication, pas de menu.</li>
+    <li>Pouce sur le voile + doigt sur une carte : rien ne se ferme. Double toucher sur la croix, un bloc en main en mode
+      Poser : rien n'est posé derrière. Panneau ouvert, appui long sur une case : l'anneau passe entre la barre et la
+      feuille, la case est vidée.</li>
+  </ul>
+
+  <h3><span class="prio">4</span>Verre, puis mode parent</h3>
+  <ul class="check">
+    <li>Verre posé, de jour puis de nuit (« Tests » → « Nuit ») : on voit à travers, on ne passe pas. Aquarium et maison
+      de verre : rien ne disparaît selon l'angle. Images par seconde à travers plusieurs vitres : <span class="fill"></span></li>
+    <li>Après un vrai export (fichier dans Téléchargements), la date devient « aujourd'hui » et le rappel disparaît.</li>
+    <li>Pour la séance : « Afficher le panneau « Tests » et les infos techniques… » <strong>décoché</strong>.</li>
+  </ul>
+  <div class="lines"><div class="l"></div><div class="l"></div></div>
+</section>
+
+<!-- ======================= PAGE 2 ======================= -->
+<section class="page">
+  <header class="top">
+    <h1>Cubes 1.1-rc2 — séance avec les enfants</h1>
+    <div class="meta">Date : <span class="fill"></span> &nbsp; Portrait <span class="box"></span> Paysage <span class="box"></span></div>
+  </header>
+
+  <h2>Ordre</h2>
+  <ol class="steps">
+    <li><strong>L'enfant de 6 ans d'abord, seul</strong> (profil débutant) : nouveau monde (tutoriel si besoin,
+      mission 1, puis mission 2) ou un monde dont la mission 1 est finie. Aucune consigne orale : Pixel s'en charge.
+      <strong>Ne pas intervenir</strong> ; noter l'heure. Si la mission 1 finit la nuit, après « Continuer » le temps
+      file jusqu'au matin, puis la mission 2 commence.</li>
+    <li><strong>Puis l'enfant de 8 ans</strong> (profil autonome) : même déroulé ; la mission 2 est en dictée.</li>
+  </ol>
+  <p class="small">Début / fin à la montre — 6 ans : <span class="fill"></span> 8 ans : <span class="fill"></span></p>
+
+  <h2>Observer et noter, sans intervenir</h2>
+  <table>
+    <tr><th style="width:52mm">À observer</th><th>6 ans</th><th>8 ans</th></tr>
+    <tr><td>Chaque appel à l'aide : quand, et pourquoi</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Cases du sac vidées <strong>sans le vouloir</strong> (appui long)</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Marteau trouvé seul ? (il brille ; dans un monde dont la mission 1 est finie, Pixel n'en parle pas ; seulement
+      si le profil ne l'a jamais ouvert)</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Cartes comprises ? Addition « 2 + 2 = 4 planches ! » comprise ?</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Que fait-il du verre ?</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Case ABC et boîte à lettres : trouvées, comprises ?</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Cases claires : recopie-t-il le mot ? La lettre tombe-t-elle dans la case visée ?</td><td class="write"></td><td class="write"></td></tr>
+    <tr><td>Dictée (8 ans) : comprise ? trop facile ? trop longue ?</td><td class="write" style="background:#f3f3f3"></td><td class="write"></td></tr>
+    <tr><td>La mission 2 l'amuse-t-elle ?</td><td class="write"></td><td class="write"></td></tr>
+  </table>
+
+  <h2>Les quatre critères de réussite du brief</h2>
+  <table>
+    <tr><th style="width:52mm">Critère</th><th>Comment l'observer</th><th style="width:15mm">Oui / non</th></tr>
+    <tr><td>1. L'enfant de 6 ans lance le jeu et joue 15 minutes seul</td>
+      <td>Raccourci sur le bureau → « Qui joue ? » → son prénom → son monde ; chronométrer sans intervenir.</td><td></td></tr>
+    <tr><td>2. Il comprend et termine la mission 1 sans aide d'un adulte</td>
+      <td>Nouveau monde, profil débutant ; noter les blocages et le temps par étape (tutoriel, troncs, pierres, abri,
+        lampe, nuit).</td><td></td></tr>
+    <tr><td>3. Le jeu tourne de façon fluide sur le convertible</td>
+      <td>Au ressenti ; en cas de doute, images/s après la séance (« Tests » coché).</td><td></td></tr>
+    <tr><td>4. Les deux profils retrouvent leur monde à la partie suivante</td>
+      <td>Fermer Firefox, rouvrir le lendemain : monde, sac, étape de mission, étoile.</td><td></td></tr>
+  </table>
+
+  <h2>Temps par mot : déjà relevé par le jeu</h2>
+  <p>Inutile de chronométrer chaque mot. Après la séance : « Qui joue ? » → engrenage (3 s) → mode parent → section
+    <strong>« Progression »</strong> → sous le prénom de l'enfant, <strong>« Monde N, temps par mot (jeu actif) : »</strong>.
+    Une ligne par mot : le mot (copie ou dictée), la durée, le nombre d'<strong>essais non réussis</strong> et les aides
+    reçues ; puis « Durée de la mission 2 (les mots) : … ». Jeu actif : boîte à lettres comprise, sans le panneau de
+    fabrication, les félicitations ni l'accueil. Un mot écrit avec une version précédente est « non relevé ». Ces relevés
+    sont aussi dans le fichier exporté. Sortir par « Fermer sans enregistrer ».</p>
+
+  <h2>Idées des enfants, ce qui coince</h2>
+  <div class="lines"><div class="l"></div><div class="l"></div><div class="l"></div><div class="l"></div></div>
+  <p class="note" style="margin-top:1.2mm">À recopier ensuite dans <code>docs/RETOURS.md</code> (« Séance du … — J8 »).</p>
+</section>
+
+</body>
+</html>
