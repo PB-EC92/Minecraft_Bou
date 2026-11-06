@@ -226,9 +226,9 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 ### Suites de recette
 
 - Appui long sur une case :
-  - anneau au-dessus de la case après 200 ms, case vidée à 1 s, son « pouf » ;
+  - anneau au-dessus de la case après 200 ms, case vidée à 1 s, son « pouf » (depuis la 1.1-rc2, durée réglable : 0,8 / 1 / 1,2 s au mode parent, `&appui=` en mode adresse ; 1 s par défaut) ;
   - annulé si le doigt glisse de plus de 18 px, au relâchement, à un changement de case ou à une pause (sauf panneau de fabrication) ;
-  - un `touchcancel` reçu après au moins 900 ms d'appui vaut un appui allé au bout (parade pour Windows, `slotHoldAfterCancel`) ; avant 900 ms, l'appui est abandonné ;
+  - un `touchcancel` reçu après au moins 900 ms d'appui vaut un appui allé au bout (parade pour Windows, `slotHoldAfterCancel`) ; avant 900 ms, l'appui est abandonné (depuis la 1.1-rc2 : durée − 100 ms, soit 700, 900 ou 1100 ms) ;
   - au clavier, garder la touche 1 à 9 enfoncée (sous réserve de Pierre).
 - Soir retenu à 17 h : voir §4.3.
 - Engrenage : plus de texte ; une note pour l'adulte sur l'écran de premier réglage.
@@ -292,7 +292,7 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 
 ## 9. Risques principaux (non vérifiés)
 
-- **Firefox sous Windows au doigt** : appui long transformé en clic droit, ou `touchcancel` vers 1 s. Parade faite pendant la revue du J8 : un `touchcancel` reçu après au moins 900 ms d'appui sur une case vaut un appui allé au bout ; la case est vidée avec les règles de `discardVerdict` (refus dit pour la lampe, le cadeau ou le bloc de l'étape). Avant 900 ms, l'appui est abandonné. Une perte de focus au même moment ne l'empêche pas, qu'elle arrive avant ou après l'annulation (`slotHoldAfterBlur`, contre-vérification V6). Reste possible si nécessaire : passer l'appui à 800 ms. À vérifier sur le convertible (protocole J8).
+- **Firefox sous Windows au doigt** : appui long transformé en clic droit, ou `touchcancel` vers 1 s. Parade faite pendant la revue du J8 : un `touchcancel` reçu après au moins 900 ms d'appui sur une case vaut un appui allé au bout ; la case est vidée avec les règles de `discardVerdict` (refus dit pour la lampe, le cadeau ou le bloc de l'étape). Avant 900 ms, l'appui est abandonné. Une perte de focus au même moment ne l'empêche pas, qu'elle arrive avant ou après l'annulation (`slotHoldAfterBlur`, contre-vérification V6). Depuis la 1.1-rc2, passer l'appui à 800 ms ne demande plus de nouvelle version : réglage du mode parent (0,8 / 1 / 1,2 s) ou `&appui=800` en mode adresse, seuil du `touchcancel` à durée − 100 ms. À vérifier sur le convertible (protocole J8).
 - **Doigt perdu sur un écran posé sur le jeu** (geste de Windows sans `touchcancel`, paume ou pouce sur le voile) : parade faite (§4.1, dernier doigt posé, voile ignoré tant qu'un autre doigt est posé, y compris sur la barre, oubli sur perte de focus ; 400 ms sans poser ni casser après la fermeture d'un écran). À vérifier sur le convertible.
 - **Vidage involontaire** par l'enfant de 6 ans.
 - **Barre à 10 cases en portrait** : le rond et la colonne remontent.
@@ -300,6 +300,6 @@ phase = eveningHeld() ? holdEvening(phase, next) : next
 - **Durée de la mission 2** avec le petit : environ 15 lettres posées (estimation).
 - **Tri des faces de verre** dans une même section ; halo de lampe et bulles légèrement teintés derrière une vitre ; bulle ou halo de lampe placé devant une vitre, dessiné derrière son cadre (le verre est toujours dessiné après les bulles et les halos) ; vitre au sec vue à travers un verre noyé, qui peut passer devant lui ; verre noyé un peu plus bleu qu'une pierre noyée (la face d'eau collée au verre s'ajoute à la surface) ; une vitre posée dans l'air derrière de l'eau (derrière un aquarium, ou vue d'un bassin à travers sa surface) n'est pas teintée par l'eau : elle se dessine par-dessus (ordre 2, après toute l'eau ; seules les faces au contact de l'eau passent avant, ordre 0,5). Défauts acceptés.
 - **Gains des sons** `craft` et `discard` : à mesurer.
-- **Taille du fichier** : `dist/cubes.html` grossit (estimation : quelques dizaines de ko ; mesuré : 813 ko à la 1.1-rc, 819 ko après les corrections de la revue, 821 ko après la seconde contre-vérification, contre 706 ko à la 1.0-rc).
+- **Taille du fichier** : `dist/cubes.html` grossit (estimation : quelques dizaines de ko ; mesuré : 813 ko à la 1.1-rc, 819 ko après les corrections de la revue, 821 ko après la seconde contre-vérification, 828 ko à la 1.1-rc2, contre 706 ko à la 1.0-rc).
 - **Le rapport 1 tronc → 4 planches** est celui du jeu d'inspiration : c'est un nombre dans une table, à changer en une ligne.
 - **Huit cases occupées sur neuf** dès la mission 1 avec la fabrication : l'appui long est la soupape, à observer en séance.

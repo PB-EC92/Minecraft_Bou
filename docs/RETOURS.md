@@ -4,9 +4,11 @@ Un bloc par séance de test. Noter l'appareil, qui a testé, ce qui a marché, c
 
 Appareils (précisés le 24/09/2026) : la colonne « Tablette Android » des protocoles J0.1 à J2 désigne en fait le **convertible Acer Nitro 5 Spin NP515-51 replié en mode tablette, sous Firefox** ; il n'y a pas de tablette Android. À partir du J2.1, les colonnes sont « PC » et « Convertible (mode tablette, Firefox) ».
 
-## Protocole J8 / V2 lot 1 (version 1.1-rc)
+## Protocole J8 / V2 lot 1 (version 1.1-rc2)
 
-Sur le convertible replié, Firefox. **Avant** : avec l'ancien fichier (1.0-rc), mode parent → **Exporter** ; puis remplacer `cubes.html` au même endroit, sous le même nom. Ligne d'infos (mode parent → « Afficher le panneau Tests et les infos techniques ») terminée par « 1.1-rc ». Juste après la mise à jour, le mode parent dit « Dernier export : jamais. » : c'est normal (la 1.0-rc ne gardait pas cette date). **Ne plus rouvrir ces mondes avec la 1.0-rc** : elle ne connaît ni le verre, ni les lettres, ni la mission 2 (un monde qui en contient serait mis de côté en copie de secours et régénéré ; un monde en mission 2 repartirait à la mission 1).
+Fiche imprimable de ce protocole, à remplir sur place : `docs/FICHE-SEANCE.html` (A4, deux pages : avant la séance, Pierre seul ; puis la séance avec les enfants), à recopier ensuite ici dans « Séance du … — J8 ».
+
+Sur le convertible replié, Firefox. **Avant** : avec l'ancien fichier (1.0-rc ou 1.1-rc), mode parent → **Exporter** ; puis remplacer `cubes.html` au même endroit, sous le même nom. Ligne d'infos (mode parent → « Afficher le panneau Tests et les infos techniques », ou en mode adresse) terminée par « 1.1-rc2 » (suivie de « appui 0,8 s » ou « appui 1,2 s » si l'appui long n'est pas réglé à 1 s). Si l'ancien fichier était la 1.0-rc, le mode parent dit juste après « Dernier export : jamais. » : c'est normal (la 1.0-rc ne gardait pas cette date). **Ne plus rouvrir l'ancien fichier** : la 1.1-rc relit les mondes de la 1.1-rc2 mais efface à son prochain enregistrement le temps par mot et le réglage d'appui (vérifié sur son code, non essayé). **Ne jamais rouvrir ces mondes avec la 1.0-rc** : elle ne connaît ni le verre, ni les lettres, ni la mission 2 (un monde qui en contient serait mis de côté en copie de secours et régénéré ; un monde en mission 2 repartirait à la mission 1).
 
 Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici, sauf quand Firefox, Windows, la voix ou la vraie carte graphique peuvent changer le résultat. Colonne « Convertible » : oui / non, et ce qu'on a vu.
 
@@ -16,11 +18,13 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 
 | Vérification | Convertible |
 |---|---|
-| Sac bien rempli : garder le doigt **une seconde** sur une case. Un anneau se remplit **au-dessus** de la case (visible malgré le doigt), puis « pouf » : la case est vidée. Noter : menu contextuel de Firefox ? Si Windows montre son carré de clic droit ou interrompt le geste vers 1 s, la case doit **quand même se vider** (parade faite après la revue : un toucher annulé après 0,9 s compte comme un appui allé au bout, que la fenêtre perde le focus avant ou après l'annulation) ; si elle se vide avant la fin de l'anneau, le noter | |
+| Mode parent : la section « Appui long pour vider une case » est sur « 1 s (par défaut) » ; les choix sont 0,8 s, 1 s et 1,2 s | |
+| Sac bien rempli, réglage à 1 s : garder le doigt **une seconde** sur une case. Un anneau se remplit **au-dessus** de la case (visible malgré le doigt), puis « pouf » : la case est vidée. Noter : menu contextuel de Firefox ? Si Windows montre son carré de clic droit ou interrompt le geste vers 1 s, la case doit **quand même se vider** (parade faite après la revue : un toucher annulé à 0,1 s de la fin ou plus tard, soit après 0,9 s au réglage de 1 s, compte comme un appui allé au bout, que la fenêtre perde le focus avant ou après l'annulation) ; si elle se vide avant la fin de l'anneau, le noter | |
+| **Si la case ne se vide pas, ou mal, à 1 s** : ouvrir `cubes.html#monde=plat&graine=1&appui=800` (mode adresse, rien n'est enregistré ; `&appui` n'agit qu'avec `monde=` ou `graine=` dans l'adresse, sinon il est ignoré sans message) ; la ligne d'infos finit par « appui 0,8 s » ; refaire l'essai (seuil d'annulation : 0,7 s). Appuyer sur **F5** : la ligne d'infos dit toujours « appui 0,8 s » (non vérifié sous Firefox en `file://`). Si c'est mieux : mode parent → « 0,8 s » → enregistrer ; le réglage vaut à partir de la partie suivante. Le relire en rouvrant le mode parent : dans une partie d'enfant, la ligne d'infos n'est visible qu'avec « Tests » coché, et les enfants la voient alors aussi. **Noter la durée retenue pour la séance** | |
 | Toucher bref sur une case : elle est choisie, aucun anneau ; doigt qui glisse le long de la barre : rien n'est vidé | |
 | Lampe et blocs arc-en-ciel : pas d'anneau, le jeu dit de les garder (« Garde ta lampe ! ») ; pendant l'étape « 6 troncs », les troncs ne se vident pas (« Garde tes troncs ! ») | |
 | Sac plein : le jeu conseille une case à vider, qui palpite | |
-| Déplié, clavier : garder la touche **3** une seconde vide la case 3 ; la relâcher avant ne vide rien ; de même panneau de fabrication ouvert (la ligne d'état du panneau le dit ; en mode adresse, voir « Marteau » plus haut). Souris non capturée : garder le clic une seconde sur une case la vide | |
+| Déplié, clavier : garder la touche **3** la durée réglée (une seconde par défaut) vide la case 3 ; la relâcher avant ne vide rien ; de même panneau de fabrication ouvert (la ligne d'état du panneau le dit ; en mode adresse, voir « Marteau » plus haut). Souris non capturée : garder le clic la même durée sur une case la vide | |
 
 ### Fabrication et verre
 
@@ -30,7 +34,7 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 | Les lignes suivantes en mode adresse (voir « Marteau » plus haut). Toucher le marteau : panneau de trois cartes ; toucher « Planches » : 1 tronc → 2 planches ; au deuxième tronc, le débutant voit « 2 + 2 = 4 planches ! » (et l'entend) | |
 | Garder le doigt sur une carte : **une seule** fabrication, pas de menu contextuel ; glisser le doigt sur le panneau : la vue ne tourne pas ; le voile ou la croix ferment ; rien n'a été cassé ni posé derrière | |
 | 2 planches → 1 clôture ; 1 sable → 2 verres. Carte impossible : elle tremble et le panneau dit pourquoi ; panneau ouvert sac plein, sans aucune carte possible : « Sac plein : vide une case ! » et la case à vider remue | |
-| Panneau ouvert, appui long d'une seconde sur une case : l'anneau se voit **entre la barre et la feuille**, sans masquer la consigne du panneau ; la case est vidée | |
+| Panneau ouvert, appui long sur une case : l'anneau se voit **entre la barre et la feuille**, sans masquer la consigne du panneau ; la case est vidée | |
 | Appareil tenu à deux mains, le **pouce posé sur le bord de l'écran** (sur le voile) pendant qu'un doigt de l'autre main touche une carte : la carte fabrique, rien ne se ferme au lever du pouce. Même essai avec une paume posée d'abord sur le voile, puis avec le doigt gardé une seconde sur une **case de la barre** (pouce posé avant ou après) : la case se vide, le panneau reste ouvert | |
 | **Double toucher** rapide sur la croix du panneau, un bloc en main en mode Poser : le panneau se ferme, rien n'est posé derrière ; un toucher une demi-seconde plus tard pose | |
 | Déplié : **F** ouvre et ferme ; **Échap en plein écran** : noter si Firefox quitte d'abord le plein écran, et si le panneau se ferme ; après fermeture, un clic recapture la souris (« Clique pour jouer ») ; ce message ne vient que si l'écran n'a pas été touché depuis l'ouverture de la page : après les essais au doigt, recharger la page (F5) une fois l'appareil déplié | |
@@ -55,8 +59,17 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 | Prénom (étape 4) : écrit sans accent ; pour un prénom à accents, copie du prénom en capitales | |
 | **Lisibilité des lettres** posées, à 5, 15 et 30 blocs, de jour et le soir (17 h) | |
 | **Barre à 10 cases en portrait** : la case ABC, le rond et les boutons ne se chevauchent pas ; la touche « 0 » se lit ; la lettre tenue se voit dans la case ABC | |
-| **Durée réelle de la mission 2**, de la première lettre aux félicitations, pour chaque enfant (noter aussi le temps par mot) | |
+| **Durée réelle de la mission 2** à la montre, début et fin, pour chaque enfant (heure de la première lettre, heure des félicitations). Le **temps par mot** n'est plus à chronométrer : le jeu le relève (voir « Temps par mot » ci-dessous) | |
+| **Temps par mot lisible dans le mode parent**, en portrait : après la mission 2, « Qui joue ? » → engrenage (3 s) → mode parent → « Progression » → sous le prénom, « Monde N, temps par mot (jeu actif) : » ; une ligne par mot, puis la durée de la mission 2 ; valeurs plausibles par rapport à la montre ; les lignes tiennent dans l'écran sans déborder. Sortir par « Fermer sans enregistrer » | |
 | Félicitations : chaque mot écrit en lettres-blocs, cadeau ; accueil : deux étoiles ; mode parent : « mots écrits : … » | |
+
+**Temps par mot : ce que disent les chiffres** (relevé par le jeu depuis la 1.1-rc2 ; aussi dans le fichier exporté, champ `mission.wordStats`).
+- **Jeu actif** : compté tant que la partie est affichée (onglet visible), boîte à lettres ouverte comprise, et y compris le temps où l'enfant ne fait rien ; non compté : panneau de fabrication, félicitations, accueil, chargement d'un monde ; une image compte 250 ms au plus. La durée au mur (pauses comprises) n'est pas relevée : la noter à la montre.
+- **Durée d'un mot** : de la consigne dite au mot trouvé. **Durée de la mission 2** : de la première **consigne d'écriture** (mot 1) aux félicitations, pas de la première lettre posée à l'étape 0.
+- **Essai non réussi** : un message de correction du jeu ; un même essai faux peut en donner plusieurs, et « De gauche à droite ! » est redit et recompté toutes les 15 s tant que le mot reste à l'envers.
+- **Aides** : case = case claire suivante ; ligne = ligne de cases claires ; lettre dite = lettre suivante dite ; sol plat = conseil de se tourner vers un sol plat ; lettre donnée = lettre mise dans la main ; cases du mot, 1re lettre, lettre dévoilée = indices de la dictée ; passé en copie = mot entier dévoilé, ou plus de voix ; comment casser = conseil pour casser une lettre fausse. La ligne montrée d'emblée au mot 1 en copie n'est pas une aide.
+- Un prénom déjà écrit avant sa consigne s'affiche « 0 s, sans aide ». « X : non relevé (écrit avec une version du jeu sans ce relevé) » et une durée « partielle » : le monde est passé par la 1.1-rc. « X (copie, remplacé par un autre mot avant d'être écrit) » : niveau de lecture ou prénom changé en cours de mot.
+- Non vérifié sous Firefox : onglet masqué, cadence des images du convertible ; comparer à la montre.
 
 ### Soir retenu, lampe, mode parent
 
@@ -70,7 +83,7 @@ Ce que Chromium a vérifié côté cloud (tests de fumée) n'est pas repris ici,
 
 ### Séance enfants J8
 
-Profil 6 ans d'abord, seul, sur un monde dont la mission 1 est finie (ou un nouveau monde : la mission 1 puis la mission 2). Noter chaque appel à l'aide et sa raison. À observer : vide-t-il des cases sans le vouloir (appui long) ? Trouve-t-il le marteau (dans un monde dont la mission 1 est finie, il brille, mais Pixel n'en parle pas : le trouve-t-il seul ? seulement si son profil n'a jamais ouvert le marteau, voir « Marteau » plus haut), comprend-il les cartes et l'addition ? Que fait-il du verre ? Comprend-il la case ABC et la boîte ? Recopie-t-il le mot avec les cases claires ? Combien de temps par mot ? Puis le profil 8 ans : la dictée est-elle comprise, trop facile, trop longue ? Les deux : la mission 2 les amuse-t-elle ?
+Profil 6 ans d'abord, seul, sur un monde dont la mission 1 est finie (ou un nouveau monde : la mission 1 puis la mission 2). Noter chaque appel à l'aide et sa raison. À observer : vide-t-il des cases sans le vouloir (appui long) ? Trouve-t-il le marteau (dans un monde dont la mission 1 est finie, il brille, mais Pixel n'en parle pas : le trouve-t-il seul ? seulement si son profil n'a jamais ouvert le marteau, voir « Marteau » plus haut), comprend-il les cartes et l'addition ? Que fait-il du verre ? Comprend-il la case ABC et la boîte ? Recopie-t-il le mot avec les cases claires ? (Le temps par mot est relevé par le jeu : le recopier depuis le mode parent après la séance.) Puis le profil 8 ans : la dictée est-elle comprise, trop facile, trop longue ? Les deux : la mission 2 les amuse-t-elle ?
 
 ## Séance du … — J8
 
@@ -81,7 +94,9 @@ Ce qui marche :
 
 Ce qui coince :
 
-Temps de la mission 2 (par enfant, par mot) :
+Durée retenue pour l'appui long (0,8 / 1 / 1,2 s) :
+
+Temps de la mission 2 (par enfant : à la montre ; par mot : lignes « temps par mot » du mode parent) :
 
 Idées des enfants :
 

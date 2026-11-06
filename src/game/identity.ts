@@ -5,8 +5,9 @@
  * identifiant technique « cubes » (clés `cubes:`, champ app des exports).
  *
  * Version : « 1.0-rc » (candidate) pendant la recette V1 ; « 1.1-rc » pendant le
- * lot 1 de la V2 (décision 15 de Pierre) : la 1.0 sera déclarée après la recette
+ * lot 1 de la V2 (décision 15 de Pierre) ; « 1.1-rc2 » pour le test de Pierre
+ * (appui long réglable, temps par mot) : la 1.0 sera déclarée après la recette
  * avec les enfants.
  */
 export const GAME_NAME = "Cubes";
-export const VERSION = "1.1-rc";
+export const VERSION = "1.1-rc2";

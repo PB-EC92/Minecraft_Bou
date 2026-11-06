@@ -389,8 +389,8 @@ test("le jeu démarre en file:// sans erreur : accueil devant une prairie géné
   // Le monde se construit derrière l'accueil.
   await expect.poll(async () => (await state(page)).faces, { timeout: 20_000 }).toBeGreaterThan(10_000);
   expect(info.fps).toBeGreaterThan(0);
-  expect(await page.locator(INFO).textContent()).toMatch(/1\.1-rc$/);
-  expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.1-rc");
+  expect(await page.locator(INFO).textContent()).toMatch(/1\.1-rc2$/);
+  expect(await page.evaluate(() => window.cubesDebug.version)).toBe("1.1-rc2");
   await expect(page).toHaveTitle("Cubes");
   // J7 : ni panneau Tests ni infos techniques hors du mode adresse (réglage du mode parent, décoché par défaut).
   await expect(page.locator(INFO)).toBeHidden();
@@ -448,7 +448,7 @@ test("le diagnostic est renseigné", async ({ page }) => {
   await page.getByRole("button", { name: "Tests" }).click();
   const diag = page.locator(".diag");
   // toContainText réessaie : le diagnostic se rafraîchit 4 fois par seconde.
-  await expect(diag).toContainText("Version : 1.1-rc");
+  await expect(diag).toContainText("Version : 1.1-rc2");
   await expect(diag).toContainText("Sac : 1/9 cases, 2 blocs");
   await expect(diag).toContainText("Lecture : debutant, voix active");
   await expect(diag).toContainText("Adresse : file:");
