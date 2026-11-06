@@ -13,6 +13,9 @@ export default defineConfig({
   use: {
     headless: true,
     launchOptions: {
+      // Environnement cloud de Claude Code : Chromium préinstallé dans une autre version que celle attendue par
+      // Playwright ; CUBES_CHROMIUM donne son chemin (/opt/pw-browsers/chromium). En local, rien à régler.
+      ...(process.env.CUBES_CHROMIUM ? { executablePath: process.env.CUBES_CHROMIUM } : {}),
       args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
     },
   },
