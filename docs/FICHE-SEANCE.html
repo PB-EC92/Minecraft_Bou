@@ -7,7 +7,8 @@
 <!--
   Fiche imprimable (A4, deux pages) tirée des protocoles « J8 / V2 lot 1 » et « Recette V1 » de docs/RETOURS.md.
   Page autonome : aucune ressource externe. Les libellés entre guillemets sont ceux du jeu (src/ui/HomeScreen.ts,
-  src/ui/Hud.ts, src/save/saveFormat.ts, src/edu/*.ts) : les reprendre tels quels si le jeu change.
+  src/ui/Hud.ts, src/save/saveFormat.ts, src/edu/*.ts) : les reprendre tels quels si le jeu change ; le test
+  tests/unit/ficheSeance.test.ts vérifie que chacun existe dans le jeu (renvois à RETOURS.md et textes calculés à part).
 -->
 <style>
   @page { size: A4; margin: 10mm 11mm 10mm 11mm; }
@@ -133,10 +134,12 @@
       <strong>3 s sur l'engrenage</strong> (en bas à gauche) → mode parent → section « Sauvegarde » →
       « Exporter (fichier) ». Vérifier que <code>cubes-sauvegarde-….json</code> est dans Téléchargements, et le garder.</li>
     <li><strong>Remplacer <code>cubes.html</code> au même endroit, sous le même nom</strong> (sous Firefox, une copie
-      ailleurs ou renommée ne retrouve pas les mondes). Ne plus rouvrir l'ancien fichier : la 1.0-rc ne connaît ni le
+      ailleurs ou renommée ne retrouverait sans doute pas les mondes : non vérifié). Ne plus rouvrir l'ancien fichier : la 1.0-rc ne connaît ni le
       verre ni les lettres ; la 1.1-rc oublierait le temps par mot et le réglage d'appui.</li>
-    <li><strong>Version</strong> : ajouter <code>#monde=plat&amp;graine=1</code> à l'adresse du fichier (mode adresse :
-      rien n'est enregistré). La ligne d'infos, en haut à gauche, se termine par <strong>« 1.1-rc2 »</strong>.</li>
+    <li><strong>Version</strong> : fermer tout onglet encore ouvert sur l'ancien fichier, ouvrir le nouveau, ajouter
+      <code>#monde=plat&amp;graine=1</code> à l'adresse, Entrée (mode adresse : rien n'est enregistré). La ligne d'infos,
+      en haut à gauche, se termine par <strong>« 1.1-rc2 »</strong>. Une adresse retouchée (mission, lecture, retour à
+      l'accueil) recharge la page ; en cas de doute, F5.</li>
     <li>Mode parent : si l'ancien fichier était la 1.0-rc, « Dernier export : jamais. » est normal.
       « Appui long pour vider une case » est sur « 1 s (par défaut) ».</li>
   </ul>
@@ -146,7 +149,9 @@
     panneau se font donc <strong>en mode adresse</strong>, où le marteau est toujours là :
     <code>#monde=prairie&amp;graine=1&amp;mission=1&amp;lecture=debutant</code> (puis <code>&amp;lecture=autonome</code>).
     Si le marteau a déjà été ouvert dans le profil d'un enfant : réimporter un export fait avant cette ouverture
-    (mode parent → « Importer un fichier… » : tout est remplacé).</div>
+    (mode parent → « Importer un fichier… » : tout est remplacé, réglages compris). <strong>Après tout import</strong>,
+    rouvrir le mode parent et revérifier « Appui long pour vider une case » (un export d'une version précédente le
+    remet à 1 s), ainsi que la nuit, les Grignotes et « Tests ».</div>
 
   <h2>B. Vérifications sur le convertible, par ordre de priorité</h2>
 
@@ -167,14 +172,17 @@
       <li>Essayer d'abord en mode adresse : <code>#monde=plat&amp;graine=1&amp;appui=800</code>. La ligne d'infos finit
         par « appui 0,8 s » (l'option n'agit qu'avec <code>monde=</code> ou <code>graine=</code> dans l'adresse ;
         elle reste après F5). Refaire l'essai.</li>
-      <li>Si c'est mieux : mode parent → « Appui long pour vider une case » → <strong>« 0,8 s »</strong> →
+      <li>Si c'est mieux : effacer de l'adresse tout ce qui suit <code>cubes.html</code>, le <code>#</code> compris,
+        puis Entrée (ou rouvrir le raccourci) : « Qui joue ? » revient ; engrenage 3 s → mode parent →
+        « Appui long pour vider une case » → <strong>« 0,8 s »</strong> →
         « Enregistrer et fermer ». Le réglage vaut à partir de la partie suivante ; le relire en rouvrant le mode parent
         (dans une partie d'enfant, la ligne d'infos est masquée).</li>
     </ol>
     Durée retenue pour la séance : <span class="box"></span>0,8 s <span class="box"></span>1 s
-    <span class="box"></span>1,2 s &nbsp; Remarque : <span class="fill long"></span>
+    <span class="box"></span>1,2 s &nbsp; Remarque : <span class="fill long"></span><br>
+    Après un import, revérifier ce réglage (un export d'une version précédente le remet à 1 s).
   </div>
-  <p class="small">Déplié, clavier : garder la touche <strong>3</strong> une seconde vide la case 3 ; la relâcher avant ne
+  <p class="small">Déplié, clavier : garder la touche <strong>3</strong> la durée réglée (1 s par défaut) vide la case 3 ; la relâcher avant ne
     vide rien. <span class="box"></span>fait</p>
 
   <h3><span class="prio">2</span>Barre, case ABC, boîte à lettres
@@ -202,7 +210,7 @@
     <li>Verre posé, de jour puis de nuit (« Tests » → « Nuit ») : on voit à travers, on ne passe pas. Aquarium et maison
       de verre : rien ne disparaît selon l'angle. Images par seconde à travers plusieurs vitres : <span class="fill"></span></li>
     <li>Après un vrai export (fichier dans Téléchargements), la date devient « aujourd'hui » et le rappel disparaît.</li>
-    <li>Pour la séance : « Afficher le panneau « Tests » et les infos techniques… » <strong>décoché</strong>.</li>
+    <li>Pour la séance : « Afficher le panneau « Tests » et les infos techniques pendant les parties (pour l'adulte) » <strong>décoché</strong>.</li>
   </ul>
   <div class="lines"><div class="l"></div><div class="l"></div></div>
 </section>
@@ -258,7 +266,9 @@
     <strong>« Progression »</strong> → sous le prénom de l'enfant, <strong>« Monde N, temps par mot (jeu actif) : »</strong>.
     Une ligne par mot : le mot (copie ou dictée), la durée, le nombre d'<strong>essais non réussis</strong> et les aides
     reçues ; puis « Durée de la mission 2 (les mots) : … ». Jeu actif : boîte à lettres comprise, sans le panneau de
-    fabrication, les félicitations ni l'accueil. Un mot écrit avec une version précédente est « non relevé ». Ces relevés
+    fabrication, les félicitations ni l'accueil. Monde dont la mission 2 a été finie avec une version précédente : pas de bloc
+    « temps par mot » (ce n'est pas une panne). Monde repris en cours de mission : les mots déjà écrits sont
+    « non relevé » et la durée est dite « partielle ». Ces relevés
     sont aussi dans le fichier exporté. Sortir par « Fermer sans enregistrer ».</p>
 
   <h2>Idées des enfants, ce qui coince</h2>

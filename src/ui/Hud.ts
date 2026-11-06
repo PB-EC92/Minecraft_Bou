@@ -212,9 +212,9 @@ export class Hud {
     // Fin de l'appui long : doigt levé ou annulé par le système, doigt ou souris qui glisse (l'enfant regardait
     // ou visait), bouton relâché, fenêtre qui perd le focus. Les touchers visent la case de départ et remontent
     // jusqu'à la barre ; la souris est suivie sur toute la fenêtre, en capture. Un doigt annulé par le système
-    // (touchcancel) après SLOT_HOLD_CANCEL_OK_MS (durée de l'appui − 100 ms) compte comme un appui allé au bout : Windows peut prendre un doigt
-    // gardé vers 1 s pour un clic droit ; l'appui reste alors, plein, et le jeu vide la case à l'image suivante
-    // (Game.updateSlotHold, mêmes règles que pour un appui d'une seconde).
+    // (touchcancel) après slotHoldCancelOkMs(durée) (durée de l'appui − 100 ms ; 900 ms pour 1 s) compte comme un appui
+    // allé au bout : Windows peut prendre un doigt gardé vers 1 s pour un clic droit ; l'appui reste alors, plein, et le
+    // jeu vide la case à l'image suivante (Game.updateSlotHold, mêmes règles que pour un appui allé au bout).
     const fingerUp = (e: TouchEvent) => {
       const h = this.hold;
       if (h?.source !== "touch") return;
