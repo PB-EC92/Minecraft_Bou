@@ -519,16 +519,18 @@ test("la perte du contexte 3D ne fige pas le jeu (constat 11)", async ({ page },
 test("le clavier déplace le joueur (position physique des touches)", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "tablette", "clavier : PC uniquement");
   await openGame(page);
-  const before = (await readInfo(page)).pos;
+  // Position lue dans l'état (et non dans la ligne d'infos, arrondie au dixième : 19,47 s'y lit 19,5 et faisait
+  // échouer la comparaison stricte une fois sur une vingtaine).
+  const before = (await state(page)).player;
   // Touche gardée jusqu'à un bloc de marche (et non un temps fixé : le temps du jeu avance d'au plus 50 ms par image,
   // et sous charge, à 3 images/s, 0,7 s ne faisait que 0,15 s de marche).
   await page.keyboard.down("KeyW");
-  await expect.poll(async () => (await state(page)).player.z, { timeout: 20_000 }).toBeLessThan(before[2] - 1);
+  await expect.poll(async () => (await state(page)).player.z, { timeout: 20_000 }).toBeLessThan(before.z - 1);
   await page.keyboard.up("KeyW");
-  const after = (await readInfo(page)).pos;
+  const after = (await state(page)).player;
   // Le joueur regarde vers -Z au départ : avancer diminue z.
-  expect(after[2]).toBeLessThan(before[2] - 1);
-  expect(Math.abs(after[0] - before[0])).toBeLessThan(0.5);
+  expect(after.z).toBeLessThan(before.z - 1);
+  expect(Math.abs(after.x - before.x)).toBeLessThan(0.5);
 });
 
 test("les touches 1 à 9 et la molette changent la case choisie", async ({ page }, testInfo) => {
