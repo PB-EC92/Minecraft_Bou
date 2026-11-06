@@ -251,15 +251,61 @@ async function waitBroken(page: Page, p: { x: number; y: number; z: number }): P
 }
 
 /**
+ * Attend que le jeu lui-même sache la souris capturée. document.pointerLockElement change dès que le navigateur
+ * accorde la capture ; le jeu ne l'apprend que par l'événement pointerlockchange (MouseLook.locked), envoyé dans une
+ * tâche suivante. Sous charge, d'autres tâches passent entre les deux (relevé avec trois navigateurs en parallèle :
+ * le clic droit du test reçu 30 ms avant l'événement) : un clic y est traité souris libre (il ne pose ni ne casse
+ * rien, il redemande la capture) et la boîte à lettres ouverte par 0 croit la souris libre (elle ne la reprend pas
+ * après le choix d'une lettre). Témoin : le bouton du panneau « Tests », que le jeu renomme en traitant l'événement.
+ */
+async function waitMouseLocked(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      document.pointerLockElement !== null &&
+      Array.from(document.querySelectorAll(".panel button")).some((b) => b.textContent === "Souris capturée (Échap)"),
+    null,
+    { timeout: 5_000 },
+  );
+}
+
+/**
  * Souris capturée, regard vers le sol juste devant soi. On attend la capture
- * elle-même (elle peut arriver tard sous charge), puis on oriente le regard
- * par l'accès de test : le trajet de la souris est vérifié par d'autres cas.
+ * elle-même, vue par le jeu (elle peut arriver tard sous charge), puis on oriente
+ * le regard par l'accès de test : le trajet de la souris est vérifié par d'autres cas.
  */
 async function lockAndLookDown(page: Page, pitchDeg = -60): Promise<void> {
   await page.mouse.click(640, 360);
-  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await waitMouseLocked(page);
   await page.evaluate((p) => window.cubesDebug.look(0, p), pitchDeg);
   await page.waitForFunction(() => window.cubesDebug.state().target !== null, null, { timeout: 5_000 });
+}
+
+/**
+ * Attend que le jeu ait appliqué un glisser déjà envoyé : le regard a changé depuis (yaw0, pitch0), puis n'a plus bougé
+ * d'une image du jeu à la suivante. Les mouvements de la souris ou du doigt ne sont lus par le jeu qu'à son image
+ * suivante (le navigateur les livre souvent au début de l'image) : sous charge (3 images/s), relire la visée juste
+ * après le glisser donne encore le bloc d'avant. Attente d'un état, sans délai ni nombre d'images fixés.
+ */
+async function waitLookSettled(page: Page, yaw0: number, pitch0: number): Promise<void> {
+  await page.evaluate(
+    async ([y0, p0]) => {
+      const frame = () => new Promise((r) => requestAnimationFrame(r));
+      const look = () => {
+        const p = window.cubesDebug.state().player;
+        return [p.yaw, p.pitch] as const;
+      };
+      let prev = look();
+      const t0 = performance.now();
+      // Garde-fou (10 s) : un regard qui ne change jamais est signalé par l'assertion qui suit, pas par l'expiration du cas.
+      while (performance.now() - t0 < 10_000) {
+        await frame();
+        const now = look();
+        if ((now[0] !== y0 || now[1] !== p0) && now[0] === prev[0] && now[1] === prev[1]) return;
+        prev = now;
+      }
+    },
+    [yaw0, pitch0] as const,
+  );
 }
 
 /** Attend n images du jeu, depuis la page. */
@@ -431,8 +477,7 @@ test("la nuit tombe : ciel sombre, monde encore visible, jamais noir", async ({ 
   await openGame(page, "#monde=prairie&graine=4242&heure=12");
   const day = await skyAndGround(page);
   await page.evaluate(() => window.cubesDebug.setHour(0));
-  await page.waitForTimeout(300);
-  expect((await state(page)).night).toBe(true);
+  await expect.poll(async () => (await state(page)).night).toBe(true); // calculé à l'image suivante
   const night = await skyAndGround(page);
   expect(luminance(night.sky)).toBeLessThan(luminance(day.sky) * 0.4);
   expect(luminance(night.ground)).toBeLessThan(luminance(day.ground));
@@ -450,8 +495,7 @@ test("sous l'eau : voile bleu, on remonte à la surface", async ({ page }, testI
   });
   expect(spot).toBeGreaterThan(0);
   await page.evaluate((x) => window.cubesDebug.teleport(x + 0.5, 12.2, 64.5), spot);
-  await page.waitForTimeout(300);
-  expect((await state(page)).player.headInWater).toBe(true);
+  await expect.poll(async () => (await state(page)).player.headInWater).toBe(true); // calculé à l'image suivante
   await expect(page.locator(".underwater")).toHaveClass(/visible/);
   await page.waitForFunction(() => !window.cubesDebug.state().player.headInWater, null, { timeout: 15_000 });
   await expect(page.locator(".underwater")).not.toHaveClass(/visible/);
@@ -464,10 +508,10 @@ test("la perte du contexte 3D ne fige pas le jeu (constat 11)", async ({ page },
   await page.waitForFunction(() => window.cubesDebug.state().contextLost, null, { timeout: 5_000 });
   await page.evaluate(() => window.cubesDebug.restoreContext());
   await page.waitForFunction(() => !window.cubesDebug.state().contextLost, null, { timeout: 10_000 });
-  await page.waitForTimeout(600);
+  // Les sections sont refaites sur plusieurs images (budget par image) : on attend qu'elles soient de nouveau dessinées.
+  await expect.poll(async () => (await state(page)).triangles, { timeout: 15_000 }).toBeGreaterThan(1000);
   const s = await state(page);
   expect(s.contextLosses).toBe(1);
-  expect(s.triangles).toBeGreaterThan(1000);
   expectSkyAndGround(await skyAndGround(page));
   expect(errors.filter((e) => !/CONTEXT_LOST|context lost/i.test(e))).toEqual([]);
 });
@@ -476,8 +520,10 @@ test("le clavier déplace le joueur (position physique des touches)", async ({ p
   test.skip(testInfo.project.name === "tablette", "clavier : PC uniquement");
   await openGame(page);
   const before = (await readInfo(page)).pos;
+  // Touche gardée jusqu'à un bloc de marche (et non un temps fixé : le temps du jeu avance d'au plus 50 ms par image,
+  // et sous charge, à 3 images/s, 0,7 s ne faisait que 0,15 s de marche).
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(700);
+  await expect.poll(async () => (await state(page)).player.z, { timeout: 20_000 }).toBeLessThan(before[2] - 1);
   await page.keyboard.up("KeyW");
   const after = (await readInfo(page)).pos;
   // Le joueur regarde vers -Z au départ : avancer diminue z.
@@ -534,11 +580,12 @@ test("la caméra ne saute pas au moment de la capture de la souris (constat 1)",
   await openGame(page);
   const before = await readInfo(page);
   await page.mouse.click(640, 360);
+  await waitMouseLocked(page);
   const after = await readInfo(page);
-  expect(await page.evaluate(() => document.pointerLockElement !== null)).toBe(true);
   expect(after.yaw).toBe(before.yaw);
   expect(after.pitch).toBe(before.pitch);
-  // Une fois la capture posée, les mouvements de la souris font bien tourner le regard.
+  // Une fois la capture posée, les mouvements de la souris font bien tourner le regard. Les 200 ms courent depuis que
+  // le jeu a vu la capture : il écarte les mouvements des 80 premières (LOCK_SETTLE_MS, mouseFilter.ts).
   await page.waitForTimeout(200);
   await lockedMouseMove(page, 0, 80, 6);
   await expect.poll(async () => (await readInfo(page)).pitch).toBeLessThan(before.pitch - 20);
@@ -836,12 +883,13 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   });
   const errors = await openGame(page);
   const before = await readInfo(page);
+  let look = (await state(page)).player;
   await page.mouse.move(640, 250);
   await page.mouse.down();
   await page.mouse.move(640, 650, { steps: 20 });
   await page.mouse.up(); // relâché dès la fin du glisser : c'était un regard, rien n'est cassé
-  const after = await readInfo(page);
-  expect(after.pitch).toBeLessThan(before.pitch - 30);
+  await waitLookSettled(page, look.yaw, look.pitch);
+  await expect.poll(async () => (await readInfo(page)).pitch).toBeLessThan(before.pitch - 30);
   expect((await state(page)).inventory.every((s) => s === null)).toBe(true);
   // Revenir au centre sans bouton enfoncé (ne tourne pas la vue) : en bas, on serait sur la barre.
   await page.mouse.move(640, 360, { steps: 5 });
@@ -853,10 +901,13 @@ test("sans capture de la souris : glisser regarde sans casser, appui maintenu ca
   expect((await state(page)).inventory[0]?.id).toBe(aimed.id);
   await expect(page.locator(".hint")).toContainText("Glisse");
   await expect(page.locator(".hint")).toContainText("clic gauche gardé");
-  // Viser en glissant puis tenir sans lâcher : le bloc visé finit par casser.
+  // Viser en glissant puis tenir sans lâcher : le bloc visé finit par casser. Le bloc visé est relu une fois le
+  // glisser appliqué par le jeu (sous charge, juste après le glisser, la visée était encore celle d'avant).
   await page.mouse.move(640, 360);
+  look = (await state(page)).player;
   await page.mouse.down();
   await page.mouse.move(700, 360, { steps: 6 });
+  await waitLookSettled(page, look.yaw, look.pitch);
   const aimed2 = await aimedBlock(page);
   await waitBroken(page, aimed2);
   await page.mouse.up();
@@ -976,13 +1027,14 @@ test("au doigt : seul le rond fait marcher ; un toucher ailleurs, même au-dessu
   await page.waitForTimeout(300);
   // Bien au-dessus du rond, dans ce qui était la « moitié gauche » avant le J3 : glisser regarde, sans marcher.
   const before = await state(page);
-  const look0 = await readInfo(page);
   const y = j.y - 4 * j.r;
   await touch("touchStart", j.x, y);
   for (let i = 1; i <= 10; i++) await touch("touchMove", j.x + 20 * i, y);
   await touch("touchEnd");
-  const look1 = await readInfo(page);
-  expect(look1.yaw).not.toBe(look0.yaw);
+  // Regard lu dans l'état du jeu, une fois le glisser appliqué (la ligne d'infos n'est récrite que 4 fois par seconde,
+  // et sous charge le glisser n'est appliqué qu'à une image suivante).
+  await waitLookSettled(page, before.player.yaw, before.player.pitch);
+  expect((await state(page)).player.yaw).not.toBe(before.player.yaw);
   expect(horizontalMove(before, await state(page))).toBeLessThan(0.05);
   expect(errors).toEqual([]);
 });
@@ -997,11 +1049,13 @@ test("au doigt : un nouveau doigt reprend le regard (doigt d'un autre enfant, pa
   await page.waitForTimeout(100);
   const x2 = Math.round(vp.width * 0.6);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [p1, { x: x2, y: 500, id: 2 }] });
-  const look0 = await readInfo(page);
+  const look0 = (await state(page)).player;
   for (let i = 1; i <= 10; i++) {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [p1, { x: x2 - 20 * i, y: 500, id: 2 }] });
   }
-  const look1 = await readInfo(page);
+  // Regard lu dans l'état du jeu, une fois le glisser appliqué (voir waitLookSettled).
+  await waitLookSettled(page, look0.yaw, look0.pitch);
+  const look1 = (await state(page)).player;
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   expect(look1.yaw).not.toBe(look0.yaw);
   expect(errors).toEqual([]);
@@ -2168,7 +2222,8 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
   await expect(page.locator(".message")).toContainText("Garde ta lampe", { timeout: 10_000 });
   expect(invCount(await state(page), 13)).toBe(1);
   expect((await state(page)).slotHold).toBeNull();
-  // Par le vrai chemin du doigt (CDP) : annulé aussitôt posé, case gardée ; après 950 ms, case vidée. (Sous charge,
+  // Par le vrai chemin du doigt (CDP) : annulé aussitôt posé, case gardée ; annulé entre le seuil et la fin de
+  // l'appui, case vidée. (Sous charge,
   // un événement du pilote peut attendre plusieurs centaines de millisecondes une image lente : les durées exactes
   // sont vérifiées plus haut, dans la page.) L'écart réellement vu par la page entre le toucher et son annulation est
   // relevé : s'il dépasse 900 ms (machine chargée), la règle veut que la case se vide ; on refait alors le geste
@@ -2181,8 +2236,11 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
   });
   const cdp = await context.newCDPSession(page);
   const c = await slotCenter(page, 1);
+  // Seuil du jeu pour la durée d'appui en cours (900 ms pour une seconde : durée − 100 ms, slotHoldCancelOkMs).
+  const cancelOk = (await state(page)).slotHoldMs - 100;
+  expect(cancelOk).toBe(900);
   let quickGap = Infinity;
-  for (let attempt = 0; attempt < 4 && !(quickGap < 900); attempt++) {
+  for (let attempt = 0; attempt < 4 && !(quickGap < cancelOk); attempt++) {
     await page.evaluate(() => {
       (window as unknown as { __touchTimes: number[] }).__touchTimes = [];
     });
@@ -2195,15 +2253,61 @@ test("au doigt : Windows qui annule le doigt (touchcancel) après 900 ms vaut un
     await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
     const times = await page.evaluate(() => (window as unknown as { __touchTimes: number[] }).__touchTimes);
     quickGap = times.length === 2 ? (times[1] ?? 0) - (times[0] ?? 0) : Infinity;
-    if (!(quickGap < 900)) await page.waitForTimeout(1300); // geste compté comme allé au bout : on laisse le jeu finir
+    if (!(quickGap < cancelOk)) await page.waitForTimeout(1300); // geste compté comme allé au bout : on laisse le jeu finir
   }
-  expect(quickGap).toBeLessThan(900);
+  expect(quickGap).toBeLessThan(cancelOk);
   expect((await state(page)).slotHold).toBeNull();
   await page.waitForTimeout(1300);
   expect(invCount(await state(page), B.stone)).toBe(4);
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
-  await page.waitForTimeout(950);
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  // Doigt annulé par le pilote entre le seuil et la fin de l'appui (une seconde) : la case est vidée par la règle du
+  // touchcancel. Un délai attendu côté test ne le garantit pas : l'annulation met des dizaines de millisecondes à
+  // atteindre la page (bien plus sous charge) ; arrivée après la seconde, le jeu a déjà vidé la case par l'appui
+  // complet, et l'annulation, adressée à l'icône du bloc retirée avec lui, n'atteint plus la page. L'ancien geste
+  // (950 ms attendues côté test) passait ainsi sans passer par la règle (relevé : annulation jamais reçue par la page
+  // aux passages observés). Ici, la page reste occupée jusqu'au seuil + 30 ms après avoir reçu le toucher (doigt
+  // immobile, aucune image ne passe) ; l'annulation, envoyée aussitôt, attend dans sa file et y est traitée à ce
+  // moment. L'écart vu par la page est relevé ; s'il sort de [seuil, fin de l'appui[ (machine très chargée), le geste
+  // est refait (au plus 4 fois), comme ci-dessus.
+  const holdMs = (await state(page)).slotHoldMs;
+  let longGap = NaN;
+  for (let attempt = 0; attempt < 4 && !(longGap >= cancelOk && longGap < holdMs); attempt++) {
+    await page.evaluate((busyMs) => {
+      (window as unknown as { __touchTimes: number[] }).__touchTimes = [];
+      const missing = 4 - (window.cubesDebug.state().inventory.find((s) => s?.id === 3)?.count ?? 0);
+      if (missing > 0) window.cubesDebug.give(3, missing);
+      // Après le traitement du toucher par la barre (tâche suivante) : page occupée jusqu'à busyMs après lui.
+      window.addEventListener(
+        "touchstart",
+        () => {
+          const t0 = performance.now();
+          setTimeout(() => {
+            while (performance.now() - t0 < busyMs) {
+              // doigt immobile, page occupée
+            }
+          }, 0);
+        },
+        { capture: true, once: true },
+      );
+    }, cancelOk + 30);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    // Issue du geste : l'annulation reçue, ou la case vidée par l'appui complet (annulation perdue).
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __touchTimes: number[] }).__touchTimes.length === 2 ||
+        !window.cubesDebug.state().inventory.some((s) => s?.id === 3),
+      null,
+      { timeout: 10_000 },
+    );
+    const times = await page.evaluate(() => (window as unknown as { __touchTimes: number[] }).__touchTimes);
+    longGap = times.length === 2 ? (times[1] ?? 0) - (times[0] ?? 0) : NaN;
+    // Annulée dans la fenêtre, la case est vidée par la règle du touchcancel ; sinon par l'appui complet, ou gardée
+    // (annulation arrivée avant le seuil) : on attend l'issue avant de conclure ou de refaire le geste.
+    if (longGap >= cancelOk && longGap < holdMs) break;
+    await page.waitForTimeout(1300);
+  }
+  expect(longGap).toBeGreaterThanOrEqual(cancelOk);
+  expect(longGap).toBeLessThan(holdMs);
   await expect.poll(async () => invCount(await state(page), B.stone), { timeout: 10_000 }).toBe(0);
   expect(invCount(await state(page), B.dirt)).toBe(4);
   expect(errors).toEqual([]);
@@ -3232,8 +3336,20 @@ test("verre : fabriqué avec du sable et posé, on voit le ciel à travers (pas 
     window.cubesDebug.setBlock(x, 5, z - 2, 17);
     window.cubesDebug.look(0, 0);
   }, [cx, cz] as const);
+  // Touche gardée jusqu'à ce que le joueur, arrivé contre le mur (z < cz), ne bouge plus d'une image du jeu à la
+  // suivante (et non un temps fixé : sous charge, une seconde ne suffisait pas toujours pour y arriver).
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(1000);
+  await page.evaluate(async (limit) => {
+    let prev = NaN;
+    const t0 = performance.now();
+    // Garde-fou (20 s) : un joueur qui n'arrive pas au mur est signalé par les assertions qui suivent.
+    while (performance.now() - t0 < 20_000) {
+      await new Promise((r) => requestAnimationFrame(r));
+      const z = window.cubesDebug.state().player.z;
+      if (z < limit && Math.abs(z - prev) < 1e-6) return;
+      prev = z;
+    }
+  }, cz);
   await page.keyboard.up("KeyW");
   s = await state(page);
   expect(s.player.z).toBeGreaterThan(cz - 1);
@@ -4328,7 +4444,7 @@ test("mission 2 au clavier : 0 ouvre la boîte (souris libérée) ; une lettre t
   expect(Math.hypot(s.player.x - before.x, s.player.z - before.z)).toBeLessThan(0.01);
   expect(s.letters).toMatchObject({ open: false, hand: "W" });
   // Une lettre tapée (KeyboardEvent.key, seulement boîte ouverte) : choisie, la souris est capturée de nouveau.
-  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await waitMouseLocked(page);
   await page.keyboard.press("Digit0");
   await expect(page.locator(".letter-tray")).toHaveClass(/armed/);
   await page.keyboard.type("a");
@@ -4336,7 +4452,7 @@ test("mission 2 au clavier : 0 ouvre la boîte (souris libérée) ; une lettre t
   s = await state(page);
   expect(s.letters).toMatchObject({ open: false, selected: true });
   expect(s.paused).toBe(false);
-  await page.waitForFunction(() => document.pointerLockElement !== null, null, { timeout: 5_000 });
+  await waitMouseLocked(page);
   await page.evaluate(() => window.cubesDebug.look(0, -50));
   await expect.poll(async () => (await state(page)).target !== null).toBe(true);
   await page.mouse.down({ button: "right" });
